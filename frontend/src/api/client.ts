@@ -1,4 +1,11 @@
-import type { AnalysisResult, TaskSummary } from "../types/analysis";
+import type {
+  AnalysisResult,
+  GlobalLibraryDetailResponse,
+  GlobalLibraryListResponse,
+  GlobalLibraryStats,
+  LibraryOccurrencesResponse,
+  TaskSummary
+} from "../types/analysis";
 
 export type CreateTaskPayload = {
   zip_path: string;
@@ -47,4 +54,50 @@ export function getTaskResult(taskId: string): Promise<AnalysisResult> {
 
 export function getTaskReport(taskId: string): Promise<{ task_id: string; report_md: string }> {
   return requestJson<{ task_id: string; report_md: string }>(`/analysis/tasks/${encodeURIComponent(taskId)}/report`);
+}
+
+export type GlobalLibraryQuery = {
+  query?: string;
+  package_name?: string;
+  category?: string;
+  confidence?: string;
+  limit?: number;
+  offset?: number;
+  sort?: string;
+  library_db_path?: string;
+};
+
+function withParams(path: string, params: Record<string, string | number | undefined>): string {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== "") {
+      search.set(key, String(value));
+    }
+  });
+  const queryString = search.toString();
+  return queryString ? `${path}?${queryString}` : path;
+}
+
+export function listGlobalLibraryFunctions(params: GlobalLibraryQuery = {}): Promise<GlobalLibraryListResponse> {
+  return requestJson<GlobalLibraryListResponse>(withParams("/library/functions", params));
+}
+
+export function getGlobalLibraryFunction(canonicalName: string): Promise<GlobalLibraryDetailResponse> {
+  return requestJson<GlobalLibraryDetailResponse>(`/library/functions/${encodeURIComponent(canonicalName)}`);
+}
+
+export function getGlobalLibraryOccurrences(canonicalName: string, params: { limit?: number; offset?: number } = {}): Promise<LibraryOccurrencesResponse> {
+  return requestJson<LibraryOccurrencesResponse>(withParams(`/library/functions/${encodeURIComponent(canonicalName)}/occurrences`, params));
+}
+
+export function getGlobalLibraryStats(): Promise<GlobalLibraryStats> {
+  return requestJson<GlobalLibraryStats>("/library/stats");
+}
+
+export function getHighFrequencyFunctions(limit = 20): Promise<{ items: GlobalLibraryListResponse["items"] }> {
+  return requestJson<{ items: GlobalLibraryListResponse["items"] }>(withParams("/library/functions/high-frequency", { limit }));
+}
+
+export function getLowConfidenceFunctions(limit = 50): Promise<{ items: GlobalLibraryListResponse["items"] }> {
+  return requestJson<{ items: GlobalLibraryListResponse["items"] }>(withParams("/library/functions/low-confidence", { limit }));
 }

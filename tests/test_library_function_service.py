@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from backend.app.schemas.library_function import LibraryFunctionDoc
 from backend.app.services.library_function_service import LibraryFunctionService
 
 
@@ -120,3 +121,84 @@ def test_low_confidence_or_unknown_calls_are_skipped(tmp_path):
     assert len(result.skipped_low_confidence_calls) == 1
     assert result.updated_library_calls[0]["is_recorded_in_global_library"] is False
     assert service.get_by_canonical_name("client.call") is None
+
+
+def test_search_functions_filters_and_sorts_by_occurrence_count(tmp_path):
+    service = LibraryFunctionService(tmp_path / "library.sqlite3")
+    service.process_library_calls([_torch_randn_call()], task_id="task-a", project_name="demo")
+    service.process_library_calls([_torch_randn_call()], task_id="task-b", project_name="demo")
+    service.process_library_calls([_torch_linear_call()], task_id="task-a", project_name="demo")
+
+    response = service.search_functions(query="randn", package_name="torch", category="pytorch")
+
+    assert response["total"] == 1
+    assert response["items"][0]["canonical_name"] == "torch.randn"
+    assert response["items"][0]["occurrence_count"] == 2
+    assert "torch" in response["filters"]["packages"]
+    assert "pytorch" in response["filters"]["categories"]
+
+    sorted_response = service.search_functions(sort="occurrence_count")
+    assert [item["canonical_name"] for item in sorted_response["items"]][:2] == [
+        "torch.randn",
+        "torch.nn.Linear",
+    ]
+
+
+def test_function_detail_stats_and_occurrence_pagination(tmp_path):
+    service = LibraryFunctionService(tmp_path / "library.sqlite3")
+    service.process_library_calls([_torch_randn_call()], task_id="task-a", project_name="demo")
+    service.process_library_calls([_torch_randn_call()], task_id="task-b", project_name="demo")
+
+    detail = service.get_function_detail_with_stats("torch.randn")
+    assert detail is not None
+    assert detail["function"]["canonical_name"] == "torch.randn"
+    assert detail["occurrence_count"] == 2
+    assert detail["first_seen"]
+    assert detail["last_seen"]
+
+    occurrences = service.list_occurrences("torch.randn", limit=1, offset=1)
+    assert len(occurrences) == 1
+    assert service.count_occurrences("torch.randn") == 2
+
+
+def test_library_stats_high_frequency_and_low_confidence(tmp_path):
+    service = LibraryFunctionService(tmp_path / "library.sqlite3")
+    service.process_library_calls([_torch_randn_call()], task_id="task-a", project_name="demo")
+    service.process_library_calls([_torch_randn_call()], task_id="task-b", project_name="demo")
+    service.process_library_calls([_torch_linear_call()], task_id="task-a", project_name="demo")
+    low_doc = service.upsert_library_function_doc(
+        LibraryFunctionDoc(
+            canonical_name="numpy.mystery",
+            display_name="numpy.mystery",
+            package_name="numpy",
+            category="numpy",
+            summary="Low confidence test function.",
+            beginner_explanation="Used only for test coverage.",
+            confidence="low",
+        )
+    )
+    service.record_occurrence(
+        low_doc,
+        {
+            **_torch_randn_call(),
+            "canonical_name": "numpy.mystery",
+            "display_name": "numpy.mystery",
+            "package_name": "numpy",
+            "category": "numpy",
+            "confidence": "low",
+        },
+        task_id="task-low",
+        project_name="demo",
+    )
+
+    stats = service.get_library_stats()
+    assert stats["function_count"] == 3
+    assert stats["occurrence_count"] == 4
+    assert any(item["name"] == "torch" and item["count"] == 2 for item in stats["package_counts"])
+
+    high_frequency = service.list_high_frequency_functions()
+    assert high_frequency[0]["canonical_name"] == "torch.randn"
+    assert high_frequency[0]["occurrence_count"] == 2
+
+    low_confidence = service.list_low_confidence_functions()
+    assert [item["canonical_name"] for item in low_confidence] == ["numpy.mystery"]

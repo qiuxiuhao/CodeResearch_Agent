@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -14,9 +14,10 @@ from backend.app.services.analysis_service import (
     run_analysis,
     summarize_state,
 )
+from backend.app.services.library_function_service import LibraryFunctionService
 
 
-app = FastAPI(title="CodeResearch Agent", version="0.8.1")
+app = FastAPI(title="CodeResearch Agent", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -89,3 +90,77 @@ def get_analysis_task_report(task_id: str, output_root: str = "outputs") -> dict
         return load_task_report(task_id, output_root)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/library/functions")
+def list_library_functions(
+    query: str | None = None,
+    package_name: str | None = None,
+    category: str | None = None,
+    confidence: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    sort: str = "canonical_name",
+    library_db_path: str | None = None,
+) -> dict:
+    try:
+        return _library_service(library_db_path).search_functions(
+            query=query,
+            package_name=package_name,
+            category=category,
+            confidence=confidence,
+            limit=limit,
+            offset=offset,
+            sort=sort,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/library/stats")
+def get_library_stats(library_db_path: str | None = None) -> dict:
+    return _library_service(library_db_path).get_library_stats()
+
+
+@app.get("/library/functions/high-frequency")
+def list_high_frequency_library_functions(
+    limit: int = Query(20, ge=1, le=100),
+    library_db_path: str | None = None,
+) -> dict:
+    return {"items": _library_service(library_db_path).list_high_frequency_functions(limit)}
+
+
+@app.get("/library/functions/low-confidence")
+def list_low_confidence_library_functions(
+    limit: int = Query(50, ge=1, le=100),
+    library_db_path: str | None = None,
+) -> dict:
+    return {"items": _library_service(library_db_path).list_low_confidence_functions(limit)}
+
+
+@app.get("/library/functions/{canonical_name}")
+def get_library_function_detail(canonical_name: str, library_db_path: str | None = None) -> dict:
+    detail = _library_service(library_db_path).get_function_detail_with_stats(canonical_name)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Library function not found.")
+    return detail
+
+
+@app.get("/library/functions/{canonical_name}/occurrences")
+def list_library_function_occurrences(
+    canonical_name: str,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    library_db_path: str | None = None,
+) -> dict:
+    service = _library_service(library_db_path)
+    return {
+        "items": [item.model_dump() for item in service.list_occurrences(canonical_name, limit=limit, offset=offset)],
+        "total": service.count_occurrences(canonical_name),
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+def _library_service(library_db_path: str | None) -> LibraryFunctionService:
+    return LibraryFunctionService(library_db_path)

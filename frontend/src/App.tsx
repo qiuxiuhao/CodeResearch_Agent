@@ -79,7 +79,7 @@ export default function App() {
       <main className="content">
         {error && <ErrorBanner message={error} />}
         {isLoading && <LoadingState message="正在分析或加载任务结果..." />}
-        {!isLoading && result ? (
+        {!isLoading ? (
           <ResultTabs
             activeTab={activeTab}
             mode={mode}
@@ -87,14 +87,7 @@ export default function App() {
             onTabChange={setActiveTab}
             onLibraryCallClick={setSelectedLibraryCall}
           />
-        ) : (
-          !isLoading && (
-            <section className="hero-panel">
-              <h1>CodeResearch Agent</h1>
-              <p>创建一个分析任务，查看代码结构、函数逻辑、模型网络、论文对齐和 Mermaid 图示。</p>
-            </section>
-          )
-        )}
+        ) : null}
       </main>
       {selectedLibraryCall && (
         <LibraryFunctionModal

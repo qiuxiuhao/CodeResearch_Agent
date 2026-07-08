@@ -16,6 +16,7 @@ from backend.app.schemas.library_function import (
 
 DEFAULT_LIBRARY_DB_PATH = Path("data/python_function_library.sqlite3")
 JSON_LIST_FIELDS = {"parameters_explanation", "common_mistakes", "related_functions"}
+VALID_LIBRARY_SORTS = {"canonical_name", "updated_at", "occurrence_count"}
 
 
 class LibraryFunctionService:
@@ -315,18 +316,151 @@ class LibraryFunctionService:
                 ).fetchall()
         return [self._row_to_doc(row) for row in rows]
 
-    def list_occurrences(self, canonical_name: str) -> list[LibraryFunctionOccurrence]:
+    def search_functions(
+        self,
+        query: str | None = None,
+        package_name: str | None = None,
+        category: str | None = None,
+        confidence: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+        sort: str = "canonical_name",
+    ) -> dict[str, Any]:
         self.ensure_schema()
+        limit = max(1, min(limit, 200))
+        offset = max(0, offset)
+        if sort not in VALID_LIBRARY_SORTS:
+            raise ValueError(f"Unsupported sort: {sort}")
+
+        where_sql, args = _library_where_clause(query, package_name, category, confidence)
+        order_sql = {
+            "canonical_name": "lf.canonical_name COLLATE NOCASE ASC",
+            "updated_at": "lf.updated_at DESC, lf.canonical_name COLLATE NOCASE ASC",
+            "occurrence_count": "occurrence_count DESC, lf.canonical_name COLLATE NOCASE ASC",
+        }[sort]
+        with self._connect() as conn:
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM library_functions lf {where_sql}",
+                args,
+            ).fetchone()[0]
+            rows = conn.execute(
+                f"""
+                SELECT lf.*, COUNT(o.id) AS occurrence_count
+                FROM library_functions lf
+                LEFT JOIN library_function_occurrences o ON o.library_function_id = lf.id
+                {where_sql}
+                GROUP BY lf.id
+                ORDER BY {order_sql}
+                LIMIT ? OFFSET ?
+                """,
+                [*args, limit, offset],
+            ).fetchall()
+            filters = self._filters(conn)
+        return {
+            "items": [self._row_to_doc_dict(row) for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "filters": filters,
+        }
+
+    def get_function_detail_with_stats(self, canonical_name: str) -> dict[str, Any] | None:
+        self.ensure_schema()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    lf.*,
+                    COUNT(o.id) AS occurrence_count,
+                    MIN(o.created_at) AS first_seen,
+                    MAX(o.created_at) AS last_seen
+                FROM library_functions lf
+                LEFT JOIN library_function_occurrences o ON o.library_function_id = lf.id
+                WHERE lf.canonical_name = ?
+                GROUP BY lf.id
+                """,
+                (canonical_name,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "function": self._row_to_doc(row).model_dump(),
+            "occurrence_count": row["occurrence_count"],
+            "first_seen": row["first_seen"],
+            "last_seen": row["last_seen"],
+        }
+
+    def count_occurrences(self, canonical_name: str) -> int:
+        self.ensure_schema()
+        with self._connect() as conn:
+            return conn.execute(
+                "SELECT COUNT(*) FROM library_function_occurrences WHERE canonical_name = ?",
+                (canonical_name,),
+            ).fetchone()[0]
+
+    def list_occurrences(
+        self,
+        canonical_name: str,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[LibraryFunctionOccurrence]:
+        self.ensure_schema()
+        offset = max(0, offset)
+        with self._connect() as conn:
+            if limit is None:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM library_function_occurrences
+                    WHERE canonical_name = ?
+                    ORDER BY created_at DESC, id DESC
+                    """,
+                    (canonical_name,),
+                ).fetchall()
+            else:
+                limit = max(1, min(limit, 200))
+                rows = conn.execute(
+                    """
+                    SELECT * FROM library_function_occurrences
+                    WHERE canonical_name = ?
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (canonical_name, limit, offset),
+                ).fetchall()
+        return [self._row_to_occurrence(row) for row in rows]
+
+    def get_library_stats(self) -> dict[str, Any]:
+        self.ensure_schema()
+        with self._connect() as conn:
+            function_count = conn.execute("SELECT COUNT(*) FROM library_functions").fetchone()[0]
+            occurrence_count = conn.execute("SELECT COUNT(*) FROM library_function_occurrences").fetchone()[0]
+            return {
+                "function_count": function_count,
+                "occurrence_count": occurrence_count,
+                "package_counts": _count_rows(conn, "package_name"),
+                "category_counts": _count_rows(conn, "category"),
+                "confidence_counts": _count_rows(conn, "confidence"),
+            }
+
+    def list_high_frequency_functions(self, limit: int = 20) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        limit = max(1, min(limit, 100))
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT * FROM library_function_occurrences
-                WHERE canonical_name = ?
-                ORDER BY created_at, id
+                SELECT lf.*, COUNT(o.id) AS occurrence_count
+                FROM library_functions lf
+                LEFT JOIN library_function_occurrences o ON o.library_function_id = lf.id
+                GROUP BY lf.id
+                ORDER BY occurrence_count DESC, lf.canonical_name COLLATE NOCASE ASC
+                LIMIT ?
                 """,
-                (canonical_name,),
+                (limit,),
             ).fetchall()
-        return [self._row_to_occurrence(row) for row in rows]
+        return [self._row_to_doc_dict(row) for row in rows]
+
+    def list_low_confidence_functions(self, limit: int = 50) -> list[dict[str, Any]]:
+        return self.search_functions(confidence="low", limit=limit, sort="occurrence_count")["items"]
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -342,6 +476,19 @@ class LibraryFunctionService:
     def _row_to_occurrence(self, row: sqlite3.Row) -> LibraryFunctionOccurrence:
         return LibraryFunctionOccurrence(**dict(row))
 
+    def _row_to_doc_dict(self, row: sqlite3.Row) -> dict[str, Any]:
+        data = self._row_to_doc(row).model_dump()
+        if "occurrence_count" in row.keys():
+            data["occurrence_count"] = row["occurrence_count"]
+        return data
+
+    def _filters(self, conn: sqlite3.Connection) -> dict[str, list[str]]:
+        return {
+            "packages": _distinct_values(conn, "package_name"),
+            "categories": _distinct_values(conn, "category"),
+            "confidences": _distinct_values(conn, "confidence"),
+        }
+
 
 def _should_skip_call(call: dict) -> bool:
     return (
@@ -349,6 +496,56 @@ def _should_skip_call(call: dict) -> bool:
         or call.get("confidence") == "low"
         or call.get("category") == "unknown"
     )
+
+
+def _library_where_clause(
+    query: str | None,
+    package_name: str | None,
+    category: str | None,
+    confidence: str | None,
+) -> tuple[str, list[Any]]:
+    clauses: list[str] = []
+    args: list[Any] = []
+    if query:
+        like_query = f"%{query.strip()}%"
+        clauses.append("(lf.canonical_name LIKE ? OR lf.display_name LIKE ? OR lf.summary LIKE ?)")
+        args.extend([like_query, like_query, like_query])
+    if package_name:
+        clauses.append("lf.package_name = ?")
+        args.append(package_name)
+    if category:
+        clauses.append("lf.category = ?")
+        args.append(category)
+    if confidence:
+        clauses.append("lf.confidence = ?")
+        args.append(confidence)
+    if not clauses:
+        return "", args
+    return "WHERE " + " AND ".join(clauses), args
+
+
+def _distinct_values(conn: sqlite3.Connection, column: str) -> list[str]:
+    rows = conn.execute(
+        f"""
+        SELECT DISTINCT {column} AS value
+        FROM library_functions
+        WHERE {column} IS NOT NULL AND {column} != ''
+        ORDER BY {column} COLLATE NOCASE ASC
+        """
+    ).fetchall()
+    return [row["value"] for row in rows]
+
+
+def _count_rows(conn: sqlite3.Connection, column: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        f"""
+        SELECT COALESCE(NULLIF({column}, ''), 'unknown') AS name, COUNT(*) AS count
+        FROM library_functions
+        GROUP BY name
+        ORDER BY count DESC, name COLLATE NOCASE ASC
+        """
+    ).fetchall()
+    return [{"name": row["name"], "count": row["count"]} for row in rows]
 
 
 def _serialize_value(column: str, value: Any) -> Any:

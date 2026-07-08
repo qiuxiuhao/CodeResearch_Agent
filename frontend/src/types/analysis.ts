@@ -5,6 +5,7 @@ export type ResultTab =
   | "files"
   | "functions"
   | "libraries"
+  | "globalLibrary"
   | "models"
   | "paper"
   | "diagrams"
@@ -37,8 +38,12 @@ export type LibraryCall = {
 };
 
 export type LibraryFunctionDoc = {
+  id?: number | null;
   canonical_name: string;
   display_name?: string;
+  package_name?: string | null;
+  category?: string | null;
+  source_type?: string;
   summary?: string;
   beginner_explanation?: string;
   parameters_explanation?: string[];
@@ -48,7 +53,65 @@ export type LibraryFunctionDoc = {
   shape_or_tensor_note?: string | null;
   common_mistakes?: string[];
   related_functions?: string[];
+  official_doc_url?: string | null;
   confidence?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type GlobalLibraryFunction = LibraryFunctionDoc & {
+  occurrence_count?: number;
+};
+
+export type LibraryFunctionOccurrence = {
+  id?: number;
+  library_function_id?: number;
+  canonical_name: string;
+  task_id: string;
+  project_name?: string | null;
+  file_path: string;
+  function_name: string;
+  class_name?: string | null;
+  qualified_function_name: string;
+  line_no?: number | null;
+  call_text: string;
+  created_at?: string | null;
+};
+
+export type GlobalLibraryFilters = {
+  packages: string[];
+  categories: string[];
+  confidences: string[];
+};
+
+export type GlobalLibraryListResponse = {
+  items: GlobalLibraryFunction[];
+  total: number;
+  limit: number;
+  offset: number;
+  filters: GlobalLibraryFilters;
+};
+
+export type GlobalLibraryDetailResponse = {
+  function: GlobalLibraryFunction;
+  occurrence_count: number;
+  first_seen?: string | null;
+  last_seen?: string | null;
+};
+
+export type LibraryOccurrencesResponse = {
+  items: LibraryFunctionOccurrence[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type GlobalLibraryStats = {
+  function_count: number;
+  occurrence_count: number;
+  package_counts: Array<{ name: string; count: number }>;
+  category_counts: Array<{ name: string; count: number }>;
+  confidence_counts: Array<{ name: string; count: number }>;
 };
 
 export type FunctionAnalysis = {

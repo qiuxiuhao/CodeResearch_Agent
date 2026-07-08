@@ -14,7 +14,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -191,6 +192,45 @@ button {
   gap: 8px;
 }
 
+.filter-bar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) repeat(4, minmax(130px, 170px)) auto auto;
+  gap: 8px;
+  align-items: end;
+  margin: 16px 0;
+}
+
+.filter-bar input,
+.filter-bar select {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #c9d1d9;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.library-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  gap: 16px;
+  align-items: start;
+}
+
+.global-library-list .list-button,
+.list-button.compact {
+  display: grid;
+  gap: 4px;
+}
+
+.detail-panel {
+  margin-top: 8px;
+}
+
+.occurrence-list {
+  display: grid;
+  gap: 10px;
+}
+
 .chip.low {
   color: #6b7280;
   border-style: dashed;
@@ -244,8 +284,15 @@ pre {
 
 @media (max-width: 900px) {
   .app-shell,
-  .split {
+  .split,
+  .library-layout,
+  .filter-bar {
     display: block;
+  }
+
+  .filter-bar > * {
+    width: 100%;
+    margin-bottom: 8px;
   }
 
   .sidebar {
