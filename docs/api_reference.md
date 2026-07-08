@@ -84,6 +84,8 @@ GET /library/stats
 
 返回函数数量，以及按 package / category / confidence 分组的统计。
 
+全局函数库 API 只围绕库函数解释本身提供查询能力，不提供项目/文件/行号级位置追踪接口。
+
 ### 列表、搜索和筛选
 
 ```text

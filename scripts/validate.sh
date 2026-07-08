@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 echo "== Backend tests =="
-conda run -n code-research-agent pytest -q
+python -m pytest -q
 
 echo "== Frontend dependencies =="
 npm --prefix frontend ci
@@ -21,7 +21,5 @@ cat <<'MSG'
 Validation completed.
 
 Optional cleanup before committing:
-  find . -name __pycache__ -type d -prune -exec rm -rf {} +
-  find . -name '*.pyc' -type f -delete
-  rm -rf .pytest_cache code_research_agent.egg-info frontend/node_modules frontend/dist frontend/.vite frontend/*.tsbuildinfo data/*.sqlite3 data/*.sqlite3-* outputs/task_*
+  bash scripts/clean.sh
 MSG

@@ -18,7 +18,7 @@ bash scripts/validate.sh
 后端：
 
 ```bash
-conda run -n code-research-agent pytest -q
+python -m pytest -q
 ```
 
 前端：
@@ -56,10 +56,5 @@ http://127.0.0.1:8000/health
 ## 提交前清理
 
 ```bash
-find . -name __pycache__ -type d -prune -exec rm -rf {} +
-find . -name '*.pyc' -type f -delete
-rm -rf .pytest_cache code_research_agent.egg-info
-rm -rf frontend/node_modules frontend/dist frontend/.vite frontend/*.tsbuildinfo
-rm -rf data/*.sqlite3 data/*.sqlite3-*
-rm -rf outputs/task_*
+bash scripts/clean.sh
 ```

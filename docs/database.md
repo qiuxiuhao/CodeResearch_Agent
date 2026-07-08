@@ -1,6 +1,8 @@
 # 数据库说明
 
-CodeResearch Agent 使用 SQLite 存储全局 Python 函数知识库。
+CodeResearch Agent 使用 SQLite 存储全局 Python 函数教学知识库。
+
+这个知识库只记录库函数本身的教学级解释，例如一句话作用、通俗解释、常见参数、返回值、代码例子、shape 注意事项和常见误区。它不记录库函数在每个项目、文件、函数或行号中的出现位置。
 
 ## 默认路径
 

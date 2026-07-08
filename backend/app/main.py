@@ -17,7 +17,7 @@ from backend.app.services.analysis_service import (
 from backend.app.services.library_function_service import LibraryFunctionService
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.0.0")
+app = FastAPI(title="CodeResearch Agent", version="1.0.1")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

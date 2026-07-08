@@ -1,6 +1,6 @@
 # 架构说明
 
-CodeResearch Agent 是一个本地优先的代码理解系统，面向深度学习代码仓库和可选论文 PDF。v1.0 保持确定性的分析流程，并通过 JSON 文件、Markdown 报告和 React 前端展示结果。
+CodeResearch Agent 是一个本地优先的代码理解系统，面向深度学习代码仓库和可选论文 PDF。v1.0.1 保持确定性的分析流程，并通过 JSON 文件、Markdown 报告和 React 前端展示结果。
 
 ## 分层结构
 
