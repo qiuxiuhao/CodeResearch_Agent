@@ -13,6 +13,7 @@ def report_generate_node(state: AgentState) -> AgentState:
     parsed_files = state.get("parsed_files", [])
     functions = state.get("functions", [])
     classes = state.get("classes", [])
+    file_analysis = state.get("file_analysis", [])
     errors = state.get("errors", [])
 
     save_json(output_dir / "repo_index.json", repo_index)
@@ -25,5 +26,6 @@ def report_generate_node(state: AgentState) -> AgentState:
             "errors": errors,
         },
     )
-    report = generate_report(output_dir, repo_index, parsed_files, functions, classes, errors)
+    save_json(output_dir / "file_analysis.json", {"file_analysis": file_analysis, "errors": errors})
+    report = generate_report(output_dir, repo_index, parsed_files, functions, classes, errors, file_analysis)
     return {**state, "report_md": report.report_md}

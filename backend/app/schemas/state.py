@@ -16,7 +16,7 @@ class AgentState(TypedDict, total=False):
     parsed_files: list[dict]
     functions: list[dict]
     classes: list[dict]
+    file_analysis: list[dict]
 
     report_md: str
     errors: list[dict]
-

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from backend.app.services.analysis_service import run_analysis, summarize_state
 
 
-app = FastAPI(title="CodeResearch Agent", version="0.1.0")
+app = FastAPI(title="CodeResearch Agent", version="0.2.1")
 
 
 class AnalysisTaskRequest(BaseModel):
@@ -23,4 +23,3 @@ def health() -> dict[str, str]:
 def create_analysis_task(request: AnalysisTaskRequest) -> dict:
     state = run_analysis(request.zip_path, request.output_root)
     return summarize_state(state)
-

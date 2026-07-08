@@ -37,7 +37,7 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run CodeResearch Agent v0.1 analysis.")
+    parser = argparse.ArgumentParser(description="Run CodeResearch Agent repository analysis.")
     parser.add_argument("zip_path", help="Path to a local project ZIP file.")
     parser.add_argument("--output-root", default="outputs", help="Directory for task outputs.")
     args = parser.parse_args()
@@ -48,4 +48,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

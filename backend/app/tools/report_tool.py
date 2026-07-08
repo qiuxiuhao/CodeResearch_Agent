@@ -12,8 +12,9 @@ def generate_report(
     functions: list[dict],
     classes: list[dict],
     errors: list[dict] | None = None,
+    file_analysis: list[dict] | None = None,
 ) -> ReportResult:
-    report_md = build_report_markdown(repo_index, parsed_files, functions, classes, errors or [])
+    report_md = build_report_markdown(repo_index, parsed_files, functions, classes, errors or [], file_analysis or [])
     report_path = Path(output_dir) / "report.md"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(report_md, encoding="utf-8")
@@ -26,9 +27,10 @@ def build_report_markdown(
     functions: list[dict],
     classes: list[dict],
     errors: list[dict],
+    file_analysis: list[dict] | None = None,
 ) -> str:
     lines = [
-        "# CodeResearch Agent v0.1 Report",
+        "# CodeResearch Agent v0.2 Report",
         "",
         "## Project Overview",
         "",
@@ -76,6 +78,25 @@ def build_report_markdown(
     else:
         lines.append("- No functions found.")
 
+    lines.extend(["", "## 逐文件分析", ""])
+    if file_analysis:
+        for item in file_analysis:
+            lines.extend(
+                [
+                    f"### {item.get('file_path', '')}",
+                    "",
+                    f"- 文件类型：{_file_type_label(item.get('file_type', 'unknown'))}",
+                    f"- 文件作用：{item.get('purpose', '')}",
+                    f"- 项目位置：{item.get('project_position', '')}",
+                    f"- 主要类：{_join_or_none(item.get('main_classes', []))}",
+                    f"- 主要函数：{_join_or_none(item.get('main_functions', []))}",
+                    f"- 判断依据：{_join_or_none(item.get('evidence', []), separator='；')}",
+                    "",
+                ]
+            )
+    else:
+        lines.append("- No file-level analysis available.")
+
     lines.extend(["", "## Parse Errors", ""])
     if errors:
         for error in errors:
@@ -88,9 +109,9 @@ def build_report_markdown(
     lines.extend(
         [
             "",
-            "## v0.1 Notes",
+            "## v0.2 Notes",
             "",
-            "This report is generated only from deterministic ZIP extraction, repository scanning, and Python AST parsing. Paper analysis, model graph generation, frontend views, and global library documentation are reserved for later stages.",
+            "This report is generated from deterministic ZIP extraction, repository scanning, Python AST parsing, and file-level analysis. Function-level analysis, paper analysis, model graph generation, frontend views, and global library documentation are reserved for later stages.",
             "",
         ]
     )
@@ -103,3 +124,22 @@ def _list_section(title: str, items: list[str]) -> str:
     joined = ", ".join(f"`{item}`" for item in items)
     return f"- {title}: {joined}"
 
+
+def _join_or_none(items: list[str], separator: str = ", ") -> str:
+    return separator.join(items) if items else "无"
+
+
+def _file_type_label(file_type: str) -> str:
+    labels = {
+        "entry": "入口文件",
+        "model": "模型文件",
+        "training": "训练文件",
+        "inference": "推理文件",
+        "dataset": "数据集文件",
+        "config_related": "配置相关文件",
+        "utility": "工具文件",
+        "package_init": "包初始化文件",
+        "ordinary_module": "普通模块",
+        "unknown": "未知类型",
+    }
+    return labels.get(file_type, "未知类型")

@@ -1,20 +1,23 @@
 # CodeResearch Agent
 
-CodeResearch Agent is a staged project for analyzing deep learning code repositories. v0.1 implements the minimum LangGraph + custom tools loop: unzip a local project ZIP, scan files, parse Python code with `ast`, and write structured outputs.
+CodeResearch Agent is a staged project for analyzing deep learning code repositories. v0.2 builds on the minimum LangGraph + custom tools loop: unzip a local project ZIP, scan files, parse Python code with `ast`, add file-level analysis, and write structured outputs.
 
-## v0.1 Features
+## v0.2 Features
 
 - Analyze a local ZIP file path.
 - Safely extract files into `outputs/{task_id}/source`.
 - Scan repository structure and classify common Python project files.
 - Parse Python imports, aliases, classes, functions, methods, and line ranges.
+- Generate deterministic file-level analysis for every Python file.
+- Classify Python files as entry, model, training, inference, dataset, config-related, utility, package init, ordinary module, or unknown.
 - Run the workflow through LangGraph nodes.
 - Generate:
   - `repo_index.json`
   - `parsed_files.json`
+  - `file_analysis.json`
   - `report.md`
 
-v0.1 intentionally does not include paper parsing, frontend UI, global library knowledge base, diagram generation, RAG, PDF export, or model architecture analysis.
+v0.2 intentionally does not include function-level analysis, library-call extraction, paper parsing, frontend UI, global library knowledge base, diagram generation, RAG, PDF export, or model architecture analysis.
 
 ## Environment
 
@@ -79,14 +82,16 @@ outputs/{task_id}/
   source/
   repo_index.json
   parsed_files.json
+  file_analysis.json
   report.md
 ```
 
-## v0.1 Acceptance
+## v0.2 Acceptance
 
 - A small PyTorch-style project ZIP can be analyzed.
 - Directory tree and Python files are listed.
 - Each Python file's imports, classes, and functions are extracted.
+- Each Python file has one file-level analysis entry.
+- `report.md` includes a `逐文件分析` section.
 - JSON and Markdown outputs are written.
 - Tools and the LangGraph workflow are covered by tests.
-
