@@ -1,0 +1,44 @@
+import mermaid from "mermaid";
+import { useEffect, useId, useState } from "react";
+
+mermaid.initialize({ startOnLoad: false, securityLevel: "strict" });
+
+export function MermaidBlock({ code }: { code: string }) {
+  const id = useId().replace(/:/g, "_");
+  const [svg, setSvg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function render() {
+      try {
+        const rendered = await mermaid.render(`diagram_${id}`, code);
+        if (!cancelled) {
+          setSvg(rendered.svg);
+          setError(null);
+        }
+      } catch (exc) {
+        if (!cancelled) {
+          setSvg(null);
+          setError(exc instanceof Error ? exc.message : "Mermaid 渲染失败");
+        }
+      }
+    }
+    if (code) {
+      void render();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [code, id]);
+
+  if (svg) {
+    return <div className="mermaid-rendered" dangerouslySetInnerHTML={{ __html: svg }} />;
+  }
+  return (
+    <div>
+      {error && <p className="muted">Mermaid 渲染失败，已回退到源码展示。</p>}
+      <pre className="code-block">{code}</pre>
+    </div>
+  );
+}

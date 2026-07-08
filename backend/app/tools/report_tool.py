@@ -64,7 +64,7 @@ def build_report_markdown(
     skipped_low_confidence_library_calls: list[dict] | None = None,
 ) -> str:
     lines = [
-        "# CodeResearch Agent v0.7.1 Report",
+        "# CodeResearch Agent v0.8.1 Report",
         "",
         "## Project Overview",
         "",
@@ -295,9 +295,9 @@ def build_report_markdown(
     lines.extend(
         [
             "",
-            "## v0.7.1 Notes",
+            "## v0.8.1 Notes",
             "",
-            "This report is generated from deterministic ZIP extraction, repository scanning, Python AST parsing, file-level analysis, function-level analysis, basic library call extraction, model structure analysis, optional paper parsing and paper-code alignment, Mermaid diagram generation, and global library function documentation. Complex RAG, rendered graph export, frontend views, and PDF export are reserved for later stages.",
+            "This report is generated from deterministic ZIP extraction, repository scanning, Python AST parsing, file-level analysis, function-level analysis, basic library call extraction, model structure analysis, optional paper parsing and paper-code alignment, Mermaid diagram generation, and global library function documentation. The v0.8 frontend provides an interactive viewer for these outputs; complex RAG, rendered graph export, global library management pages, and PDF export are reserved for later stages.",
             "",
         ]
     )
