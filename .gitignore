@@ -6,11 +6,16 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+code_research_agent.egg-info/
 *.egg-info/
 
 outputs/*
 !outputs/.gitkeep
 
+data/*.sqlite3
+data/*.sqlite3-*
+data/*.db
+!data/.gitkeep
+
 *.log
 *.tmp
-
