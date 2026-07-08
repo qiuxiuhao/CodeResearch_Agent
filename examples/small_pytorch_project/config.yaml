@@ -1,0 +1,5 @@
+model:
+  input_dim: 4
+  hidden_dim: 8
+  output_dim: 2
+
