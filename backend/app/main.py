@@ -122,14 +122,6 @@ def get_library_stats(library_db_path: str | None = None) -> dict:
     return _library_service(library_db_path).get_library_stats()
 
 
-@app.get("/library/functions/high-frequency")
-def list_high_frequency_library_functions(
-    limit: int = Query(20, ge=1, le=100),
-    library_db_path: str | None = None,
-) -> dict:
-    return {"items": _library_service(library_db_path).list_high_frequency_functions(limit)}
-
-
 @app.get("/library/functions/low-confidence")
 def list_low_confidence_library_functions(
     limit: int = Query(50, ge=1, le=100),
@@ -140,26 +132,10 @@ def list_low_confidence_library_functions(
 
 @app.get("/library/functions/{canonical_name}")
 def get_library_function_detail(canonical_name: str, library_db_path: str | None = None) -> dict:
-    detail = _library_service(library_db_path).get_function_detail_with_stats(canonical_name)
+    detail = _library_service(library_db_path).get_function_detail(canonical_name)
     if detail is None:
         raise HTTPException(status_code=404, detail="Library function not found.")
     return detail
-
-
-@app.get("/library/functions/{canonical_name}/occurrences")
-def list_library_function_occurrences(
-    canonical_name: str,
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-    library_db_path: str | None = None,
-) -> dict:
-    service = _library_service(library_db_path)
-    return {
-        "items": [item.model_dump() for item in service.list_occurrences(canonical_name, limit=limit, offset=offset)],
-        "total": service.count_occurrences(canonical_name),
-        "limit": limit,
-        "offset": offset,
-    }
 
 
 def _library_service(library_db_path: str | None) -> LibraryFunctionService:

@@ -1,35 +1,35 @@
-# Interview Guide
+# 面试讲解提纲
 
-## 3-Minute Version
+## 3 分钟版本
 
-1. Problem: deep learning repositories are hard to understand quickly, especially for beginners.
-2. Solution: CodeResearch Agent analyzes a ZIP and optional paper PDF, then produces structured JSON, reports, diagrams, and a frontend workbench.
-3. Core design: FastAPI API, LangGraph workflow, AST-based tools, SQLite library knowledge base, React frontend.
-4. Result: users can inspect files, functions, model structure, paper-code alignment, diagrams, and beginner-friendly library explanations.
+1. 问题：深度学习仓库结构复杂，尤其对初学者来说很难快速读懂。
+2. 方案：CodeResearch Agent 分析 ZIP 和可选论文 PDF，输出结构化 JSON、报告、图示和前端工作台。
+3. 核心设计：FastAPI API、LangGraph 工作流、AST 工具链、SQLite 函数知识库、React 前端。
+4. 结果：用户可以查看文件、函数、模型结构、论文代码对齐、图示和零基础库函数解释。
 
-## 8-Minute Version
+## 8 分钟版本
 
-1. Explain the architecture layers.
-2. Walk through the LangGraph node order.
-3. Show why AST static analysis is safer and more stable than executing user code.
-4. Explain model detection and forward-flow extraction as deterministic MVP analysis.
-5. Explain the global function library and occurrence history.
-6. Explain normal mode versus beginner mode.
-7. Discuss confidence labels, warnings, and evidence as anti-hallucination design.
+1. 讲解整体架构分层。
+2. 介绍 LangGraph 节点顺序。
+3. 说明为什么 AST 静态分析比执行用户代码更安全、更稳定。
+4. 讲解模型识别和 forward 流程提取为什么是确定性 MVP。
+5. 讲解全局函数库、搜索筛选和低置信度函数查看。
+6. 对比正常模式和零基础模式。
+7. 说明 confidence、warnings 和 evidence 如何降低幻觉风险。
 
-## 15-Minute Version
+## 15 分钟版本
 
-1. Start with the user workflow from ZIP input to frontend result.
-2. Open the docs and show architecture/workflow diagrams conceptually.
-3. Walk through key schemas and why structured artifacts matter.
-4. Explain paper parsing and alignment limitations.
-5. Explain Mermaid diagram generation and traceability.
-6. Discuss testing strategy.
-7. Close with roadmap: async tasks, better visualization, optional RAG, PDF export, deployment.
+1. 从 ZIP 输入到前端结果，完整讲一遍用户流程。
+2. 打开 docs，概念性展示架构和工作流。
+3. 讲解关键 schema，以及为什么结构化产物重要。
+4. 说明论文解析和对齐的限制。
+5. 说明 Mermaid 图生成和可追溯设计。
+6. 讲解测试策略。
+7. 最后给出路线图：异步任务、更强可视化、可选 RAG、PDF 导出、部署。
 
-## Tradeoffs To Mention
+## 可以强调的取舍
 
-- Static analysis is incomplete but safe and explainable.
-- SQLite is simple and ideal for a local-first learning knowledge base.
-- Synchronous analysis is acceptable for MVP demos; a production version would use a queue.
-- Mermaid source is easier to inspect and version than rendered image artifacts.
+- 静态分析不完美，但安全、可解释。
+- SQLite 简单，非常适合作为本地学习型知识库。
+- 同步分析适合 MVP 演示；生产版本可以引入队列。
+- Mermaid 源码比渲染图片更容易检查和版本管理。

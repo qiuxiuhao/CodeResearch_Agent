@@ -226,11 +226,6 @@ button {
   margin-top: 8px;
 }
 
-.occurrence-list {
-  display: grid;
-  gap: 10px;
-}
-
 .chip.low {
   color: #6b7280;
   border-style: dashed;

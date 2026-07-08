@@ -56,7 +56,6 @@ export function GlobalLibraryFilters({ filters, options, onChange, onSubmit, onR
       <select aria-label="排序" value={filters.sort} onChange={(event) => update("sort", event.target.value)}>
         <option value="canonical_name">函数名</option>
         <option value="updated_at">最近更新</option>
-        <option value="occurrence_count">出现次数</option>
       </select>
       <button className="primary-button" type="submit">搜索</button>
       <button className="secondary-button" type="button" onClick={onReset}>清空筛选</button>

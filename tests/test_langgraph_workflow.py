@@ -137,16 +137,13 @@ def test_langgraph_workflow_reuses_library_docs_across_runs(tmp_path):
     run_analysis(example_zip, tmp_path / "outputs-a", db_path)
     with sqlite3.connect(db_path) as conn:
         first_doc_count = conn.execute("SELECT COUNT(*) FROM library_functions").fetchone()[0]
-        first_occurrence_count = conn.execute("SELECT COUNT(*) FROM library_function_occurrences").fetchone()[0]
 
     run_analysis(example_zip, tmp_path / "outputs-b", db_path)
     with sqlite3.connect(db_path) as conn:
         second_doc_count = conn.execute("SELECT COUNT(*) FROM library_functions").fetchone()[0]
-        second_occurrence_count = conn.execute("SELECT COUNT(*) FROM library_function_occurrences").fetchone()[0]
 
     assert first_doc_count >= 1
     assert second_doc_count == first_doc_count
-    assert second_occurrence_count > first_occurrence_count
 
 
 def test_langgraph_workflow_with_paper_pdf_outputs_paper_analysis(tmp_path):

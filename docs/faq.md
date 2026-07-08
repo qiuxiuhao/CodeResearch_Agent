@@ -1,33 +1,33 @@
 # FAQ
 
-## Why not just send the whole repository to an LLM?
+## 为什么不直接把整个仓库发给 LLM？
 
-The project aims to produce stable, traceable artifacts. AST parsing and deterministic rules create evidence before any possible future model enhancement.
+本项目希望产出稳定、可追溯的结构化结果。AST 解析和确定性规则可以先建立证据，再作为后续模型增强的基础。
 
-## Does the tool execute user code?
+## 工具会执行用户代码吗？
 
-No. The analysis pipeline reads files and parses source text. It does not import or execute code from the uploaded repository.
+不会。分析流程只读取文件并解析源码文本，不会 import 或执行上传仓库中的代码。
 
-## Why SQLite for the global function library?
+## 为什么全局函数库使用 SQLite？
 
-SQLite is local, simple, portable, and enough for a personal learning knowledge base. It also keeps the project easy to run for demos.
+SQLite 本地、简单、可移植，足够支撑个人学习型知识库，也让项目更容易本地演示。
 
-## Why Mermaid instead of Graphviz?
+## 为什么使用 Mermaid，而不是 Graphviz？
 
-Mermaid source can be embedded directly in Markdown and rendered by many tools. v1.0 prioritizes readable report diagrams over heavy rendering infrastructure.
+Mermaid 源码可以直接嵌入 Markdown，并被许多工具渲染。v1.0 优先保证报告图示清晰可读，而不是引入更重的渲染基础设施。
 
-## Why is analysis synchronous?
+## 为什么分析任务是同步执行？
 
-Synchronous tasks are simpler for an MVP and easier to explain. A queue-based worker system can be added later if analysis becomes slow.
+同步执行更适合 MVP，也更容易讲解。后续如果分析耗时变长，可以增加队列和 worker。
 
-## Does v1.0 support login?
+## v1.0 支持登录吗？
 
-No. v1.0 is a local-first developer tool and demo project.
+不支持。v1.0 是本地优先的开发者工具和演示项目。
 
-## Does v1.0 export PDF reports?
+## v1.0 支持 PDF 报告导出吗？
 
-No. Reports are generated as Markdown. PDF export is intentionally out of scope.
+不支持。当前报告以 Markdown 形式生成，PDF 导出是刻意放到后续阶段的功能。
 
-## Does paper parsing understand formulas and figures?
+## 论文解析能理解公式和图片吗？
 
-No. Paper parsing is an MVP based on text extraction and heuristic matching.
+不能。论文解析是基于文本提取和启发式匹配的 MVP，不解析公式、图像、表格或论文图。

@@ -1,27 +1,27 @@
-# Validation
+# 验收说明
 
-## Full Validation
+## 完整验收
 
 ```bash
 bash scripts/validate.sh
 ```
 
-The script runs:
+该脚本会依次执行：
 
-1. Backend pytest.
-2. Frontend dependency install.
-3. Frontend tests.
-4. Frontend production build.
+1. 后端 pytest。
+2. 前端依赖安装。
+3. 前端测试。
+4. 前端生产构建。
 
-## Manual Commands
+## 手动命令
 
-Backend:
+后端：
 
 ```bash
 conda run -n code-research-agent pytest -q
 ```
 
-Frontend:
+前端：
 
 ```bash
 npm --prefix frontend ci
@@ -29,31 +29,31 @@ npm --prefix frontend test
 npm --prefix frontend run build
 ```
 
-## Startup Check
+## 启动检查
 
 ```bash
 bash scripts/dev.sh
 ```
 
-Then open:
+然后打开：
 
 ```text
 http://127.0.0.1:5173
 ```
 
-Backend health:
+后端健康检查：
 
 ```text
 http://127.0.0.1:8000/health
 ```
 
-## Demo Check
+## 演示检查
 
-- Create a task with `examples/small_pytorch_project.zip`.
-- Confirm overview, files, functions, current-task library notes, global function library, models, diagrams, and report pages load.
-- Toggle beginner mode and open a library function explanation modal.
+- 使用 `examples/small_pytorch_project.zip` 创建任务。
+- 确认总览、文件、函数、当前任务库函数说明、全局函数库、模型、图示和报告页面可以加载。
+- 切换零基础模式，并打开一个库函数解释弹窗。
 
-## Cleanup Before Commit
+## 提交前清理
 
 ```bash
 find . -name __pycache__ -type d -prune -exec rm -rf {} +

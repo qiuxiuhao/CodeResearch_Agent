@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   getGlobalLibraryFunction,
-  getGlobalLibraryOccurrences,
   getGlobalLibraryStats,
-  getHighFrequencyFunctions,
   getLowConfidenceFunctions,
   listGlobalLibraryFunctions
 } from "../api/client";
@@ -11,15 +9,13 @@ import type {
   GlobalLibraryDetailResponse,
   GlobalLibraryFunction,
   GlobalLibraryListResponse,
-  GlobalLibraryStats,
-  LibraryFunctionOccurrence
+  GlobalLibraryStats
 } from "../types/analysis";
 import { EmptyState } from "./EmptyState";
 import { ErrorBanner } from "./ErrorBanner";
 import { GlobalLibraryDetail } from "./GlobalLibraryDetail";
 import { GlobalLibraryFilters, type GlobalLibraryFilterState } from "./GlobalLibraryFilters";
 import { GlobalLibraryList } from "./GlobalLibraryList";
-import { HighFrequencyFunctions } from "./HighFrequencyFunctions";
 import { LoadingState } from "./LoadingState";
 import { LowConfidenceFunctions } from "./LowConfidenceFunctions";
 
@@ -36,11 +32,9 @@ export function GlobalLibraryPanel() {
   const [appliedFilters, setAppliedFilters] = useState<GlobalLibraryFilterState>(DEFAULT_FILTERS);
   const [listResponse, setListResponse] = useState<GlobalLibraryListResponse | null>(null);
   const [stats, setStats] = useState<GlobalLibraryStats | null>(null);
-  const [highFrequency, setHighFrequency] = useState<GlobalLibraryFunction[]>([]);
   const [lowConfidence, setLowConfidence] = useState<GlobalLibraryFunction[]>([]);
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [detail, setDetail] = useState<GlobalLibraryDetailResponse | null>(null);
-  const [occurrences, setOccurrences] = useState<LibraryFunctionOccurrence[]>([]);
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,13 +50,11 @@ export function GlobalLibraryPanel() {
   async function loadOverview() {
     setError(null);
     try {
-      const [nextStats, nextHigh, nextLow] = await Promise.all([
+      const [nextStats, nextLow] = await Promise.all([
         getGlobalLibraryStats(),
-        getHighFrequencyFunctions(10),
         getLowConfidenceFunctions(10)
       ]);
       setStats(nextStats);
-      setHighFrequency(nextHigh.items);
       setLowConfidence(nextLow.items);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "加载全局函数库概览失败");
@@ -91,16 +83,11 @@ export function GlobalLibraryPanel() {
     setIsLoadingDetail(true);
     setError(null);
     try {
-      const [nextDetail, nextOccurrences] = await Promise.all([
-        getGlobalLibraryFunction(canonicalName),
-        getGlobalLibraryOccurrences(canonicalName, { limit: 50, offset: 0 })
-      ]);
+      const nextDetail = await getGlobalLibraryFunction(canonicalName);
       setDetail(nextDetail);
-      setOccurrences(nextOccurrences.items);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "加载函数详情失败");
       setDetail(null);
-      setOccurrences([]);
     } finally {
       setIsLoadingDetail(false);
     }
@@ -119,12 +106,11 @@ export function GlobalLibraryPanel() {
   return (
     <section className="tab-content">
       <h2>全局函数库</h2>
-      <p className="muted">查看分析任务沉淀下来的 Python / PyTorch / NumPy 等库函数教学说明和出现历史。</p>
+      <p className="muted">查看分析任务沉淀下来的 Python / PyTorch / NumPy 等库函数教学说明。</p>
       {error && <ErrorBanner message={error} />}
       {stats ? (
         <div className="summary-grid">
           <Metric label="函数数" value={stats.function_count} />
-          <Metric label="出现次数" value={stats.occurrence_count} />
           <Metric label="包数量" value={stats.package_counts.length} />
           <Metric label="类别数量" value={stats.category_counts.length} />
         </div>
@@ -151,12 +137,11 @@ export function GlobalLibraryPanel() {
           )}
         </div>
         <aside>
-          <HighFrequencyFunctions items={highFrequency} onSelect={selectFunction} />
           <LowConfidenceFunctions items={lowConfidence} onSelect={selectFunction} />
         </aside>
       </div>
       <h3>函数详情</h3>
-      <GlobalLibraryDetail detail={detail} occurrences={occurrences} isLoading={isLoadingDetail} />
+      <GlobalLibraryDetail detail={detail} isLoading={isLoadingDetail} />
     </section>
   );
 }

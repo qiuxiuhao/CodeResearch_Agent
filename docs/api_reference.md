@@ -1,32 +1,32 @@
-# API Reference
+# API 参考
 
-The development server runs at:
+开发服务器默认地址：
 
 ```text
 http://127.0.0.1:8000
 ```
 
-## Health
+## 健康检查
 
 ```text
 GET /health
 ```
 
-Returns:
+返回：
 
 ```json
 {"status": "ok"}
 ```
 
-## Analysis Tasks
+## 分析任务
 
-### Create Task From Local Paths
+### 通过本地路径创建任务
 
 ```text
 POST /analysis/tasks
 ```
 
-Body:
+请求体：
 
 ```json
 {
@@ -37,60 +37,60 @@ Body:
 }
 ```
 
-### Upload ZIP And Optional PDF
+### 上传 ZIP 和可选 PDF
 
 ```text
 POST /analysis/tasks/upload
 ```
 
-Multipart fields:
+Multipart 字段：
 
-- `zip_file`: required `.zip`
-- `paper_pdf`: optional `.pdf`
-- `output_root`: optional, default `outputs`
-- `library_db_path`: optional
+- `zip_file`：必填，`.zip` 文件
+- `paper_pdf`：可选，`.pdf` 文件
+- `output_root`：可选，默认 `outputs`
+- `library_db_path`：可选
 
-### List Tasks
+### 列出任务
 
 ```text
 GET /analysis/tasks
 ```
 
-Returns recent `outputs/task_*` directories.
+返回最近的 `outputs/task_*` 目录。
 
-### Read Full Task Result
+### 读取完整任务结果
 
 ```text
 GET /analysis/tasks/{task_id}
 ```
 
-Returns summary, JSON artifacts, report text, and missing-file errors.
+返回 summary、各类 JSON 产物、报告文本和缺失文件错误。
 
-### Read Report
+### 读取报告
 
 ```text
 GET /analysis/tasks/{task_id}/report
 ```
 
-Returns only `report.md`.
+只返回 `report.md`。
 
-## Global Library
+## 全局函数库
 
-### Stats
+### 统计信息
 
 ```text
 GET /library/stats
 ```
 
-Returns function count, occurrence count, and grouped package/category/confidence counts.
+返回函数数量，以及按 package / category / confidence 分组的统计。
 
-### List And Search Functions
+### 列表、搜索和筛选
 
 ```text
 GET /library/functions
 ```
 
-Query parameters:
+查询参数：
 
 - `query`
 - `package_name`
@@ -98,42 +98,26 @@ Query parameters:
 - `confidence`
 - `limit`
 - `offset`
-- `sort`: `canonical_name`, `updated_at`, or `occurrence_count`
+- `sort`：`canonical_name` 或 `updated_at`
 - `library_db_path`
 
-### Function Detail
+### 函数详情
 
 ```text
 GET /library/functions/{canonical_name}
 ```
 
-Returns a full teaching-level function note with aggregate occurrence stats.
+返回完整的教学级函数说明。
 
-### Function Occurrences
-
-```text
-GET /library/functions/{canonical_name}/occurrences
-```
-
-Returns task/file/function line history for a global library function.
-
-### High Frequency Functions
-
-```text
-GET /library/functions/high-frequency
-```
-
-Returns functions sorted by occurrence count.
-
-### Low Confidence Functions
+### 低置信度函数
 
 ```text
 GET /library/functions/low-confidence
 ```
 
-Returns low-confidence function notes.
+返回低置信度的函数说明。
 
-## Curl Examples
+## Curl 示例
 
 ```bash
 curl http://127.0.0.1:8000/health
@@ -141,5 +125,5 @@ curl -X POST http://127.0.0.1:8000/analysis/tasks \
   -H "Content-Type: application/json" \
   -d '{"zip_path":"examples/small_pytorch_project.zip"}'
 curl http://127.0.0.1:8000/library/stats
-curl "http://127.0.0.1:8000/library/functions?query=torch&sort=occurrence_count"
+curl "http://127.0.0.1:8000/library/functions?query=torch&sort=updated_at"
 ```

@@ -3,7 +3,6 @@ import type {
   GlobalLibraryDetailResponse,
   GlobalLibraryListResponse,
   GlobalLibraryStats,
-  LibraryOccurrencesResponse,
   TaskSummary
 } from "../types/analysis";
 
@@ -16,6 +15,7 @@ export type CreateTaskPayload = {
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
+  const contentType = response.headers?.get("content-type") ?? "";
   if (!response.ok) {
     let detail = response.statusText;
     try {
@@ -25,6 +25,10 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
       // keep status text
     }
     throw new Error(detail);
+  }
+  if (contentType && !contentType.includes("application/json")) {
+    const preview = (await response.text()).slice(0, 80).replace(/\s+/g, " ");
+    throw new Error(`接口 ${url} 没有返回 JSON，请确认后端服务和 Vite proxy 已启动。返回内容：${preview}`);
   }
   return response.json() as Promise<T>;
 }
@@ -86,16 +90,8 @@ export function getGlobalLibraryFunction(canonicalName: string): Promise<GlobalL
   return requestJson<GlobalLibraryDetailResponse>(`/library/functions/${encodeURIComponent(canonicalName)}`);
 }
 
-export function getGlobalLibraryOccurrences(canonicalName: string, params: { limit?: number; offset?: number } = {}): Promise<LibraryOccurrencesResponse> {
-  return requestJson<LibraryOccurrencesResponse>(withParams(`/library/functions/${encodeURIComponent(canonicalName)}/occurrences`, params));
-}
-
 export function getGlobalLibraryStats(): Promise<GlobalLibraryStats> {
   return requestJson<GlobalLibraryStats>("/library/stats");
-}
-
-export function getHighFrequencyFunctions(limit = 20): Promise<{ items: GlobalLibraryListResponse["items"] }> {
-  return requestJson<{ items: GlobalLibraryListResponse["items"] }>(withParams("/library/functions/high-frequency", { limit }));
 }
 
 export function getLowConfidenceFunctions(limit = 50): Promise<{ items: GlobalLibraryListResponse["items"] }> {

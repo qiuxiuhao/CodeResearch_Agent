@@ -59,24 +59,7 @@ export type LibraryFunctionDoc = {
   updated_at?: string | null;
 };
 
-export type GlobalLibraryFunction = LibraryFunctionDoc & {
-  occurrence_count?: number;
-};
-
-export type LibraryFunctionOccurrence = {
-  id?: number;
-  library_function_id?: number;
-  canonical_name: string;
-  task_id: string;
-  project_name?: string | null;
-  file_path: string;
-  function_name: string;
-  class_name?: string | null;
-  qualified_function_name: string;
-  line_no?: number | null;
-  call_text: string;
-  created_at?: string | null;
-};
+export type GlobalLibraryFunction = LibraryFunctionDoc;
 
 export type GlobalLibraryFilters = {
   packages: string[];
@@ -94,21 +77,10 @@ export type GlobalLibraryListResponse = {
 
 export type GlobalLibraryDetailResponse = {
   function: GlobalLibraryFunction;
-  occurrence_count: number;
-  first_seen?: string | null;
-  last_seen?: string | null;
-};
-
-export type LibraryOccurrencesResponse = {
-  items: LibraryFunctionOccurrence[];
-  total: number;
-  limit: number;
-  offset: number;
 };
 
 export type GlobalLibraryStats = {
   function_count: number;
-  occurrence_count: number;
   package_counts: Array<{ name: string; count: number }>;
   category_counts: Array<{ name: string; count: number }>;
   confidence_counts: Array<{ name: string; count: number }>;

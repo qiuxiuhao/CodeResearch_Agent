@@ -1,35 +1,35 @@
-# Architecture
+# 架构说明
 
-CodeResearch Agent is a local-first code understanding system for deep learning repositories and optional paper PDFs. The v1.0 architecture keeps the analysis pipeline deterministic and exposes results through JSON files, Markdown reports, and a React frontend.
+CodeResearch Agent 是一个本地优先的代码理解系统，面向深度学习代码仓库和可选论文 PDF。v1.0 保持确定性的分析流程，并通过 JSON 文件、Markdown 报告和 React 前端展示结果。
 
-## Layers
+## 分层结构
 
-- FastAPI API layer: task creation, upload, result reading, report reading, and global library query APIs.
-- LangGraph workflow layer: orchestrates repository extraction, parsing, analysis, documentation, diagram generation, and report generation.
-- Tool layer: deterministic static-analysis utilities for repository scanning, AST parsing, model detection, paper parsing, paper-code alignment, Mermaid generation, and report building.
-- Service layer: `analysis_service` coordinates a single analysis run; `library_function_service` manages the SQLite-backed global Python function library.
-- Schema layer: Pydantic models define stable JSON structures for repository, file, function, model, paper, diagram, and library outputs.
-- Frontend layer: React + Vite workbench for task creation, result browsing, beginner-mode explanations, diagrams, and global library exploration.
+- FastAPI API 层：负责任务创建、文件上传、结果读取、报告读取和全局函数库查询。
+- LangGraph 工作流层：编排仓库解压、解析、分析、文档生成、图生成和报告生成。
+- Tool 工具层：提供确定性的静态分析工具，包括仓库扫描、AST 解析、模型识别、论文解析、论文代码对齐、Mermaid 生成和报告构建。
+- Service 服务层：`analysis_service` 负责单次分析任务编排，`library_function_service` 管理 SQLite 全局 Python 函数知识库。
+- Schema 数据层：使用 Pydantic 定义仓库、文件、函数、模型、论文、图示和库函数等稳定 JSON 结构。
+- Frontend 前端层：React + Vite 工作台，支持任务创建、结果浏览、零基础解释、图示展示和全局函数库检索。
 
-## Data Flow
+## 数据流
 
-1. User provides a ZIP file path or uploads a ZIP through the browser.
-2. Optional paper PDF path or upload is attached.
-3. The backend creates a task and extracts the ZIP into `outputs/{task_id}/source`.
-4. LangGraph nodes produce structured JSON artifacts.
-5. The report node writes `report.md`.
-6. The API reads task artifacts from `outputs/{task_id}`.
-7. The frontend renders the result across overview, file, function, library, model, paper, diagram, and report tabs.
-8. Library function explanations are persisted in SQLite and can be browsed globally.
+1. 用户提供 ZIP 文件路径，或通过浏览器上传 ZIP。
+2. 用户可以可选提供论文 PDF。
+3. 后端创建任务，并把 ZIP 解压到 `outputs/{task_id}/source`。
+4. LangGraph 节点生成结构化 JSON 产物。
+5. 报告节点写入 `report.md`。
+6. API 从 `outputs/{task_id}` 读取任务产物。
+7. 前端在总览、文件、函数、库函数、模型、论文、图示和报告页面中展示结果。
+8. 库函数解释持久化到 SQLite，并可在全局函数库页面中检索。
 
-## Runtime Artifacts
+## 运行时产物
 
-The project intentionally keeps generated data out of Git:
+项目有意不提交生成数据：
 
 - `outputs/task_*`
 - `data/*.sqlite3`
 - `frontend/node_modules`
 - `frontend/dist`
-- Python caches and egg-info metadata
+- Python 缓存和 egg-info 元数据
 
-See [Validation](validation.md) for cleanup commands.
+清理命令见 [验收说明](validation.md)。

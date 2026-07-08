@@ -1,26 +1,26 @@
-# Database
+# 数据库说明
 
-CodeResearch Agent uses SQLite for the global Python function knowledge library.
+CodeResearch Agent 使用 SQLite 存储全局 Python 函数知识库。
 
-## Default Path
+## 默认路径
 
 ```text
 data/python_function_library.sqlite3
 ```
 
-This can be overridden with:
+可以通过以下方式覆盖：
 
 - `LIBRARY_DB_PATH`
 - `run_analysis(..., library_db_path=...)`
-- API request field `library_db_path`
+- API 请求字段 `library_db_path`
 
-## Tables
+## 数据表
 
 ### `library_functions`
 
-Stores one teaching-level note per canonical library function.
+每个标准库函数保存一条教学级说明。
 
-Key fields:
+主要字段：
 
 - `canonical_name`
 - `display_name`
@@ -39,26 +39,9 @@ Key fields:
 - `created_at`
 - `updated_at`
 
-### `library_function_occurrences`
+## Git 提交规则
 
-Stores where each library function appeared.
-
-Key fields:
-
-- `canonical_name`
-- `task_id`
-- `project_name`
-- `file_path`
-- `function_name`
-- `qualified_function_name`
-- `class_name`
-- `line_no`
-- `call_text`
-- `created_at`
-
-## Git Policy
-
-Local SQLite files are runtime data and should not be committed:
+本地 SQLite 文件属于运行时数据，不应提交：
 
 ```text
 data/*.sqlite3
@@ -66,4 +49,4 @@ data/*.sqlite3-*
 data/*.db
 ```
 
-The schema is created automatically by the service when the database is first used.
+数据库 schema 会在服务首次使用时自动创建。

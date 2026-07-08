@@ -1,14 +1,12 @@
-import type { GlobalLibraryDetailResponse, LibraryFunctionOccurrence } from "../types/analysis";
+import type { GlobalLibraryDetailResponse } from "../types/analysis";
 import { EmptyState } from "./EmptyState";
-import { FunctionOccurrenceList } from "./FunctionOccurrenceList";
 
 type Props = {
   detail: GlobalLibraryDetailResponse | null;
-  occurrences: LibraryFunctionOccurrence[];
   isLoading?: boolean;
 };
 
-export function GlobalLibraryDetail({ detail, occurrences, isLoading }: Props) {
+export function GlobalLibraryDetail({ detail, isLoading }: Props) {
   if (isLoading) {
     return <section className="item-card"><p className="muted">正在加载函数详情...</p></section>;
   }
@@ -20,7 +18,7 @@ export function GlobalLibraryDetail({ detail, occurrences, isLoading }: Props) {
     <section className="item-card detail-panel">
       <h3>{fn.canonical_name}</h3>
       <p className="muted">
-        {fn.package_name || "unknown"} · {fn.category || "unknown"} · {fn.confidence || "medium"} · 出现 {detail.occurrence_count} 次
+        {fn.package_name || "unknown"} · {fn.category || "unknown"} · {fn.confidence || "medium"}
       </p>
       <h4>一句话作用</h4>
       <p>{fn.summary || "暂无说明。"}</p>
@@ -44,8 +42,6 @@ export function GlobalLibraryDetail({ detail, occurrences, isLoading }: Props) {
         </>
       )}
       <p className="muted">创建：{fn.created_at || "未知"} · 更新：{fn.updated_at || "未知"}</p>
-      <h4>出现历史</h4>
-      <FunctionOccurrenceList occurrences={occurrences} />
     </section>
   );
 }

@@ -1,22 +1,22 @@
-# Screenshots
+# 截图说明
 
-Screenshots are optional for v1.0, but recommended before publishing the project on GitHub or using it in a resume.
+v1.0 不强制提交截图，但如果要发布到 GitHub 或写进简历，建议补充截图。
 
-Recommended screenshot list:
+推荐截图清单：
 
-1. Overview page after analyzing `examples/small_pytorch_project.zip`.
-2. Function detail in normal mode.
-3. Function detail in beginner mode with a library function modal open.
-4. Model analysis page showing `SimpleNet`.
-5. Diagram page showing a Mermaid model flow diagram.
-6. Global function library page with search/filter controls.
-7. Global function detail with occurrence history.
-8. Markdown report page.
+1. 使用 `examples/small_pytorch_project.zip` 分析后的总览页。
+2. 正常模式下的函数详情页。
+3. 零基础模式下打开库函数解释弹窗的函数详情页。
+4. 展示 `SimpleNet` 的模型分析页。
+5. 展示 Mermaid 模型流程图的图示页。
+6. 带搜索和筛选控件的全局函数库页面。
+7. 全局函数详情页。
+8. Markdown 报告页面。
 
-Suggested folder if screenshots are added later:
+如果后续添加截图，建议放在：
 
 ```text
 docs/assets/
 ```
 
-Do not commit screenshots that expose private local paths or non-public project names.
+不要提交暴露私人本地路径或非公开项目名称的截图。

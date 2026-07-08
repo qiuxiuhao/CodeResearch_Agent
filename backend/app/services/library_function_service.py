@@ -9,14 +9,13 @@ from typing import Any
 
 from backend.app.schemas.library_function import (
     LibraryFunctionDoc,
-    LibraryFunctionOccurrence,
     LibraryFunctionProcessResult,
 )
 
 
 DEFAULT_LIBRARY_DB_PATH = Path("data/python_function_library.sqlite3")
 JSON_LIST_FIELDS = {"parameters_explanation", "common_mistakes", "related_functions"}
-VALID_LIBRARY_SORTS = {"canonical_name", "updated_at", "occurrence_count"}
+VALID_LIBRARY_SORTS = {"canonical_name", "updated_at"}
 
 
 class LibraryFunctionService:
@@ -53,39 +52,8 @@ class LibraryFunctionService:
                 """
             )
             conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS library_function_occurrences (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    library_function_id INTEGER NOT NULL,
-                    canonical_name TEXT NOT NULL,
-                    task_id TEXT NOT NULL,
-                    project_name TEXT,
-                    file_path TEXT NOT NULL,
-                    function_name TEXT NOT NULL,
-                    class_name TEXT,
-                    qualified_function_name TEXT NOT NULL,
-                    line_no INTEGER,
-                    call_text TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY(library_function_id) REFERENCES library_functions(id)
-                )
-                """
-            )
-            conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_library_functions_canonical_name "
                 "ON library_functions(canonical_name)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_library_function_occurrences_function_id "
-                "ON library_function_occurrences(library_function_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_library_function_occurrences_task_id "
-                "ON library_function_occurrences(task_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_library_function_occurrences_canonical_name "
-                "ON library_function_occurrences(canonical_name)"
             )
 
     def get_by_canonical_name(self, canonical_name: str) -> LibraryFunctionDoc | None:
@@ -176,83 +144,6 @@ class LibraryFunctionService:
             doc_id = cursor.lastrowid
         return doc_to_insert.model_copy(update={"id": doc_id})
 
-    def record_occurrence(
-        self,
-        doc: LibraryFunctionDoc,
-        call: dict,
-        task_id: str,
-        project_name: str | None,
-    ) -> None:
-        if doc.id is None:
-            raise ValueError(f"Library function doc has no id: {doc.canonical_name}")
-        self.ensure_schema()
-        occurrence = LibraryFunctionOccurrence(
-            library_function_id=doc.id,
-            canonical_name=doc.canonical_name,
-            task_id=task_id,
-            project_name=project_name,
-            file_path=call.get("file_path", ""),
-            function_name=call.get("function_name", ""),
-            class_name=call.get("class_name"),
-            qualified_function_name=call.get("qualified_function_name", call.get("function_name", "")),
-            line_no=call.get("line_no"),
-            call_text=call.get("call_text", ""),
-            created_at=_utc_now(),
-        )
-        with self._connect() as conn:
-            duplicate = conn.execute(
-                """
-                SELECT id FROM library_function_occurrences
-                WHERE task_id = ?
-                  AND canonical_name = ?
-                  AND file_path = ?
-                  AND qualified_function_name = ?
-                  AND (line_no = ? OR (line_no IS NULL AND ? IS NULL))
-                  AND call_text = ?
-                """,
-                (
-                    occurrence.task_id,
-                    occurrence.canonical_name,
-                    occurrence.file_path,
-                    occurrence.qualified_function_name,
-                    occurrence.line_no,
-                    occurrence.line_no,
-                    occurrence.call_text,
-                ),
-            ).fetchone()
-            if duplicate:
-                return
-            conn.execute(
-                """
-                INSERT INTO library_function_occurrences (
-                    library_function_id,
-                    canonical_name,
-                    task_id,
-                    project_name,
-                    file_path,
-                    function_name,
-                    class_name,
-                    qualified_function_name,
-                    line_no,
-                    call_text,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    occurrence.library_function_id,
-                    occurrence.canonical_name,
-                    occurrence.task_id,
-                    occurrence.project_name,
-                    occurrence.file_path,
-                    occurrence.function_name,
-                    occurrence.class_name,
-                    occurrence.qualified_function_name,
-                    occurrence.line_no,
-                    occurrence.call_text,
-                    occurrence.created_at,
-                ),
-            )
-
     def process_library_calls(
         self,
         library_calls: list[dict],
@@ -280,7 +171,6 @@ class LibraryFunctionService:
                     doc = self.upsert_library_function_doc(self.create_doc_from_call(call))
                     new_docs_by_name[doc.canonical_name] = doc
                 docs_by_name[doc.canonical_name] = doc
-                self.record_occurrence(doc, call, task_id, project_name)
                 updated_call["is_recorded_in_global_library"] = True
             except Exception as exc:  # pragma: no cover - defensive path for SQLite IO issues.
                 errors.append(
@@ -336,7 +226,6 @@ class LibraryFunctionService:
         order_sql = {
             "canonical_name": "lf.canonical_name COLLATE NOCASE ASC",
             "updated_at": "lf.updated_at DESC, lf.canonical_name COLLATE NOCASE ASC",
-            "occurrence_count": "occurrence_count DESC, lf.canonical_name COLLATE NOCASE ASC",
         }[sort]
         with self._connect() as conn:
             total = conn.execute(
@@ -345,11 +234,9 @@ class LibraryFunctionService:
             ).fetchone()[0]
             rows = conn.execute(
                 f"""
-                SELECT lf.*, COUNT(o.id) AS occurrence_count
+                SELECT lf.*
                 FROM library_functions lf
-                LEFT JOIN library_function_occurrences o ON o.library_function_id = lf.id
                 {where_sql}
-                GROUP BY lf.id
                 ORDER BY {order_sql}
                 LIMIT ? OFFSET ?
                 """,
@@ -364,103 +251,30 @@ class LibraryFunctionService:
             "filters": filters,
         }
 
-    def get_function_detail_with_stats(self, canonical_name: str) -> dict[str, Any] | None:
+    def get_function_detail(self, canonical_name: str) -> dict[str, Any] | None:
         self.ensure_schema()
         with self._connect() as conn:
             row = conn.execute(
-                """
-                SELECT
-                    lf.*,
-                    COUNT(o.id) AS occurrence_count,
-                    MIN(o.created_at) AS first_seen,
-                    MAX(o.created_at) AS last_seen
-                FROM library_functions lf
-                LEFT JOIN library_function_occurrences o ON o.library_function_id = lf.id
-                WHERE lf.canonical_name = ?
-                GROUP BY lf.id
-                """,
+                "SELECT * FROM library_functions WHERE canonical_name = ?",
                 (canonical_name,),
             ).fetchone()
         if row is None:
             return None
-        return {
-            "function": self._row_to_doc(row).model_dump(),
-            "occurrence_count": row["occurrence_count"],
-            "first_seen": row["first_seen"],
-            "last_seen": row["last_seen"],
-        }
-
-    def count_occurrences(self, canonical_name: str) -> int:
-        self.ensure_schema()
-        with self._connect() as conn:
-            return conn.execute(
-                "SELECT COUNT(*) FROM library_function_occurrences WHERE canonical_name = ?",
-                (canonical_name,),
-            ).fetchone()[0]
-
-    def list_occurrences(
-        self,
-        canonical_name: str,
-        limit: int | None = None,
-        offset: int = 0,
-    ) -> list[LibraryFunctionOccurrence]:
-        self.ensure_schema()
-        offset = max(0, offset)
-        with self._connect() as conn:
-            if limit is None:
-                rows = conn.execute(
-                    """
-                    SELECT * FROM library_function_occurrences
-                    WHERE canonical_name = ?
-                    ORDER BY created_at DESC, id DESC
-                    """,
-                    (canonical_name,),
-                ).fetchall()
-            else:
-                limit = max(1, min(limit, 200))
-                rows = conn.execute(
-                    """
-                    SELECT * FROM library_function_occurrences
-                    WHERE canonical_name = ?
-                    ORDER BY created_at DESC, id DESC
-                    LIMIT ? OFFSET ?
-                    """,
-                    (canonical_name, limit, offset),
-                ).fetchall()
-        return [self._row_to_occurrence(row) for row in rows]
+        return {"function": self._row_to_doc(row).model_dump()}
 
     def get_library_stats(self) -> dict[str, Any]:
         self.ensure_schema()
         with self._connect() as conn:
             function_count = conn.execute("SELECT COUNT(*) FROM library_functions").fetchone()[0]
-            occurrence_count = conn.execute("SELECT COUNT(*) FROM library_function_occurrences").fetchone()[0]
             return {
                 "function_count": function_count,
-                "occurrence_count": occurrence_count,
                 "package_counts": _count_rows(conn, "package_name"),
                 "category_counts": _count_rows(conn, "category"),
                 "confidence_counts": _count_rows(conn, "confidence"),
             }
 
-    def list_high_frequency_functions(self, limit: int = 20) -> list[dict[str, Any]]:
-        self.ensure_schema()
-        limit = max(1, min(limit, 100))
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT lf.*, COUNT(o.id) AS occurrence_count
-                FROM library_functions lf
-                LEFT JOIN library_function_occurrences o ON o.library_function_id = lf.id
-                GROUP BY lf.id
-                ORDER BY occurrence_count DESC, lf.canonical_name COLLATE NOCASE ASC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
-        return [self._row_to_doc_dict(row) for row in rows]
-
     def list_low_confidence_functions(self, limit: int = 50) -> list[dict[str, Any]]:
-        return self.search_functions(confidence="low", limit=limit, sort="occurrence_count")["items"]
+        return self.search_functions(confidence="low", limit=limit, sort="canonical_name")["items"]
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -473,14 +287,8 @@ class LibraryFunctionService:
             data[field] = json.loads(data[field] or "[]")
         return LibraryFunctionDoc(**data)
 
-    def _row_to_occurrence(self, row: sqlite3.Row) -> LibraryFunctionOccurrence:
-        return LibraryFunctionOccurrence(**dict(row))
-
     def _row_to_doc_dict(self, row: sqlite3.Row) -> dict[str, Any]:
-        data = self._row_to_doc(row).model_dump()
-        if "occurrence_count" in row.keys():
-            data["occurrence_count"] = row["occurrence_count"]
-        return data
+        return self._row_to_doc(row).model_dump()
 
     def _filters(self, conn: sqlite3.Connection) -> dict[str, list[str]]:
         return {

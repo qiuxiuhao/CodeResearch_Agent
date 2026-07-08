@@ -23,7 +23,7 @@ export function GlobalLibraryList({ items, selectedName, onSelect }: Props) {
           <strong>{item.canonical_name}</strong>
           <span>{item.summary || "暂无摘要"}</span>
           <small>
-            {item.package_name || "unknown"} · {item.category || "unknown"} · {item.confidence || "medium"} · 出现 {item.occurrence_count ?? 0} 次
+            {item.package_name || "unknown"} · {item.category || "unknown"} · {item.confidence || "medium"}
           </small>
         </button>
       ))}

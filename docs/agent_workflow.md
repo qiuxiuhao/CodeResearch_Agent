@@ -1,8 +1,8 @@
-# Agent Workflow
+# Agent 工作流
 
-The analysis workflow is implemented as a LangGraph pipeline. Nodes exchange a shared state object and write deterministic artifacts into the task output directory.
+分析流程由 LangGraph 管理。各节点共享同一个状态对象，并把确定性的结构化产物写入当前任务的输出目录。
 
-## Node Order
+## 节点顺序
 
 ```text
 unzip
@@ -19,25 +19,25 @@ library_function_doc
 report_generate
 ```
 
-## Node Responsibilities
+## 节点职责
 
-- `unzip`: safely extracts the input ZIP into a task-local source directory.
-- `repo_scan`: indexes Python files and classifies likely entry, model, training, inference, and config files.
-- `code_parse`: uses Python AST parsing to extract imports, aliases, classes, functions, methods, and line ranges.
-- `file_analyze`: produces deterministic file-level purpose and project-position summaries.
-- `library_call_extract`: identifies Python / PyTorch / NumPy / PIL / OpenCV / einops style library calls.
-- `function_analyze`: summarizes function purpose, inputs, outputs, implementation logic, and library calls.
-- `model_analyze`: detects `nn.Module` style model classes, layers, forward flow, and component candidates.
-- `paper_analyze`: optionally parses a local paper PDF and extracts title, abstract, contributions, keywords, and module names.
-- `paper_code_align`: aligns paper contributions to files, classes, functions, and model modules with confidence labels.
-- `diagram_generate`: creates Mermaid source diagrams from existing structured artifacts.
-- `library_function_doc`: writes and reuses teaching-level library function notes in SQLite.
-- `report_generate`: saves all final JSON artifacts and builds `report.md`.
+- `unzip`：安全解压输入 ZIP 到当前任务的 source 目录。
+- `repo_scan`：扫描 Python 文件，并识别入口、模型、训练、推理、配置等候选文件。
+- `code_parse`：基于 Python AST 提取 import、alias、类、函数、方法和行号范围。
+- `file_analyze`：生成确定性的文件级用途和项目位置分析。
+- `library_call_extract`：识别 Python / PyTorch / NumPy / PIL / OpenCV / einops 风格的库函数调用。
+- `function_analyze`：总结函数用途、输入、输出、实现逻辑和库函数调用。
+- `model_analyze`：识别 `nn.Module` 风格的模型类、网络层、forward 流程和模块候选。
+- `paper_analyze`：可选解析本地论文 PDF，提取标题、摘要、贡献点、关键词和模块名。
+- `paper_code_align`：把论文贡献点对齐到文件、类、函数和模型模块，并标注置信度。
+- `diagram_generate`：基于已有结构化结果生成 Mermaid 源码图。
+- `library_function_doc`：把教学级库函数说明写入 SQLite，并复用已有说明。
+- `report_generate`：保存最终 JSON 产物并生成 `report.md`。
 
-## Design Principles
+## 设计原则
 
-- Deterministic static analysis first.
-- No execution of user project code.
-- No network retrieval inside the analysis pipeline.
-- Evidence and confidence fields are preferred over unsupported claims.
-- Missing optional inputs, such as paper PDFs, should produce empty structures rather than breaking code analysis.
+- 优先使用确定性的静态分析。
+- 不执行用户项目代码。
+- 分析流程中不做网络检索。
+- 重要结论尽量带 evidence 和 confidence。
+- 论文 PDF 等可选输入缺失时，输出空结构，不影响代码分析主流程。

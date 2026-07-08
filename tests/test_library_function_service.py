@@ -40,7 +40,7 @@ def _torch_linear_call() -> dict:
     }
 
 
-def test_process_library_calls_creates_doc_and_occurrence(tmp_path):
+def test_process_library_calls_creates_doc(tmp_path):
     service = LibraryFunctionService(tmp_path / "library.sqlite3")
 
     result = service.process_library_calls([_torch_randn_call()], task_id="task-a", project_name="demo")
@@ -53,14 +53,6 @@ def test_process_library_calls_creates_doc_and_occurrence(tmp_path):
     assert doc is not None
     assert any("size" in item for item in doc.parameters_explanation)
     assert doc.common_mistakes
-
-    occurrences = service.list_occurrences("torch.randn")
-    assert len(occurrences) == 1
-    assert occurrences[0].task_id == "task-a"
-    assert occurrences[0].file_path == "train.py"
-    assert occurrences[0].function_name == "build_batch"
-    assert occurrences[0].line_no == 12
-    assert occurrences[0].call_text == "torch.randn(2, 3)"
 
 
 def test_torch_linear_uses_special_teaching_template(tmp_path):
@@ -79,7 +71,7 @@ def test_torch_linear_uses_special_teaching_template(tmp_path):
     assert doc.shape_or_tensor_note and "in_features" in doc.shape_or_tensor_note
 
 
-def test_existing_doc_is_reused_but_occurrences_are_recorded_per_task(tmp_path):
+def test_existing_doc_is_reused_without_duplicate_records(tmp_path):
     db_path = tmp_path / "library.sqlite3"
     service = LibraryFunctionService(db_path)
 
@@ -88,19 +80,10 @@ def test_existing_doc_is_reused_but_occurrences_are_recorded_per_task(tmp_path):
 
     assert len(second_result.library_function_docs) == 1
     assert second_result.new_library_functions == []
-    assert len(service.list_occurrences("torch.randn")) == 2
 
     with sqlite3.connect(db_path) as conn:
         count = conn.execute("SELECT COUNT(*) FROM library_functions WHERE canonical_name = ?", ("torch.randn",)).fetchone()[0]
     assert count == 1
-
-
-def test_duplicate_occurrence_in_same_task_is_deduplicated(tmp_path):
-    service = LibraryFunctionService(tmp_path / "library.sqlite3")
-
-    service.process_library_calls([_torch_randn_call(), _torch_randn_call()], task_id="task-a", project_name="demo")
-
-    assert len(service.list_occurrences("torch.randn")) == 1
 
 
 def test_low_confidence_or_unknown_calls_are_skipped(tmp_path):
@@ -123,7 +106,7 @@ def test_low_confidence_or_unknown_calls_are_skipped(tmp_path):
     assert service.get_by_canonical_name("client.call") is None
 
 
-def test_search_functions_filters_and_sorts_by_occurrence_count(tmp_path):
+def test_search_functions_filters_and_sorts(tmp_path):
     service = LibraryFunctionService(tmp_path / "library.sqlite3")
     service.process_library_calls([_torch_randn_call()], task_id="task-a", project_name="demo")
     service.process_library_calls([_torch_randn_call()], task_id="task-b", project_name="demo")
@@ -133,40 +116,28 @@ def test_search_functions_filters_and_sorts_by_occurrence_count(tmp_path):
 
     assert response["total"] == 1
     assert response["items"][0]["canonical_name"] == "torch.randn"
-    assert response["items"][0]["occurrence_count"] == 2
     assert "torch" in response["filters"]["packages"]
     assert "pytorch" in response["filters"]["categories"]
 
-    sorted_response = service.search_functions(sort="occurrence_count")
-    assert [item["canonical_name"] for item in sorted_response["items"]][:2] == [
-        "torch.randn",
-        "torch.nn.Linear",
-    ]
+    sorted_response = service.search_functions(sort="canonical_name")
+    assert [item["canonical_name"] for item in sorted_response["items"]] == ["torch.nn.Linear", "torch.randn"]
 
 
-def test_function_detail_stats_and_occurrence_pagination(tmp_path):
+def test_function_detail(tmp_path):
     service = LibraryFunctionService(tmp_path / "library.sqlite3")
     service.process_library_calls([_torch_randn_call()], task_id="task-a", project_name="demo")
     service.process_library_calls([_torch_randn_call()], task_id="task-b", project_name="demo")
 
-    detail = service.get_function_detail_with_stats("torch.randn")
+    detail = service.get_function_detail("torch.randn")
     assert detail is not None
     assert detail["function"]["canonical_name"] == "torch.randn"
-    assert detail["occurrence_count"] == 2
-    assert detail["first_seen"]
-    assert detail["last_seen"]
 
-    occurrences = service.list_occurrences("torch.randn", limit=1, offset=1)
-    assert len(occurrences) == 1
-    assert service.count_occurrences("torch.randn") == 2
-
-
-def test_library_stats_high_frequency_and_low_confidence(tmp_path):
+def test_library_stats_and_low_confidence(tmp_path):
     service = LibraryFunctionService(tmp_path / "library.sqlite3")
     service.process_library_calls([_torch_randn_call()], task_id="task-a", project_name="demo")
     service.process_library_calls([_torch_randn_call()], task_id="task-b", project_name="demo")
     service.process_library_calls([_torch_linear_call()], task_id="task-a", project_name="demo")
-    low_doc = service.upsert_library_function_doc(
+    service.upsert_library_function_doc(
         LibraryFunctionDoc(
             canonical_name="numpy.mystery",
             display_name="numpy.mystery",
@@ -177,28 +148,10 @@ def test_library_stats_high_frequency_and_low_confidence(tmp_path):
             confidence="low",
         )
     )
-    service.record_occurrence(
-        low_doc,
-        {
-            **_torch_randn_call(),
-            "canonical_name": "numpy.mystery",
-            "display_name": "numpy.mystery",
-            "package_name": "numpy",
-            "category": "numpy",
-            "confidence": "low",
-        },
-        task_id="task-low",
-        project_name="demo",
-    )
 
     stats = service.get_library_stats()
     assert stats["function_count"] == 3
-    assert stats["occurrence_count"] == 4
     assert any(item["name"] == "torch" and item["count"] == 2 for item in stats["package_counts"])
-
-    high_frequency = service.list_high_frequency_functions()
-    assert high_frequency[0]["canonical_name"] == "torch.randn"
-    assert high_frequency[0]["occurrence_count"] == 2
 
     low_confidence = service.list_low_confidence_functions()
     assert [item["canonical_name"] for item in low_confidence] == ["numpy.mystery"]

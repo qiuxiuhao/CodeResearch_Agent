@@ -106,8 +106,6 @@ examples/small_pytorch_project.zip
 - `GET /library/stats`
 - `GET /library/functions`
 - `GET /library/functions/{canonical_name}`
-- `GET /library/functions/{canonical_name}/occurrences`
-- `GET /library/functions/high-frequency`
 - `GET /library/functions/low-confidence`
 
 完整 API 说明见 [docs/api_reference.md](docs/api_reference.md)。

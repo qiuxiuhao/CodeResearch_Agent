@@ -32,21 +32,6 @@ class LibraryFunctionDoc(BaseModel):
     updated_at: str | None = None
 
 
-class LibraryFunctionOccurrence(BaseModel):
-    id: int | None = None
-    library_function_id: int
-    canonical_name: str
-    task_id: str
-    project_name: str | None = None
-    file_path: str
-    function_name: str
-    class_name: str | None = None
-    qualified_function_name: str
-    line_no: int | None = None
-    call_text: str
-    created_at: str | None = None
-
-
 class LibraryFunctionProcessResult(BaseModel):
     library_function_docs: list[LibraryFunctionDoc] = Field(default_factory=list)
     new_library_functions: list[LibraryFunctionDoc] = Field(default_factory=list)

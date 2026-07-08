@@ -1,50 +1,50 @@
-# Demo Guide
+# 演示指南
 
-This guide walks through a complete local demo.
+本文档用于完成一次本地演示。
 
-## 1. Start The App
+## 1. 启动应用
 
 ```bash
 bash scripts/dev.sh
 ```
 
-Open:
+打开：
 
 ```text
 http://127.0.0.1:5173
 ```
 
-The backend health check is:
+后端健康检查地址：
 
 ```text
 http://127.0.0.1:8000/health
 ```
 
-## 2. Create A Task
+## 2. 创建任务
 
-Use path mode and enter:
+使用路径模式，输入：
 
 ```text
 examples/small_pytorch_project.zip
 ```
 
-Create the task and wait for analysis to finish.
+创建任务，并等待分析完成。
 
-## 3. Recommended Presentation Order
+## 3. 推荐讲解顺序
 
-1. Overview: show file/function/model/diagram counts.
-2. Files: show file-level purpose and project position.
-3. Functions: select a function and explain function-level analysis.
-4. Beginner mode: toggle beginner mode and click a library function chip.
-5. Models: show `SimpleNet`, layers, inputs, outputs, and forward flow.
-6. Diagrams: show Mermaid project/model/function diagrams.
-7. Global Library: show searchable Python function notes and occurrence history.
-8. Report: show the Markdown report as a single generated deliverable.
+1. 总览：展示文件数、函数数、模型数、图示数量。
+2. 文件：展示文件级作用和项目位置。
+3. 函数：选择一个函数，讲解函数级分析结果。
+4. 零基础模式：切换到零基础模式，点击库函数标签。
+5. 模型：展示 `SimpleNet`、网络层、输入输出和 forward 流程。
+6. 图示：展示 Mermaid 项目结构图、模型流程图和函数逻辑图。
+7. 全局函数库：展示可检索的 Python 函数说明。
+8. 报告：展示 Markdown 报告这一完整交付物。
 
-## 4. Optional Paper Demo
+## 4. 可选论文演示
 
-If a local paper PDF is available, provide it in the optional paper field. v1.0 performs MVP text extraction and heuristic paper-code alignment. It does not parse figures, tables, or formulas.
+如果本地有论文 PDF，可以在可选论文字段中提供路径。v1.0 只做 MVP 文本提取和启发式论文代码对齐，不解析图表、公式或表格。
 
-## 5. What To Say
+## 5. 讲解重点
 
-This project is intentionally not a black-box prompt wrapper. It builds structured evidence from deterministic AST analysis, then renders it in a human-friendly frontend.
+这个项目不是黑盒 prompt 包装器。它先通过确定性的 AST 分析构建结构化证据，再把结果渲染成更适合人阅读的前端页面和报告。

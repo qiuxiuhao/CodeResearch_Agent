@@ -1,36 +1,36 @@
-# Frontend Guide
+# 前端指南
 
-The frontend is a React + Vite + TypeScript workbench.
+前端是一个 React + Vite + TypeScript 工作台。
 
-## Main Tabs
+## 主要页面
 
-- Overview: high-level task metrics and output status.
-- Files: file-level analysis grouped by repository role.
-- Functions: function-level purpose, logic, inputs, outputs, and library calls.
-- Library Functions: library notes generated for the current task.
-- Global Function Library: SQLite-backed searchable function knowledge base.
-- Models: `nn.Module` classes, layers, forward steps, and component candidates.
-- Paper: optional paper parsing and paper-code alignment results.
-- Diagrams: Mermaid diagrams generated from structured analysis artifacts.
-- Report: generated Markdown report.
+- 总览：展示当前任务的核心指标和输出状态。
+- 文件：按仓库角色展示文件级分析。
+- 函数：展示函数用途、逻辑、输入输出和库函数调用。
+- 库函数：展示当前任务生成的库函数说明。
+- 全局函数库：展示 SQLite 中可检索的函数知识库。
+- 模型：展示 `nn.Module` 类、网络层、forward 步骤和模块候选。
+- 论文：展示可选论文解析和论文代码对齐结果。
+- 图示：展示由结构化分析结果生成的 Mermaid 图。
+- 报告：展示生成的 Markdown 报告。
 
-## Normal Mode
+## 正常模式
 
-Normal mode is designed for users who already know Python and deep learning basics. It keeps more structured data visible and prioritizes scanning.
+正常模式面向已经具备 Python 和深度学习基础的用户。它保留较多结构化信息，方便快速浏览和定位。
 
-## Beginner Mode
+## 零基础模式
 
-Beginner mode emphasizes library calls inside function details:
+零基础模式强调函数详情中的库函数调用：
 
-- Canonical function name.
-- Call text and line number.
-- Category and confidence.
-- Teaching-level modal with explanation, parameters, return value, examples, shape notes, and common mistakes.
+- 标准函数名。
+- 原始调用文本和行号。
+- 类别和置信度。
+- 教学级弹窗，包含作用说明、参数、返回值、示例、shape 注意事项和常见误区。
 
-Low-confidence unknown calls are intentionally shown with weaker styling or skipped in places where they could be misleading.
+低置信度 unknown 调用会弱化展示，或在容易误导的地方跳过。
 
-## Mermaid
+## Mermaid 图示
 
-Mermaid diagrams are rendered in the browser when possible. If rendering fails, the frontend falls back to the Mermaid source code block.
+前端会尽量在浏览器中渲染 Mermaid 图。如果渲染失败，会回退展示 Mermaid 源码代码块。
 
-v1.0 does not export diagrams as PNG, SVG, PDF, or Graphviz.
+v1.0 不导出 PNG、SVG、PDF 或 Graphviz 图。
