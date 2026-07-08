@@ -1,8 +1,8 @@
 # CodeResearch Agent
 
-CodeResearch Agent is a staged project for analyzing deep learning code repositories. v0.6.1 builds on the LangGraph + custom tools loop: unzip a local project ZIP, scan files, parse Python code with `ast`, add file-level analysis, add function-level analysis, identify basic library calls, detect model network structure, optionally parse a paper PDF, align paper contributions to code, persist reusable library function notes in SQLite, and write structured outputs.
+CodeResearch Agent is a staged project for analyzing deep learning code repositories. v0.7.1 builds on the LangGraph + custom tools loop: unzip a local project ZIP, scan files, parse Python code with `ast`, add file-level analysis, add function-level analysis, identify basic library calls, detect model network structure, optionally parse a paper PDF, align paper contributions to code, generate Mermaid diagrams, persist reusable library function notes in SQLite, and write structured outputs.
 
-## v0.6.1 Features
+## v0.7.1 Features
 
 - Analyze a local ZIP file path.
 - Safely extract files into `outputs/{task_id}/source`.
@@ -19,6 +19,9 @@ CodeResearch Agent is a staged project for analyzing deep learning code reposito
 - Extract paper title, abstract, method text, contribution candidates, keywords, and module names.
 - Align paper contributions to code files, classes, functions, and model modules with confidence labels.
 - Keep paper contribution extraction and paper-code alignment conservative: generic wording alone is not treated as a confirmed match, and unmatched contributions include a reason.
+- Generate Mermaid source diagrams for project structure, model flow, core modules, core function logic, and paper-code alignment.
+- Write diagram metadata, source references, warnings, and Mermaid code to `diagrams.json`.
+- Keep Mermaid model flow and function logic diagrams connected and conservative: repeated library calls do not form self-loops, and low-confidence unknown calls are not shown as confirmed library calls.
 - Store reusable Python library function explanations in SQLite.
 - Record library function occurrences for each analysis task.
 - Reuse existing global library function explanations across tasks.
@@ -33,10 +36,11 @@ CodeResearch Agent is a staged project for analyzing deep learning code reposito
   - `model_analysis.json`
   - `paper_analysis.json`
   - `paper_code_alignment.json`
+  - `diagrams.json`
   - `library_function_docs.json`
   - `report.md`
 
-v0.6.1 intentionally does not include a frontend library page, library function popups, complex RAG, complex formula parsing, graph generation enhancement, frontend pages, or PDF report export.
+v0.7.1 intentionally does not include frontend pages, Mermaid rendering to PNG/SVG, Graphviz rendering, complex RAG, paper figure/table parsing, or PDF report export.
 
 ## Environment
 
@@ -126,11 +130,12 @@ outputs/{task_id}/
   model_analysis.json
   paper_analysis.json
   paper_code_alignment.json
+  diagrams.json
   library_function_docs.json
   report.md
 ```
 
-## v0.6.1 Acceptance
+## v0.7.1 Acceptance
 
 - A small PyTorch-style project ZIP can be analyzed.
 - Directory tree and Python files are listed.
@@ -146,6 +151,12 @@ outputs/{task_id}/
 - Paper-code alignment results with status and confidence are written to `paper_code_alignment.json`.
 - Generic paper/code word overlap alone does not force a matched alignment.
 - Unmatched paper contributions include `contribution_id`, `contribution_title`, and `reason`.
+- Mermaid diagrams are written to `diagrams.json`.
+- `diagrams.json` includes at least a project structure diagram.
+- Model projects include a model flow diagram when `model_analysis.json` has model data.
+- Paper runs include a paper-code alignment diagram when matched alignment data exists.
+- Model flow diagrams connect forward-step nodes in order, such as input -> layer -> activation -> next layer -> output.
+- Function logic diagrams do not contain Mermaid self-loop edges from repeated library calls.
 - Confirmed library calls are written to the global SQLite knowledge base.
 - Reused library function explanations are written to `library_function_docs.json`.
 - Library function occurrences are recorded per task.
@@ -153,6 +164,7 @@ outputs/{task_id}/
 - `report.md` includes a `逐函数分析` section.
 - `report.md` includes a `模型网络结构分析` section.
 - `report.md` includes a `论文解析与论文代码对齐` section.
+- `report.md` includes a `图示分析` section with Mermaid code blocks.
 - `report.md` includes a `Python 库函数说明` section.
 - JSON and Markdown outputs are written.
 - Tools and the LangGraph workflow are covered by tests.

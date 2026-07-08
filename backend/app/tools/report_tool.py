@@ -17,6 +17,8 @@ def generate_report(
     model_analysis: list[dict] | None = None,
     paper_analysis: dict | None = None,
     paper_code_alignment: dict | None = None,
+    diagrams: list[dict] | None = None,
+    diagram_warnings: list[str] | None = None,
     library_calls: list[dict] | None = None,
     library_function_docs: list[dict] | None = None,
     skipped_low_confidence_library_calls: list[dict] | None = None,
@@ -32,6 +34,8 @@ def generate_report(
         model_analysis or [],
         paper_analysis or {},
         paper_code_alignment or {},
+        diagrams or [],
+        diagram_warnings or [],
         library_calls or [],
         library_function_docs or [],
         skipped_low_confidence_library_calls or [],
@@ -53,12 +57,14 @@ def build_report_markdown(
     model_analysis: list[dict] | None = None,
     paper_analysis: dict | None = None,
     paper_code_alignment: dict | None = None,
+    diagrams: list[dict] | None = None,
+    diagram_warnings: list[str] | None = None,
     library_calls: list[dict] | None = None,
     library_function_docs: list[dict] | None = None,
     skipped_low_confidence_library_calls: list[dict] | None = None,
 ) -> str:
     lines = [
-        "# CodeResearch Agent v0.6.1 Report",
+        "# CodeResearch Agent v0.7.1 Report",
         "",
         "## Project Overview",
         "",
@@ -227,7 +233,33 @@ def build_report_markdown(
             lines.append("- 无对齐结果。")
         if unmatched:
             lines.append(f"- 未匹配创新点：{_join_or_none(_unmatched_contribution_labels(unmatched), separator='；')}")
-        lines.append("- 注意：v0.6.1 为启发式 MVP，不代表完整论文理解。")
+        lines.append("- 注意：论文解析与论文代码对齐为启发式 MVP，不代表完整论文理解。")
+
+    lines.extend(["", "## 图示分析", ""])
+    if diagrams:
+        for diagram in diagrams:
+            lines.extend(
+                [
+                    f"### {diagram.get('title', diagram.get('id', '图'))}",
+                    "",
+                    diagram.get("description", ""),
+                    "",
+                    "```mermaid",
+                    diagram.get("mermaid", ""),
+                    "```",
+                    "",
+                ]
+            )
+            if diagram.get("warnings"):
+                lines.append(f"- 注意：{_join_or_none(diagram.get('warnings', []), separator='；')}")
+            source_summary = _diagram_source_summary(diagram)
+            if source_summary:
+                lines.append(f"- 来源：{source_summary}")
+            lines.append("")
+        if diagram_warnings:
+            lines.append(f"- 图生成提示：{_join_or_none(diagram_warnings, separator='；')}")
+    else:
+        lines.append("- No diagrams generated.")
 
     lines.extend(["", "## Python 库函数说明", ""])
     if library_function_docs:
@@ -263,9 +295,9 @@ def build_report_markdown(
     lines.extend(
         [
             "",
-            "## v0.6.1 Notes",
+            "## v0.7.1 Notes",
             "",
-            "This report is generated from deterministic ZIP extraction, repository scanning, Python AST parsing, file-level analysis, function-level analysis, basic library call extraction, model structure analysis, optional paper parsing and paper-code alignment, and global library function documentation. Complex RAG, complex model graph generation, frontend views, and PDF export are reserved for later stages.",
+            "This report is generated from deterministic ZIP extraction, repository scanning, Python AST parsing, file-level analysis, function-level analysis, basic library call extraction, model structure analysis, optional paper parsing and paper-code alignment, Mermaid diagram generation, and global library function documentation. Complex RAG, rendered graph export, frontend views, and PDF export are reserved for later stages.",
             "",
         ]
     )
@@ -333,6 +365,20 @@ def _unmatched_contribution_labels(unmatched: list[dict | str]) -> list[str]:
         reason = item.get("reason", "")
         labels.append(f"{contribution_id} {title}：{reason}".strip())
     return labels
+
+
+def _diagram_source_summary(diagram: dict) -> str:
+    source_types: list[str] = []
+    for source_ref in diagram.get("source_refs", []):
+        source_type = source_ref.get("source_type", "")
+        if source_type and source_type not in source_types:
+            source_types.append(source_type)
+    for node in diagram.get("nodes", []):
+        for source_ref in node.get("source_refs", []):
+            source_type = source_ref.get("source_type", "")
+            if source_type and source_type not in source_types:
+                source_types.append(source_type)
+    return ", ".join(source_types[:5])
 
 
 def _file_type_label(file_type: str) -> str:

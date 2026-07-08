@@ -44,6 +44,7 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
         "model_analysis_path": str(Path(output_dir) / "model_analysis.json") if output_dir else None,
         "paper_analysis_path": str(Path(output_dir) / "paper_analysis.json") if output_dir else None,
         "paper_code_alignment_path": str(Path(output_dir) / "paper_code_alignment.json") if output_dir else None,
+        "diagrams_path": str(Path(output_dir) / "diagrams.json") if output_dir else None,
         "library_function_docs_path": str(Path(output_dir) / "library_function_docs.json") if output_dir else None,
         "report_path": str(Path(output_dir) / "report.md") if output_dir else None,
         "library_db_path": state.get("library_db_path"),
@@ -66,6 +67,7 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
             if item.get("status") == "matched"
         ]),
         "paper_unmatched_count": len(state.get("paper_code_alignment", {}).get("unmatched_contributions", [])),
+        "diagram_count": len(state.get("diagrams", [])),
         "error_count": len(state.get("errors", [])),
     }
 

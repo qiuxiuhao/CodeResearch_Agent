@@ -20,6 +20,8 @@ def report_generate_node(state: AgentState) -> AgentState:
     model_analysis = state.get("model_analysis", [])
     paper_analysis = state.get("paper_analysis", {})
     paper_code_alignment = state.get("paper_code_alignment", {})
+    diagrams = state.get("diagrams", [])
+    diagram_warnings = state.get("diagram_warnings", [])
     library_function_docs = state.get("library_function_docs", [])
     new_library_functions = state.get("new_library_functions", [])
     skipped_low_confidence_library_calls = state.get("skipped_low_confidence_library_calls", [])
@@ -51,6 +53,7 @@ def report_generate_node(state: AgentState) -> AgentState:
         output_dir / "paper_code_alignment.json",
         {"paper_code_alignment": paper_code_alignment, "errors": errors},
     )
+    save_json(output_dir / "diagrams.json", {"diagrams": diagrams, "warnings": diagram_warnings, "errors": errors})
     save_json(
         output_dir / "library_function_docs.json",
         {
@@ -72,6 +75,8 @@ def report_generate_node(state: AgentState) -> AgentState:
         model_analysis,
         paper_analysis,
         paper_code_alignment,
+        diagrams,
+        diagram_warnings,
         library_calls,
         library_function_docs,
         skipped_low_confidence_library_calls,

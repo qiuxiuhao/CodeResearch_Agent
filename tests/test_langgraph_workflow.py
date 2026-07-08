@@ -46,6 +46,7 @@ def test_langgraph_workflow_writes_outputs(tmp_path):
     assert (output_dir / "model_analysis.json").exists()
     assert (output_dir / "paper_analysis.json").exists()
     assert (output_dir / "paper_code_alignment.json").exists()
+    assert (output_dir / "diagrams.json").exists()
     assert (output_dir / "library_function_docs.json").exists()
     assert (output_dir / "report.md").exists()
 
@@ -57,6 +58,7 @@ def test_langgraph_workflow_writes_outputs(tmp_path):
     model_analysis = json.loads((output_dir / "model_analysis.json").read_text(encoding="utf-8"))
     paper_analysis = json.loads((output_dir / "paper_analysis.json").read_text(encoding="utf-8"))
     paper_code_alignment = json.loads((output_dir / "paper_code_alignment.json").read_text(encoding="utf-8"))
+    diagrams = json.loads((output_dir / "diagrams.json").read_text(encoding="utf-8"))
     library_function_docs = json.loads((output_dir / "library_function_docs.json").read_text(encoding="utf-8"))
     file_analysis_by_path = {item["file_path"]: item for item in file_analysis["file_analysis"]}
     function_analysis_by_name = {item["qualified_name"]: item for item in function_analysis["function_analysis"]}
@@ -106,6 +108,10 @@ def test_langgraph_workflow_writes_outputs(tmp_path):
     assert summary["paper_provided"] is False
     assert paper_analysis["paper_analysis"]["paper_provided"] is False
     assert paper_code_alignment["paper_code_alignment"]["paper_provided"] is False
+    diagram_types = {item["diagram_type"] for item in diagrams["diagrams"]}
+    assert "project_structure" in diagram_types
+    assert "model_flow" in diagram_types
+    assert summary["diagram_count"] == len(diagrams["diagrams"])
 
     report_md = (output_dir / "report.md").read_text(encoding="utf-8")
     assert "SimpleNet" in report_md
@@ -113,6 +119,8 @@ def test_langgraph_workflow_writes_outputs(tmp_path):
     assert "## 逐函数分析" in report_md
     assert "## 模型网络结构分析" in report_md
     assert "## 论文解析与论文代码对齐" in report_md
+    assert "## 图示分析" in report_md
+    assert "```mermaid" in report_md
     assert "## Python 库函数说明" in report_md
     assert "self.fc1：head" in report_md
     assert "torch.nn.functional.relu：activation" in report_md
@@ -152,6 +160,7 @@ def test_langgraph_workflow_with_paper_pdf_outputs_paper_analysis(tmp_path):
 
     paper_analysis = json.loads((output_dir / "paper_analysis.json").read_text(encoding="utf-8"))
     paper_code_alignment = json.loads((output_dir / "paper_code_alignment.json").read_text(encoding="utf-8"))
+    diagrams = json.loads((output_dir / "diagrams.json").read_text(encoding="utf-8"))
     report_md = (output_dir / "report.md").read_text(encoding="utf-8")
 
     assert summary["paper_provided"] is True
@@ -160,5 +169,7 @@ def test_langgraph_workflow_with_paper_pdf_outputs_paper_analysis(tmp_path):
     assert paper_analysis["paper_analysis"]["contributions"]
     assert paper_code_alignment["paper_code_alignment"]["alignment_items"]
     assert all("confidence" in item for item in paper_code_alignment["paper_code_alignment"]["alignment_items"])
+    assert any(item["diagram_type"] == "paper_code_alignment" for item in diagrams["diagrams"])
     assert "论文解析与论文代码对齐" in report_md
+    assert "图示分析" in report_md
     assert "SimpleNet Alignment Paper" in report_md

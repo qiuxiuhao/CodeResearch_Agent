@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from backend.app.services.analysis_service import run_analysis, summarize_state
 
 
-app = FastAPI(title="CodeResearch Agent", version="0.6.1")
+app = FastAPI(title="CodeResearch Agent", version="0.7.1")
 
 
 class AnalysisTaskRequest(BaseModel):

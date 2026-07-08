@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from backend.app.agents.nodes.code_parse_node import code_parse_node
+from backend.app.agents.nodes.diagram_generate_node import diagram_generate_node
 from backend.app.agents.nodes.file_analyze_node import file_analyze_node
 from backend.app.agents.nodes.function_analyze_node import function_analyze_node
 from backend.app.agents.nodes.library_call_extract_node import library_call_extract_node
@@ -30,6 +31,7 @@ def build_analysis_graph():
             model_analyze_node,
             paper_analyze_node,
             paper_code_align_node,
+            diagram_generate_node,
             library_function_doc_node,
             report_generate_node,
         ])
@@ -44,6 +46,7 @@ def build_analysis_graph():
     workflow.add_node("model_analyze", model_analyze_node)
     workflow.add_node("paper_analyze", paper_analyze_node)
     workflow.add_node("paper_code_align", paper_code_align_node)
+    workflow.add_node("diagram_generate", diagram_generate_node)
     workflow.add_node("library_function_doc", library_function_doc_node)
     workflow.add_node("report_generate", report_generate_node)
 
@@ -56,7 +59,8 @@ def build_analysis_graph():
     workflow.add_edge("function_analyze", "model_analyze")
     workflow.add_edge("model_analyze", "paper_analyze")
     workflow.add_edge("paper_analyze", "paper_code_align")
-    workflow.add_edge("paper_code_align", "library_function_doc")
+    workflow.add_edge("paper_code_align", "diagram_generate")
+    workflow.add_edge("diagram_generate", "library_function_doc")
     workflow.add_edge("library_function_doc", "report_generate")
     workflow.add_edge("report_generate", END)
     return workflow.compile()

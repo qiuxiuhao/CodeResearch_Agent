@@ -24,6 +24,8 @@ class AgentState(TypedDict, total=False):
     model_analysis: list[dict]
     paper_analysis: dict
     paper_code_alignment: dict
+    diagrams: list[dict]
+    diagram_warnings: list[str]
     library_db_path: str
     library_function_docs: list[dict]
     new_library_functions: list[dict]
