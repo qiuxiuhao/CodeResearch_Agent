@@ -13,8 +13,19 @@ def generate_report(
     classes: list[dict],
     errors: list[dict] | None = None,
     file_analysis: list[dict] | None = None,
+    function_analysis: list[dict] | None = None,
+    library_calls: list[dict] | None = None,
 ) -> ReportResult:
-    report_md = build_report_markdown(repo_index, parsed_files, functions, classes, errors or [], file_analysis or [])
+    report_md = build_report_markdown(
+        repo_index,
+        parsed_files,
+        functions,
+        classes,
+        errors or [],
+        file_analysis or [],
+        function_analysis or [],
+        library_calls or [],
+    )
     report_path = Path(output_dir) / "report.md"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(report_md, encoding="utf-8")
@@ -28,9 +39,11 @@ def build_report_markdown(
     classes: list[dict],
     errors: list[dict],
     file_analysis: list[dict] | None = None,
+    function_analysis: list[dict] | None = None,
+    library_calls: list[dict] | None = None,
 ) -> str:
     lines = [
-        "# CodeResearch Agent v0.2 Report",
+        "# CodeResearch Agent v0.3 Report",
         "",
         "## Project Overview",
         "",
@@ -97,6 +110,27 @@ def build_report_markdown(
     else:
         lines.append("- No file-level analysis available.")
 
+    lines.extend(["", "## 逐函数分析", ""])
+    if function_analysis:
+        for item in function_analysis:
+            lines.extend(
+                [
+                    f"### {item.get('file_path', '')}::{item.get('qualified_name', item.get('function_name', ''))}",
+                    "",
+                    f"- 函数作用：{item.get('purpose', '')}",
+                    f"- 输入：{_join_or_none(item.get('inputs', []))}",
+                    f"- 输出：{_join_or_none(item.get('outputs', []))}",
+                    f"- 是否核心函数：{'是' if item.get('is_core_function') else '否'}",
+                    f"- 核心依据：{item.get('core_reason') or '无'}",
+                    f"- 调用的库函数：{_join_or_none([call.get('canonical_name', '') for call in item.get('library_calls', [])])}",
+                    "- 实现逻辑：",
+                    *[f"  - {line}" for line in item.get("implementation_logic", [])],
+                    "",
+                ]
+            )
+    else:
+        lines.append("- No function-level analysis available.")
+
     lines.extend(["", "## Parse Errors", ""])
     if errors:
         for error in errors:
@@ -109,9 +143,9 @@ def build_report_markdown(
     lines.extend(
         [
             "",
-            "## v0.2 Notes",
+            "## v0.3 Notes",
             "",
-            "This report is generated from deterministic ZIP extraction, repository scanning, Python AST parsing, and file-level analysis. Function-level analysis, paper analysis, model graph generation, frontend views, and global library documentation are reserved for later stages.",
+            "This report is generated from deterministic ZIP extraction, repository scanning, Python AST parsing, file-level analysis, function-level analysis, and basic library call extraction. Global library documentation, paper analysis, model graph generation, frontend views, and PDF export are reserved for later stages.",
             "",
         ]
     )

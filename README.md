@@ -1,8 +1,8 @@
 # CodeResearch Agent
 
-CodeResearch Agent is a staged project for analyzing deep learning code repositories. v0.2 builds on the minimum LangGraph + custom tools loop: unzip a local project ZIP, scan files, parse Python code with `ast`, add file-level analysis, and write structured outputs.
+CodeResearch Agent is a staged project for analyzing deep learning code repositories. v0.3.1 builds on the LangGraph + custom tools loop: unzip a local project ZIP, scan files, parse Python code with `ast`, add file-level analysis, add function-level analysis, identify basic library calls, and write structured outputs.
 
-## v0.2 Features
+## v0.3.1 Features
 
 - Analyze a local ZIP file path.
 - Safely extract files into `outputs/{task_id}/source`.
@@ -10,14 +10,18 @@ CodeResearch Agent is a staged project for analyzing deep learning code reposito
 - Parse Python imports, aliases, classes, functions, methods, and line ranges.
 - Generate deterministic file-level analysis for every Python file.
 - Classify Python files as entry, model, training, inference, dataset, config-related, utility, package init, ordinary module, or unknown.
+- Generate deterministic function-level analysis for every Python function and method.
+- Identify basic Python / PyTorch / NumPy / OpenCV / PIL / einops library calls from function bodies.
 - Run the workflow through LangGraph nodes.
 - Generate:
   - `repo_index.json`
   - `parsed_files.json`
   - `file_analysis.json`
+  - `library_calls.json`
+  - `function_analysis.json`
   - `report.md`
 
-v0.2 intentionally does not include function-level analysis, library-call extraction, paper parsing, frontend UI, global library knowledge base, diagram generation, RAG, PDF export, or model architecture analysis.
+v0.3.1 intentionally does not include global library knowledge base persistence, library function documentation, paper parsing, frontend UI, diagram generation, RAG, PDF export, or model architecture analysis.
 
 ## Environment
 
@@ -83,15 +87,20 @@ outputs/{task_id}/
   repo_index.json
   parsed_files.json
   file_analysis.json
+  library_calls.json
+  function_analysis.json
   report.md
 ```
 
-## v0.2 Acceptance
+## v0.3.1 Acceptance
 
 - A small PyTorch-style project ZIP can be analyzed.
 - Directory tree and Python files are listed.
 - Each Python file's imports, classes, and functions are extracted.
 - Each Python file has one file-level analysis entry.
+- Each Python function and method has one function-level analysis entry.
+- Basic library calls are written to `library_calls.json`.
 - `report.md` includes a `逐文件分析` section.
+- `report.md` includes a `逐函数分析` section.
 - JSON and Markdown outputs are written.
 - Tools and the LangGraph workflow are covered by tests.

@@ -28,10 +28,15 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
         "output_dir": output_dir,
         "repo_index_path": str(Path(output_dir) / "repo_index.json") if output_dir else None,
         "parsed_files_path": str(Path(output_dir) / "parsed_files.json") if output_dir else None,
+        "file_analysis_path": str(Path(output_dir) / "file_analysis.json") if output_dir else None,
+        "library_calls_path": str(Path(output_dir) / "library_calls.json") if output_dir else None,
+        "function_analysis_path": str(Path(output_dir) / "function_analysis.json") if output_dir else None,
         "report_path": str(Path(output_dir) / "report.md") if output_dir else None,
         "python_file_count": len(state.get("python_files", [])),
         "class_count": len(state.get("classes", [])),
         "function_count": len(state.get("functions", [])),
+        "library_call_count": len(state.get("library_calls", [])),
+        "function_analysis_count": len(state.get("function_analysis", [])),
         "error_count": len(state.get("errors", [])),
     }
 

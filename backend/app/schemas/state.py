@@ -17,6 +17,9 @@ class AgentState(TypedDict, total=False):
     functions: list[dict]
     classes: list[dict]
     file_analysis: list[dict]
+    library_calls: list[dict]
+    low_confidence_library_calls: list[dict]
+    function_analysis: list[dict]
 
     report_md: str
     errors: list[dict]
