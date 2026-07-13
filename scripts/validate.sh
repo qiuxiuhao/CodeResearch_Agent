@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 echo "== Backend tests =="
-conda run -n code-research-agent python -m pytest -q
+python -m pytest -q
 
 echo "== Frontend dependencies =="
 npm --prefix frontend ci

@@ -22,3 +22,13 @@ def test_entity_and_provider_budgets_are_independent():
     for index in range(4):
         assert budget.try_reserve_provider_request("mock", "function_explain", str(index)).allowed
     assert not budget.try_reserve_provider_request("mock", "function_explain", "overflow").allowed
+
+
+def test_provider_reservation_result_is_recorded_only_once():
+    budget = BudgetManager(max_total_entities=1, max_provider_requests=1)
+    reservation = budget.try_reserve_provider_request("mock", "function_explain", "a.py:process")
+    budget.record_request_result(reservation.reservation_id, "failed")
+    budget.record_request_result(reservation.reservation_id, "success")
+    snapshot = budget.snapshot()
+    assert snapshot["sent_provider_requests"] == 1
+    assert snapshot["successful_provider_requests"] == 0

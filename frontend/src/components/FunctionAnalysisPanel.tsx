@@ -11,10 +11,10 @@ type Props = {
 
 export function FunctionAnalysisPanel({ result, mode, onLibraryCallClick }: Props) {
   const functions = result.function_analysis?.function_analysis ?? [];
-  const [selectedName, setSelectedName] = useState<string | null>(functions[0]?.qualified_name ?? null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(functions[0] ? functionKey(functions[0]) : null);
   const selected = useMemo(
-    () => functions.find((fn) => fn.qualified_name === selectedName) ?? functions[0],
-    [functions, selectedName]
+    () => functions.find((fn) => functionKey(fn) === selectedKey) ?? functions[0],
+    [functions, selectedKey]
   );
   const explanation = result.llm_explanations?.function_explanations?.find(
     (item) => item.qualified_name === selected?.qualified_name && item.file_path === selected?.file_path
@@ -31,9 +31,9 @@ export function FunctionAnalysisPanel({ result, mode, onLibraryCallClick }: Prop
         <div className="list">
           {functions.map((fn) => (
             <button
-              className={`list-button ${selected?.qualified_name === fn.qualified_name ? "active" : ""}`}
-              key={fn.qualified_name}
-              onClick={() => setSelectedName(fn.qualified_name ?? null)}
+              className={`list-button ${selected && functionKey(selected) === functionKey(fn) ? "active" : ""}`}
+              key={functionKey(fn)}
+              onClick={() => setSelectedKey(functionKey(fn))}
             >
               <strong>{fn.qualified_name || fn.function_name}</strong>
               <small>{fn.file_path}</small>
@@ -44,4 +44,8 @@ export function FunctionAnalysisPanel({ result, mode, onLibraryCallClick }: Prop
       </div>
     </section>
   );
+}
+
+function functionKey(fn: { file_path?: string; qualified_name?: string }): string {
+  return `${fn.file_path ?? ""}:${fn.qualified_name ?? ""}`;
 }

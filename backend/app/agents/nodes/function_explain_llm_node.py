@@ -3,7 +3,7 @@ from __future__ import annotations
 from backend.app.llm.evidence import make_evidence
 from backend.app.llm.node_support import run_selected_entities
 from backend.app.llm.runtime import LLMRuntime
-from backend.app.llm.selection import select_functions
+from backend.app.llm.selection import function_entity_key, select_functions
 from backend.app.schemas.llm_explanation import FunctionLLMExplanation
 from backend.app.schemas.state import AgentState
 
@@ -11,7 +11,10 @@ from backend.app.schemas.state import AgentState
 def function_explain_llm_node(state: AgentState, llm_runtime: LLMRuntime | None = None) -> AgentState:
     limit = llm_runtime.settings.max_function_explanations if llm_runtime else 0
     selected, skipped = select_functions(state.get("function_analysis", []), state.get("functions", []), limit)
-    raw_by_name = {_qualified(item): item for item in state.get("functions", [])}
+    raw_by_key = {
+        (str(item.get("file_path", "")), _qualified(item)): item
+        for item in state.get("functions", [])
+    }
 
     def prepare(item: dict):
         qualified = str(item.get("qualified_name", ""))
@@ -26,11 +29,11 @@ def function_explain_llm_node(state: AgentState, llm_runtime: LLMRuntime | None 
         related_models = [model for model in state.get("model_analysis", []) if model.get("file_path") == path]
         payload = {
             "function_analysis": item,
-            "source": raw_by_name.get(qualified, {}).get("source_code", ""),
+            "source": raw_by_key.get((path, qualified), {}).get("source_code", ""),
             "model_context": related_models,
             "instruction": "解释函数逻辑、输入输出和它在模型或项目中的位置。",
         }
-        return qualified, payload, evidence
+        return function_entity_key(item), payload, evidence
 
     return run_selected_entities(
         state=state, runtime=llm_runtime, task_type="function_explain", output_field="function_llm_explanations",

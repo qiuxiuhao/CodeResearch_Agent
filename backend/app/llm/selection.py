@@ -18,7 +18,7 @@ def select_functions(function_analysis: list[dict], functions: list[dict], limit
     for item in function_analysis:
         raw = source_by_key.get((item.get("file_path"), item.get("qualified_name")), {})
         if _is_simple(item, raw):
-            skipped.append({"task_type": "function_explain", "context_id": item.get("qualified_name"), "reason": "simple_entity"})
+            skipped.append({"task_type": "function_explain", "context_id": function_entity_key(item), "reason": "simple_entity"})
             continue
         name = str(item.get("function_name", ""))
         important = name in IMPORTANT_NAMES or name.startswith(IMPORTANT_PREFIXES)
@@ -33,8 +33,12 @@ def select_functions(function_analysis: list[dict], functions: list[dict], limit
         scored.append((score, item))
     ordered = [item for _, item in sorted(scored, key=lambda pair: pair[0])]
     for item in ordered[limit:]:
-        skipped.append({"task_type": "function_explain", "context_id": item.get("qualified_name"), "reason": "type_limit"})
+        skipped.append({"task_type": "function_explain", "context_id": function_entity_key(item), "reason": "type_limit"})
     return ordered[:limit], skipped
+
+
+def function_entity_key(item: dict) -> str:
+    return f"{item.get('file_path', '')}:{item.get('qualified_name') or _qualified(item)}"
 
 
 def select_files(items: list[dict], limit: int) -> tuple[list[dict], list[dict]]:

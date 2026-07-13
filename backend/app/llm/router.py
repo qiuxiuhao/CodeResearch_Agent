@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, datetime
-from typing import Iterable
+from typing import Callable, Iterable
 
 from pydantic import BaseModel, ValidationError
 
@@ -12,7 +12,7 @@ from backend.app.llm.cache import LLMCache
 from backend.app.llm.config import LLMSettings
 from backend.app.llm.evidence import validate_evidence_refs
 from backend.app.llm.exceptions import ProviderError
-from backend.app.llm.privacy import sanitize_payload
+from backend.app.llm.privacy import sanitize_payload, truncate_payload
 from backend.app.llm.providers.base_provider import BaseLLMProvider
 from backend.app.llm.types import LLMTaskType, ProviderRequest, RouterResult
 from backend.app.schemas.llm_explanation import EvidenceItem, LLMCallMetadata
@@ -41,16 +41,11 @@ class ModelRouter:
         response_model: type[BaseModel],
         evidence_catalog: list[EvidenceItem],
         prompt_version: str = "1.1",
+        identity_validator: Callable[[BaseModel], bool] | None = None,
     ) -> RouterResult:
         sanitized, redaction_count = sanitize_payload(input_payload)
+        sanitized, input_truncated = truncate_payload(sanitized, self.settings.max_input_chars)
         canonical = json.dumps(sanitized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        input_truncated = len(canonical) > self.settings.max_input_chars
-        if input_truncated:
-            sanitized = {
-                "truncated_input": canonical[: self.settings.max_input_chars],
-                "evidence_catalog": sanitized.get("evidence_catalog", []),
-            }
-            canonical = json.dumps(sanitized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         input_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         warnings: list[dict] = []
         if redaction_count:
@@ -70,6 +65,8 @@ class ModelRouter:
                     value = response_model.model_validate(cached)
                     if not validate_evidence_refs(getattr(value, "evidence_refs", []), evidence_catalog):
                         raise ValueError("invalid cached evidence refs")
+                    if identity_validator is not None and not identity_validator(value):
+                        raise ValueError("invalid cached entity identity")
                     self.budget.record_cache_hit()
                     metadata = _metadata(
                         task_type, "fallback" if provider_index else "success", provider.name, provider.model,
@@ -96,10 +93,12 @@ class ModelRouter:
                         response_model=response_model,
                         max_output_tokens=self.settings.max_output_tokens,
                     ))
-                    self.budget.record_request_result(reservation.reservation_id, "success")
                     value = response_model.model_validate(response.data)
                     if not validate_evidence_refs(getattr(value, "evidence_refs", []), evidence_catalog):
                         raise ProviderError("llm_invalid_evidence_reference", "Model returned an unknown evidence reference.")
+                    if identity_validator is not None and not identity_validator(value):
+                        raise ProviderError("llm_identity_validation_failed", "Model returned an unexpected entity identity.")
+                    self.budget.record_request_result(reservation.reservation_id, "success")
                     status = "fallback" if provider_index else "success"
                     codes = [warning["code"] for warning in warnings]
                     metadata = _metadata(
@@ -121,6 +120,10 @@ class ModelRouter:
                         break
         warnings.append(_warning("llm_all_providers_failed", task_type, context_id))
         return RouterResult(None, warnings)
+
+    @property
+    def has_available_provider(self) -> bool:
+        return any(provider.configured for provider in self.providers)
 
 
 def _metadata(

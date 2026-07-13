@@ -28,6 +28,26 @@ def run_selected_entities(
 ) -> dict:
     if runtime is None or state.get("analysis_mode", "rule") != "hybrid":
         return {**state, output_field: state.get(output_field, [])}
+    if not runtime.router.has_available_provider:
+        provider_skips = [
+            {"task_type": task_type, "context_id": _context(item), "reason": "provider_unconfigured"}
+            for item in selected
+        ]
+        warnings = list(state.get("llm_warnings", []))
+        if not any(item.get("code") == "llm_provider_unconfigured" for item in warnings):
+            warnings.append({
+                "code": "llm_provider_unconfigured", "task_type": "global", "context_id": "global",
+                "provider": None, "attempt": None, "message": "No external LLM provider is configured.",
+                "recoverable": True,
+            })
+        runtime.budget.record_skipped(len(selected) + len(skipped))
+        return {
+            **state,
+            output_field: state.get(output_field, []),
+            "llm_warnings": warnings,
+            "llm_skipped_entities": [*state.get("llm_skipped_entities", []), *skipped, *provider_skips],
+            "llm_budget": runtime.budget.snapshot(),
+        }
     sensitive = [item for item in selected if item.get("file_path") and is_sensitive_path(str(item["file_path"]))]
     selected = [item for item in selected if item not in sensitive]
     privacy_skips = [
@@ -73,6 +93,7 @@ def run_selected_entities(
         return context_id, runtime.router.generate_structured(
             task_type=task_type, context_id=context_id, system_prompt=prompt, input_payload=payload,
             response_model=response_model, evidence_catalog=evidence,
+            identity_validator=lambda value: _identity_matches(task_type, context_id, value.model_dump()),
         )
 
     with ThreadPoolExecutor(max_workers=runtime.settings.max_concurrency) as executor:
@@ -101,6 +122,8 @@ def run_selected_entities(
 
 
 def _context(item: dict) -> str:
+    if item.get("qualified_name"):
+        return f"{item.get('file_path', '')}:{item.get('qualified_name')}"
     return str(item.get("qualified_name") or item.get("file_path") or item.get("class_name") or item.get("contribution_id") or "unknown")
 
 
@@ -108,7 +131,7 @@ def _identity_matches(task_type: str, context_id: str, value: dict) -> bool:
     if task_type == "file_explain":
         return value.get("file_path") == context_id
     if task_type == "function_explain":
-        return value.get("qualified_name") == context_id
+        return f"{value.get('file_path')}:{value.get('qualified_name')}" == context_id
     if task_type == "model_explain":
         return f"{value.get('file_path')}:{value.get('class_name')}" == context_id
     if task_type == "paper_code_align":

@@ -5,6 +5,7 @@ from backend.app.llm.config import LLMSettings, ProviderSettings
 from backend.app.llm.providers.deepseek_provider import DeepSeekProvider
 from backend.app.llm.providers.mock_provider import MockProvider
 from backend.app.llm.runtime import create_llm_runtime
+from backend.app.agents.nodes.function_explain_llm_node import function_explain_llm_node
 from backend.app.agents.nodes.paper_code_align_llm_node import paper_code_align_llm_node
 from backend.app.services.analysis_service import run_analysis
 
@@ -90,7 +91,65 @@ def test_hybrid_without_configured_provider_is_skipped(tmp_path):
     payload = json.loads((Path(state["output_dir"]) / "llm_explanations.json").read_text(encoding="utf-8"))
     assert payload["status"] == "skipped"
     assert payload["budget"]["sent_provider_requests"] == 0
+    assert sum(item["code"] == "llm_provider_unconfigured" for item in payload["warnings"]) == 1
+    assert payload["skipped_entities"]
     assert (Path(state["output_dir"]) / "function_analysis.json").exists()
+
+
+def test_same_named_functions_from_different_files_keep_their_own_source(tmp_path):
+    settings = LLMSettings.from_env("hybrid").model_copy(update={
+        "cache_path": str(tmp_path / "cache.sqlite3"), "cache_enabled": False,
+        "max_function_explanations": 2,
+    })
+
+    def response(request):
+        item = request.input_payload["function_analysis"]
+        return {
+            "file_path": item["file_path"], "qualified_name": item["qualified_name"],
+            "summary": f"解释 {item['file_path']}", "logic_summary": [request.input_payload["source"]],
+            "teaching_explanation": "分别解释同名函数。", "key_points": [], "input_output_notes": [],
+            "uncertainties": [], "evidence_refs": [_evidence_ref(request)],
+        }
+
+    provider = MockProvider("deepseek", responses={"function_explain": response})
+    runtime = create_llm_runtime(settings, [provider])
+    analyses = [
+        {
+            "file_path": path, "qualified_name": "process", "function_name": "process",
+            "purpose": "处理", "is_core_function": True, "start_line": 1, "end_line": 2,
+            "confidence": "high", "library_calls": [], "called_internal_functions": [],
+        }
+        for path in ("a.py", "b.py")
+    ]
+    raw_functions = [
+        {
+            "file_path": "a.py", "function_name": "process", "class_name": None,
+            "source_code": "def process():\n    return 'source-a'",
+        },
+        {
+            "file_path": "b.py", "function_name": "process", "class_name": None,
+            "source_code": "def process():\n    return 'source-b'",
+        },
+    ]
+    state = {
+        "analysis_mode": "hybrid", "function_analysis": analyses, "functions": raw_functions,
+        "model_analysis": [], "paper_code_alignment": {}, "llm_warnings": [],
+        "llm_evidence_catalog": [], "llm_skipped_entities": [],
+    }
+
+    result = function_explain_llm_node(state, runtime)
+
+    source_by_path = {
+        call.input_payload["function_analysis"]["file_path"]: call.input_payload["source"]
+        for call in provider.calls
+    }
+    assert source_by_path == {
+        "a.py": "def process():\n    return 'source-a'",
+        "b.py": "def process():\n    return 'source-b'",
+    }
+    assert {(item["file_path"], item["qualified_name"]) for item in result["function_llm_explanations"]} == {
+        ("a.py", "process"), ("b.py", "process"),
+    }
 
 
 def test_paper_alignment_node_uses_structured_mock(tmp_path):

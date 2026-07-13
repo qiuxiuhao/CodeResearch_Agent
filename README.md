@@ -2,7 +2,7 @@
 
 CodeResearch Agent 是一个本地优先的代码理解 Agent，面向深度学习代码仓库和可选的论文 PDF。它可以把一个项目 ZIP 转换成结构化分析结果、Markdown 报告、Mermaid 图示、可检索的 Python 函数知识库，以及一个可交互的 React 工作台。
 
-当前版本：`1.1.3`
+当前版本：`1.1.4`
 
 ## 核心亮点
 

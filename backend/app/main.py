@@ -19,7 +19,7 @@ from backend.app.services.library_function_service import LibraryFunctionService
 from backend.app.llm.config import LLMSettings
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.1.3")
+app = FastAPI(title="CodeResearch Agent", version="1.1.4")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
