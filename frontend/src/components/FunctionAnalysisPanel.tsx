@@ -16,6 +16,9 @@ export function FunctionAnalysisPanel({ result, mode, onLibraryCallClick }: Prop
     () => functions.find((fn) => fn.qualified_name === selectedName) ?? functions[0],
     [functions, selectedName]
   );
+  const explanation = result.llm_explanations?.function_explanations?.find(
+    (item) => item.qualified_name === selected?.qualified_name && item.file_path === selected?.file_path
+  );
 
   if (functions.length === 0) {
     return <EmptyState message="暂无函数级分析。" />;
@@ -37,7 +40,7 @@ export function FunctionAnalysisPanel({ result, mode, onLibraryCallClick }: Prop
             </button>
           ))}
         </div>
-        {selected && <FunctionDetail fn={selected} mode={mode} onLibraryCallClick={onLibraryCallClick} />}
+        {selected && <FunctionDetail fn={selected} mode={mode} explanation={explanation} onLibraryCallClick={onLibraryCallClick} />}
       </div>
     </section>
   );

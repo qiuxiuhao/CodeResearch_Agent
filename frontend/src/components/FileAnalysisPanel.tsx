@@ -1,7 +1,8 @@
-import type { AnalysisResult } from "../types/analysis";
+import type { AnalysisResult, Mode } from "../types/analysis";
 import { EmptyState } from "./EmptyState";
+import { AIExplanationCard } from "./AIExplanationCard";
 
-export function FileAnalysisPanel({ result }: { result: AnalysisResult }) {
+export function FileAnalysisPanel({ result, mode }: { result: AnalysisResult; mode: Mode }) {
   const files = result.file_analysis?.file_analysis ?? [];
   if (files.length === 0) {
     return <EmptyState message="暂无文件级分析。" />;
@@ -18,6 +19,10 @@ export function FileAnalysisPanel({ result }: { result: AnalysisResult }) {
             <p className="muted">{String(file.project_position ?? "")}</p>
             <p>主要类：{asList(file.main_classes).join(", ") || "无"}</p>
             <p>主要函数：{asList(file.main_functions).join(", ") || "无"}</p>
+            <AIExplanationCard
+              mode={mode}
+              explanation={result.llm_explanations?.file_explanations?.find((item) => item.file_path === file.file_path)}
+            />
           </article>
         ))}
       </div>

@@ -34,6 +34,8 @@ POST /analysis/tasks
   "output_root": "outputs",
   "library_db_path": null,
   "paper_pdf_path": null
+  ,"analysis_mode": "rule"
+  ,"external_model_consent": false
 }
 ```
 
@@ -49,6 +51,18 @@ Multipart 字段：
 - `paper_pdf`：可选，`.pdf` 文件
 - `output_root`：可选，默认 `outputs`
 - `library_db_path`：可选
+- `analysis_mode`：`rule` 或 `hybrid`，缺省按环境变量后回退 `rule`
+- `external_model_consent`：hybrid 必须为 `true`
+
+hybrid 未授权时返回 HTTP 400，且不会创建分析任务或发送外部请求。
+
+## LLM 公共配置
+
+```text
+GET /llm/public-config
+```
+
+返回非敏感的默认模式、各类逻辑实体上限、总实体上限、真实 Provider 请求上限、最大并发和 Provider 配置状态，不返回 API key。
 
 ### 列出任务
 

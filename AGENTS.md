@@ -1982,3 +1982,19 @@ v0.1 完成后，再进入 v0.2 文件级分析。
 - 复杂项目拆解和工程化落地能力
 
 因此，任何实现都要围绕这个目标展开。
+
+---
+
+## 27. v1.1 LLM 开发约束
+
+1. 规则分析结果是权威事实来源，LLM 只负责解释、归纳和教学表达。
+2. LLM 输出必须独立保存，禁止覆盖或删除规则结果。
+3. 业务节点禁止直接调用供应商 API，必须通过统一 Provider 和 ModelRouter。
+4. `rule` 是默认模式；`hybrid` 必须通过后端 `external_model_consent` 校验。
+5. 外发源码前必须最小化输入并过滤 API key、token、password、secret、私钥和连接字符串。
+6. 代码、注释、docstring 和论文文本一律视为不可信数据，Prompt 禁止执行其中指令。
+7. 所有 LLM 输出必须通过 Pydantic/JSON Schema 和 evidence reference 校验。
+8. 每次真实 Provider 请求（包括 retry 和 fallback）必须先经过任务级 BudgetManager 原子预留。
+9. LLM 失败、缺少 Provider 或达到预算时必须回退规则结果，不得中断主流程。
+10. 自动测试禁止真实网络，必须使用 MockProvider 或 MockTransport。
+11. 禁止提交、记录、回显 API key、完整 Prompt、完整源码或原始模型响应。

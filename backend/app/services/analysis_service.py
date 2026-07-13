@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.agents.graph import build_analysis_graph
+from backend.app.llm.config import LLMSettings
+from backend.app.llm.runtime import LLMRuntime, create_llm_runtime
 from backend.app.schemas.state import AgentState
 from backend.app.services.storage_service import ensure_output_root
 
@@ -24,6 +26,7 @@ TASK_RESULT_FILES = {
     "paper_code_alignment": "paper_code_alignment.json",
     "diagrams": "diagrams.json",
     "library_function_docs": "library_function_docs.json",
+    "llm_explanations": "llm_explanations.json",
 }
 
 
@@ -32,15 +35,32 @@ def run_analysis(
     output_root: str | Path = "outputs",
     library_db_path: str | Path | None = None,
     paper_pdf_path: str | Path | None = None,
+    analysis_mode: str | None = None,
+    external_model_consent: bool = False,
+    llm_runtime: LLMRuntime | None = None,
 ) -> AgentState:
     ensure_output_root(output_root)
+    settings = llm_runtime.settings if llm_runtime else LLMSettings.from_env(analysis_mode)
+    if settings.analysis_mode == "hybrid" and not external_model_consent:
+        raise ValueError("hybrid mode requires external_model_consent=true before code is sent to external model providers.")
+    runtime = llm_runtime or create_llm_runtime(settings)
     resolved_library_db_path = str(library_db_path or os.getenv("LIBRARY_DB_PATH") or "data/python_function_library.sqlite3")
-    graph = build_analysis_graph()
+    graph = build_analysis_graph(runtime)
     initial_state: AgentState = {
         "zip_path": str(zip_path),
         "output_dir": str(output_root),
         "library_db_path": resolved_library_db_path,
         "errors": [],
+        "analysis_mode": settings.analysis_mode,
+        "external_model_consent": external_model_consent,
+        "file_llm_explanations": [],
+        "function_llm_explanations": [],
+        "model_llm_explanations": [],
+        "paper_code_align_llm_explanations": [],
+        "llm_evidence_catalog": [],
+        "llm_skipped_entities": [],
+        "llm_warnings": [],
+        "llm_budget": runtime.budget.snapshot(),
     }
     if paper_pdf_path:
         initial_state["paper_pdf_path"] = str(paper_pdf_path)
@@ -79,7 +99,10 @@ def load_task_result(task_id: str, output_root: str | Path = "outputs") -> dict[
         "errors": errors,
     }
     for key, filename in TASK_RESULT_FILES.items():
-        result[key] = _read_json(task_dir / filename, key, errors)
+        if key == "llm_explanations" and not (task_dir / filename).exists():
+            result[key] = {"analysis_mode": "rule", "status": "disabled", "warnings": []}
+        else:
+            result[key] = _read_json(task_dir / filename, key, errors)
     return result
 
 
@@ -129,6 +152,12 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
         "paper_unmatched_count": len(state.get("paper_code_alignment", {}).get("unmatched_contributions", [])),
         "diagram_count": len(state.get("diagrams", [])),
         "error_count": len(state.get("errors", [])),
+        "analysis_mode": state.get("analysis_mode", "rule"),
+        "external_model_consent": state.get("external_model_consent", False),
+        "llm_status": _llm_status(state),
+        "llm_explanation_count": _llm_count(state),
+        "llm_warning_count": len(state.get("llm_warnings", [])),
+        "llm_budget": state.get("llm_budget", {}),
     }
 
 
@@ -138,9 +167,14 @@ def main() -> None:
     parser.add_argument("--output-root", default="outputs", help="Directory for task outputs.")
     parser.add_argument("--library-db-path", default=None, help="Path to the global library function SQLite DB.")
     parser.add_argument("--paper-pdf-path", default=None, help="Optional path to a paper PDF for paper/code alignment.")
+    parser.add_argument("--analysis-mode", choices=["rule", "hybrid"], default=None)
+    parser.add_argument("--external-model-consent", action="store_true")
     args = parser.parse_args()
 
-    state = run_analysis(args.zip_path, args.output_root, args.library_db_path, args.paper_pdf_path)
+    state = run_analysis(
+        args.zip_path, args.output_root, args.library_db_path, args.paper_pdf_path,
+        args.analysis_mode, args.external_model_consent,
+    )
     print(json.dumps(summarize_state(state), ensure_ascii=False, indent=2))
 
 
@@ -182,6 +216,7 @@ def _summarize_output_dir(task_id: str, task_dir: Path) -> dict[str, Any]:
     model_analysis = _safe_json(task_dir / "model_analysis.json")
     paper_analysis = _safe_json(task_dir / "paper_analysis.json")
     diagrams = _safe_json(task_dir / "diagrams.json")
+    llm = _safe_json(task_dir / "llm_explanations.json")
     return {
         "task_id": task_id,
         "output_dir": str(task_dir),
@@ -193,6 +228,13 @@ def _summarize_output_dir(task_id: str, task_dir: Path) -> dict[str, Any]:
         "model_count": len(model_analysis.get("model_analysis", [])),
         "paper_provided": bool(paper_analysis.get("paper_analysis", {}).get("paper_provided")),
         "diagram_count": len(diagrams.get("diagrams", [])),
+        "analysis_mode": llm.get("analysis_mode", "rule"),
+        "llm_status": llm.get("status", "disabled"),
+        "llm_explanation_count": sum(len(llm.get(key, [])) for key in (
+            "file_explanations", "function_explanations", "model_explanations", "paper_code_alignment_explanations"
+        )),
+        "llm_warning_count": len(llm.get("warnings", [])),
+        "llm_budget": llm.get("budget", {}),
     }
 
 
@@ -203,6 +245,28 @@ def _safe_json(path: Path) -> dict:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return {}
+
+
+def _llm_count(state: AgentState) -> int:
+    return sum(len(state.get(field, [])) for field in (
+        "file_llm_explanations", "function_llm_explanations", "model_llm_explanations",
+        "paper_code_align_llm_explanations",
+    ))
+
+
+def _llm_status(state: AgentState) -> str:
+    if state.get("analysis_mode", "rule") == "rule":
+        return "disabled"
+    count = _llm_count(state)
+    warnings = state.get("llm_warnings", [])
+    selected = state.get("llm_budget", {}).get("selected_entities", 0)
+    if count and count < selected:
+        return "partial"
+    if count:
+        return "success"
+    if any(item.get("code") == "llm_provider_unconfigured" for item in warnings):
+        return "skipped"
+    return "failed" if warnings else "skipped"
 
 
 if __name__ == "__main__":

@@ -1,7 +1,8 @@
-import type { AnalysisResult } from "../types/analysis";
+import type { AnalysisResult, Mode } from "../types/analysis";
 import { EmptyState } from "./EmptyState";
+import { AIExplanationCard } from "./AIExplanationCard";
 
-export function PaperAnalysisPanel({ result }: { result: AnalysisResult }) {
+export function PaperAnalysisPanel({ result, mode }: { result: AnalysisResult; mode: Mode }) {
   const paper = result.paper_analysis?.paper_analysis;
   const alignment = result.paper_code_alignment?.paper_code_alignment;
   if (!paper?.paper_provided) {
@@ -31,6 +32,12 @@ export function PaperAnalysisPanel({ result }: { result: AnalysisResult }) {
             <h4>{String(item.contribution_id)} {String(item.status)}</h4>
             <p>{String(item.reason ?? "")}</p>
             <p className="muted">置信度：{String(item.confidence ?? "low")}</p>
+            <AIExplanationCard
+              mode={mode}
+              explanation={result.llm_explanations?.paper_code_alignment_explanations?.find(
+                (explanation) => explanation.contribution_id === item.contribution_id
+              )}
+            />
           </article>
         ))}
       </div>

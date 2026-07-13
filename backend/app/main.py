@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
@@ -15,9 +16,10 @@ from backend.app.services.analysis_service import (
     summarize_state,
 )
 from backend.app.services.library_function_service import LibraryFunctionService
+from backend.app.llm.config import LLMSettings
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.0.1")
+app = FastAPI(title="CodeResearch Agent", version="1.1.3")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -32,6 +34,8 @@ class AnalysisTaskRequest(BaseModel):
     output_root: str = "outputs"
     library_db_path: str | None = None
     paper_pdf_path: str | None = None
+    analysis_mode: Literal["rule", "hybrid"] | None = None
+    external_model_consent: bool = False
 
 
 @app.get("/health")
@@ -46,7 +50,13 @@ def list_analysis_tasks(output_root: str = "outputs") -> dict:
 
 @app.post("/analysis/tasks")
 def create_analysis_task(request: AnalysisTaskRequest) -> dict:
-    state = run_analysis(request.zip_path, request.output_root, request.library_db_path, request.paper_pdf_path)
+    try:
+        state = _run_analysis_with_llm_options(
+            request.zip_path, request.output_root, request.library_db_path, request.paper_pdf_path,
+            request.analysis_mode, request.external_model_consent,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return summarize_state(state)
 
 
@@ -56,11 +66,14 @@ async def create_analysis_task_from_upload(
     paper_pdf: UploadFile | None = File(None),
     output_root: str = Form("outputs"),
     library_db_path: str | None = Form(None),
+    analysis_mode: Literal["rule", "hybrid"] | None = Form(None),
+    external_model_consent: bool = Form(False),
 ) -> dict:
     if not zip_file.filename or not zip_file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="zip_file must be a .zip file.")
     if paper_pdf and paper_pdf.filename and not paper_pdf.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="paper_pdf must be a .pdf file.")
+    _validate_external_model_consent(analysis_mode, external_model_consent)
 
     upload_dir = Path(output_root) / "_uploads" / uuid4().hex
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -72,8 +85,15 @@ async def create_analysis_task_from_upload(
         paper_pdf_path = upload_dir / Path(paper_pdf.filename).name
         paper_pdf_path.write_bytes(await paper_pdf.read())
 
-    state = run_analysis(zip_path, output_root, library_db_path, paper_pdf_path)
+    state = _run_analysis_with_llm_options(
+        zip_path, output_root, library_db_path, paper_pdf_path, analysis_mode, external_model_consent,
+    )
     return summarize_state(state)
+
+
+@app.get("/llm/public-config")
+def get_llm_public_config() -> dict:
+    return LLMSettings.from_env().public_config()
 
 
 @app.get("/analysis/tasks/{task_id}")
@@ -140,3 +160,23 @@ def get_library_function_detail(canonical_name: str, library_db_path: str | None
 
 def _library_service(library_db_path: str | None) -> LibraryFunctionService:
     return LibraryFunctionService(library_db_path)
+
+
+def _validate_external_model_consent(analysis_mode: str | None, consent: bool) -> None:
+    settings = LLMSettings.from_env(analysis_mode)
+    if settings.analysis_mode == "hybrid" and not consent:
+        raise HTTPException(
+            status_code=400,
+            detail="hybrid mode requires external_model_consent=true before code is sent to external model providers.",
+        )
+
+
+def _run_analysis_with_llm_options(
+    zip_path, output_root, library_db_path, paper_pdf_path, analysis_mode: str | None, consent: bool
+):
+    if analysis_mode is None and not consent:
+        return run_analysis(zip_path, output_root, library_db_path, paper_pdf_path)
+    return run_analysis(
+        zip_path, output_root, library_db_path, paper_pdf_path,
+        analysis_mode=analysis_mode, external_model_consent=consent,
+    )

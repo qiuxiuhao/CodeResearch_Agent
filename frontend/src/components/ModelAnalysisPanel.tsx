@@ -1,7 +1,8 @@
-import type { AnalysisResult } from "../types/analysis";
+import type { AnalysisResult, Mode } from "../types/analysis";
 import { EmptyState } from "./EmptyState";
+import { AIExplanationCard } from "./AIExplanationCard";
 
-export function ModelAnalysisPanel({ result }: { result: AnalysisResult }) {
+export function ModelAnalysisPanel({ result, mode }: { result: AnalysisResult; mode: Mode }) {
   const models = result.model_analysis?.model_analysis ?? [];
   if (models.length === 0) {
     return <EmptyState message="暂无模型网络结构分析。" />;
@@ -31,6 +32,12 @@ export function ModelAnalysisPanel({ result }: { result: AnalysisResult }) {
                 <li key={`${step.order}-${stepIndex}`}>{String(step.explanation ?? step.expression ?? "")}</li>
               ))}
             </ol>
+            <AIExplanationCard
+              mode={mode}
+              explanation={result.llm_explanations?.model_explanations?.find(
+                (item) => item.file_path === model.file_path && item.class_name === model.class_name
+              )}
+            />
           </article>
         ))}
       </div>

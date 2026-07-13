@@ -1,4 +1,5 @@
 import type { AnalysisResult } from "../types/analysis";
+import { AIStatusBanner } from "./AIStatusBanner";
 
 export function SummaryCards({ result }: { result: AnalysisResult }) {
   const summary = result.summary ?? {};
@@ -23,6 +24,7 @@ export function SummaryCards({ result }: { result: AnalysisResult }) {
         ))}
       </div>
       <p className="muted">任务：{result.task_id}</p>
+      <AIStatusBanner llm={result.llm_explanations} />
     </section>
   );
 }

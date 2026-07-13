@@ -3,6 +3,8 @@ import type {
   GlobalLibraryDetailResponse,
   GlobalLibraryListResponse,
   GlobalLibraryStats,
+  LLMPublicConfig,
+  AnalysisMode,
   TaskSummary
 } from "../types/analysis";
 
@@ -11,6 +13,8 @@ export type CreateTaskPayload = {
   output_root?: string;
   library_db_path?: string | null;
   paper_pdf_path?: string | null;
+  analysis_mode?: AnalysisMode;
+  external_model_consent?: boolean;
 };
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -58,6 +62,10 @@ export function getTaskResult(taskId: string): Promise<AnalysisResult> {
 
 export function getTaskReport(taskId: string): Promise<{ task_id: string; report_md: string }> {
   return requestJson<{ task_id: string; report_md: string }>(`/analysis/tasks/${encodeURIComponent(taskId)}/report`);
+}
+
+export function getLLMPublicConfig(): Promise<LLMPublicConfig> {
+  return requestJson<LLMPublicConfig>("/llm/public-config");
 }
 
 export type GlobalLibraryQuery = {

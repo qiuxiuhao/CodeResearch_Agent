@@ -118,12 +118,57 @@ button {
   font-size: 14px;
 }
 
-.task-form input {
+.task-form input,
+.task-form select {
   width: 100%;
   margin-top: 4px;
   padding: 8px;
   border: 1px solid #c9d1d9;
   border-radius: 6px;
+}
+
+.llm-options {
+  margin: 14px 0;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+}
+
+.consent-panel,
+.ai-status,
+.ai-card {
+  border: 1px solid #99d5cf;
+  border-radius: 8px;
+  background: #f0fdfa;
+  padding: 12px;
+  margin-top: 12px;
+}
+
+.checkbox-label {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.checkbox-label input {
+  width: auto;
+  margin-top: 4px;
+}
+
+.ai-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.ai-status.failed,
+.ai-status.partial {
+  border-color: #fbbf24;
+  background: #fffbeb;
+}
+
+.ai-card summary {
+  cursor: pointer;
+  font-weight: 700;
 }
 
 .task-list {

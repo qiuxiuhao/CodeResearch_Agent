@@ -31,5 +31,16 @@ class AgentState(TypedDict, total=False):
     new_library_functions: list[dict]
     skipped_low_confidence_library_calls: list[dict]
 
+    analysis_mode: str
+    external_model_consent: bool
+    file_llm_explanations: list[dict]
+    function_llm_explanations: list[dict]
+    model_llm_explanations: list[dict]
+    paper_code_align_llm_explanations: list[dict]
+    llm_evidence_catalog: list[dict]
+    llm_skipped_entities: list[dict]
+    llm_warnings: list[dict]
+    llm_budget: dict
+
     report_md: str
     errors: list[dict]

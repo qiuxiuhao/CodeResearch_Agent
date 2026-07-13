@@ -1,4 +1,5 @@
 export type Mode = "normal" | "beginner";
+export type AnalysisMode = "rule" | "hybrid";
 
 export type ResultTab =
   | "overview"
@@ -25,6 +26,12 @@ export type TaskSummary = {
   paper_contribution_count?: number;
   diagram_count?: number;
   error_count?: number;
+  analysis_mode?: AnalysisMode;
+  external_model_consent?: boolean;
+  llm_status?: string;
+  llm_explanation_count?: number;
+  llm_warning_count?: number;
+  llm_budget?: LLMBudget;
 };
 
 export type LibraryCall = {
@@ -101,6 +108,80 @@ export type FunctionAnalysis = {
   library_calls?: LibraryCall[];
 };
 
+export type LLMCallMetadata = {
+  task_type?: string;
+  status?: string;
+  provider?: string | null;
+  model?: string | null;
+  latency_ms?: number | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  total_tokens?: number | null;
+  cache_hit?: boolean;
+  generated_at?: string;
+};
+
+export type LLMExplanation = {
+  file_path?: string;
+  qualified_name?: string;
+  class_name?: string;
+  contribution_id?: string;
+  contribution_title?: string;
+  summary?: string;
+  architecture_role?: string;
+  alignment_summary?: string;
+  teaching_explanation?: string;
+  logic_summary?: string[];
+  reading_guide?: string[];
+  key_relationships?: string[];
+  data_flow_explanation?: string[];
+  module_explanations?: string[];
+  learning_notes?: string[];
+  evidence_interpretation?: string[];
+  evidence_refs?: string[];
+  uncertainties?: string[];
+  needs_review?: boolean;
+  metadata?: LLMCallMetadata | null;
+};
+
+export type LLMBudget = {
+  max_total_entities?: number;
+  selected_entities?: number;
+  max_provider_requests?: number;
+  reserved_provider_requests?: number;
+  sent_provider_requests?: number;
+  successful_provider_requests?: number;
+  cache_hits?: number;
+  retries?: number;
+  fallbacks?: number;
+};
+
+export type LLMExplanations = {
+  analysis_mode?: AnalysisMode;
+  external_model_consent?: boolean;
+  status?: string;
+  budget?: LLMBudget;
+  usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number; cache_hits?: number };
+  function_explanations?: LLMExplanation[];
+  file_explanations?: LLMExplanation[];
+  model_explanations?: LLMExplanation[];
+  paper_code_alignment_explanations?: LLMExplanation[];
+  warnings?: Array<Record<string, unknown>>;
+};
+
+export type LLMPublicConfig = {
+  default_analysis_mode: AnalysisMode;
+  max_function_explanations: number;
+  max_file_explanations: number;
+  max_model_explanations: number;
+  max_paper_alignments: number;
+  max_total_entities: number;
+  max_provider_requests: number;
+  max_concurrency: number;
+  providers: Record<string, { configured: boolean; model: string }>;
+  external_model_notice: string;
+};
+
 export type Diagram = {
   id?: string;
   title?: string;
@@ -127,6 +208,7 @@ export type AnalysisResult = {
   paper_code_alignment?: { paper_code_alignment?: Record<string, unknown> };
   diagrams?: { diagrams?: Diagram[]; warnings?: string[] };
   library_function_docs?: { library_function_docs?: LibraryFunctionDoc[] };
+  llm_explanations?: LLMExplanations;
   report_md?: string;
   errors?: Array<Record<string, unknown>>;
 };

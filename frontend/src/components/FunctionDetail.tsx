@@ -1,13 +1,15 @@
-import type { FunctionAnalysis, LibraryCall, Mode } from "../types/analysis";
+import type { FunctionAnalysis, LibraryCall, LLMExplanation, Mode } from "../types/analysis";
 import { LibraryCallChip } from "./LibraryCallChip";
+import { AIExplanationCard } from "./AIExplanationCard";
 
 type Props = {
   fn: FunctionAnalysis;
   mode: Mode;
   onLibraryCallClick: (call: LibraryCall) => void;
+  explanation?: LLMExplanation;
 };
 
-export function FunctionDetail({ fn, mode, onLibraryCallClick }: Props) {
+export function FunctionDetail({ fn, mode, explanation, onLibraryCallClick }: Props) {
   const calls = fn.library_calls ?? [];
   return (
     <article className="item-card">
@@ -49,6 +51,7 @@ export function FunctionDetail({ fn, mode, onLibraryCallClick }: Props) {
           <p className="muted">无库函数调用。</p>
         )}
       </section>
+      <AIExplanationCard explanation={explanation} mode={mode} />
     </article>
   );
 }

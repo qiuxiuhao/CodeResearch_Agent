@@ -48,11 +48,11 @@ export function ResultTabs({ activeTab, mode, result, onTabChange, onLibraryCall
         </section>
       )}
       {result && activeTab === "overview" && <SummaryCards result={result} />}
-      {result && activeTab === "files" && <FileAnalysisPanel result={result} />}
+      {result && activeTab === "files" && <FileAnalysisPanel result={result} mode={mode} />}
       {result && activeTab === "functions" && <FunctionAnalysisPanel mode={mode} result={result} onLibraryCallClick={onLibraryCallClick} />}
       {result && activeTab === "libraries" && <LibraryDocsPanel result={result} />}
-      {result && activeTab === "models" && <ModelAnalysisPanel result={result} />}
-      {result && activeTab === "paper" && <PaperAnalysisPanel result={result} />}
+      {result && activeTab === "models" && <ModelAnalysisPanel result={result} mode={mode} />}
+      {result && activeTab === "paper" && <PaperAnalysisPanel result={result} mode={mode} />}
       {result && activeTab === "diagrams" && <DiagramsPanel result={result} />}
       {result && activeTab === "report" && (
         <section className="tab-content">

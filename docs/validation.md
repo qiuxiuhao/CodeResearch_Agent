@@ -13,6 +13,16 @@ bash scripts/validate.sh
 3. 前端测试。
 4. 前端生产构建。
 
+自动验收禁止真实模型网络请求。Provider 测试使用 MockProvider/MockTransport。
+
+真实 API 仅可手动验证，例如：
+
+```bash
+python scripts/smoke_llm.py --provider deepseek --i-understand-cost
+```
+
+该命令可能产生费用，不属于 `validate.sh`。
+
 ## 手动命令
 
 后端：
