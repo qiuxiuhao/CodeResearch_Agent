@@ -5,9 +5,9 @@
 ## 可独立启用的 AI 能力
 
 - 默认规则模式，不发送外部请求。
-- 文本 AI 解释和论文 Figure AI 理解使用独立开关。
-- 两种能力分别显示隐私、费用、逻辑实体和真实 Provider 请求上限。
-- 文本和图片分别授权，后端会独立再次校验。
+- 文本 AI 解释、论文 Figure AI 理解、AI 教学图视觉层和教学图审查使用独立开关。
+- 各能力分别显示隐私、费用、逻辑实体和真实 Provider 请求上限。
+- 文本、图片生成和视觉审查分别授权，后端会独立再次校验。
 - AI 内容位于规则内容之后并明确标记，正常模式偏摘要，零基础模式增加教学解释。
 - skipped、partial 或 failed 时继续显示完整规则分析。
 
@@ -20,7 +20,7 @@
 - 全局函数库：展示 SQLite 中可检索的函数教学知识库，支持搜索、筛选、详情查看和低置信度函数列表。
 - 模型：展示 `nn.Module` 类、网络层、forward 步骤和模块候选。
 - 论文：展示论文文本解析、规则代码对齐、canonical Figure preview、VLM 结构化理解和建议性代码关联。
-- 图示：展示由结构化分析结果生成的 Mermaid 图。
+- 图示：展示由结构化分析结果生成的 Mermaid 图，以及本地 Blueprint / AI 教学图切换。
 - 报告：展示生成的 Markdown 报告。
 
 ## 正常模式
@@ -42,4 +42,6 @@
 
 前端会尽量在浏览器中渲染 Mermaid 图。如果渲染失败，会回退展示 Mermaid 源码代码块。
 
-Figure gallery 中的 PNG 是从论文 Figure bbox 本地渲染的 canonical preview，不是 AI 生成图。v1.2 不生成或重绘教学图片。
+教学图通过 `related_mermaid_diagram_ids` 与 Mermaid 图建立映射。Blueprint 是本地确定性准确结果；AI 教学图只在通过审查时可作为视觉展示，页面会明确提示 AI 图可能做视觉简化。
+
+Figure gallery 中的 PNG 是从论文 Figure bbox 本地渲染的 canonical preview，不是 AI 生成图。

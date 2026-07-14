@@ -20,19 +20,28 @@ from backend.app.agents.nodes.paper_code_align_node import paper_code_align_node
 from backend.app.agents.nodes.paper_code_align_llm_node import paper_code_align_llm_node
 from backend.app.agents.nodes.report_generate_node import report_generate_node
 from backend.app.agents.nodes.repo_scan_node import repo_scan_node
+from backend.app.agents.nodes.teaching_diagram_generate_node import teaching_diagram_generate_node
+from backend.app.agents.nodes.teaching_diagram_plan_node import teaching_diagram_plan_node
+from backend.app.agents.nodes.teaching_diagram_review_vlm_node import teaching_diagram_review_vlm_node
 from backend.app.agents.nodes.unzip_node import unzip_node
+from backend.app.image_generation.runtime import ImageGenerationRuntime
 from backend.app.schemas.state import AgentState
 from backend.app.llm.runtime import LLMRuntime
 from backend.app.vision.runtime import VisionRuntime
 
 
-def build_analysis_graph(llm_runtime: LLMRuntime | None = None, vision_runtime: VisionRuntime | None = None):
+def build_analysis_graph(
+    llm_runtime: LLMRuntime | None = None,
+    vision_runtime: VisionRuntime | None = None,
+    image_runtime: ImageGenerationRuntime | None = None,
+):
     file_llm = partial(file_explain_llm_node, llm_runtime=llm_runtime)
     function_llm = partial(function_explain_llm_node, llm_runtime=llm_runtime)
     model_llm = partial(model_explain_llm_node, llm_runtime=llm_runtime)
     paper_llm = partial(paper_code_align_llm_node, llm_runtime=llm_runtime)
     figure_extract = partial(paper_figure_extract_node, vision_runtime=vision_runtime)
     figure_vlm = partial(paper_figure_analyze_vlm_node, vision_runtime=vision_runtime)
+    teaching_generate = partial(teaching_diagram_generate_node, image_runtime=image_runtime)
     try:
         from langgraph.graph import END, START, StateGraph
     except ImportError:
@@ -53,6 +62,9 @@ def build_analysis_graph(llm_runtime: LLMRuntime | None = None, vision_runtime: 
             figure_vlm,
             paper_llm,
             diagram_generate_node,
+            teaching_diagram_plan_node,
+            teaching_generate,
+            teaching_diagram_review_vlm_node,
             library_function_doc_node,
             report_generate_node,
         ])
@@ -74,6 +86,9 @@ def build_analysis_graph(llm_runtime: LLMRuntime | None = None, vision_runtime: 
     workflow.add_node("paper_figure_analyze_vlm", figure_vlm)
     workflow.add_node("paper_code_align_llm", paper_llm)
     workflow.add_node("diagram_generate", diagram_generate_node)
+    workflow.add_node("teaching_diagram_plan", teaching_diagram_plan_node)
+    workflow.add_node("teaching_diagram_generate", teaching_generate)
+    workflow.add_node("teaching_diagram_review_vlm", teaching_diagram_review_vlm_node)
     workflow.add_node("library_function_doc", library_function_doc_node)
     workflow.add_node("report_generate", report_generate_node)
 
@@ -93,7 +108,10 @@ def build_analysis_graph(llm_runtime: LLMRuntime | None = None, vision_runtime: 
     workflow.add_edge("model_explain_llm", "paper_figure_analyze_vlm")
     workflow.add_edge("paper_figure_analyze_vlm", "paper_code_align_llm")
     workflow.add_edge("paper_code_align_llm", "diagram_generate")
-    workflow.add_edge("diagram_generate", "library_function_doc")
+    workflow.add_edge("diagram_generate", "teaching_diagram_plan")
+    workflow.add_edge("teaching_diagram_plan", "teaching_diagram_generate")
+    workflow.add_edge("teaching_diagram_generate", "teaching_diagram_review_vlm")
+    workflow.add_edge("teaching_diagram_review_vlm", "library_function_doc")
     workflow.add_edge("library_function_doc", "report_generate")
     workflow.add_edge("report_generate", END)
     return workflow.compile()

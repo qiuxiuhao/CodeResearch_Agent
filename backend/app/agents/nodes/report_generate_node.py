@@ -57,6 +57,7 @@ def report_generate_node(state: AgentState) -> AgentState:
     save_json(output_dir / "llm_explanations.json", llm_payload)
     figure_payload = state.get("paper_figure_analysis", {})
     save_json(output_dir / "paper_figure_analysis.json", figure_payload)
+    teaching_payload = state.get("teaching_diagram_manifest", {})
     save_json(output_dir / "file_analysis.json", {"file_analysis": file_analysis, "errors": errors})
     save_json(
         output_dir / "library_calls.json",
@@ -101,7 +102,12 @@ def report_generate_node(state: AgentState) -> AgentState:
         library_function_docs,
         skipped_low_confidence_library_calls,
     )
-    report_text = report.report_md + _llm_report_section(llm_payload) + _vision_report_section(figure_payload)
+    report_text = (
+        report.report_md
+        + _llm_report_section(llm_payload)
+        + _vision_report_section(figure_payload)
+        + _teaching_diagram_report_section(teaching_payload)
+    )
     (output_dir / "report.md").write_text(report_text, encoding="utf-8")
     return {**state, "report_md": report_text}
 
@@ -213,4 +219,51 @@ def _vision_report_section(payload: dict) -> str:
                 lines.append("- 论文贡献候选：" + "、".join(labels))
     if not payload.get("figures"):
         lines.extend(["", "未提取到可展示的论文 Figure；原论文文本解析和规则代码对齐不受影响。"])
+    return "\n".join(lines) + "\n"
+
+
+def _teaching_diagram_report_section(payload: dict) -> str:
+    lines = [
+        "", "## 教学图", "",
+        f"- 状态：{payload.get('status', 'disabled')}",
+        f"- 本地教学图开启：{payload.get('teaching_diagrams_enabled', False)}",
+        f"- AI 图片生成开启：{payload.get('image_generation_enabled', False)}",
+        f"- 图片外发授权：{payload.get('external_image_consent', False)}",
+        f"- 教学图审查开启：{payload.get('teaching_review_vlm_enabled', False)}",
+        f"- 视觉审查授权：{payload.get('external_vision_consent', False)}",
+    ]
+    budget = payload.get("budget", {})
+    if budget:
+        image_budget = budget.get("teaching_image", {})
+        review_budget = budget.get("teaching_review", {})
+        lines.append(
+            f"- 图片 Provider 请求：{image_budget.get('sent_provider_requests', 0)} / "
+            f"{image_budget.get('max_provider_requests', 0)}"
+        )
+        lines.append(
+            f"- 审查 Provider 请求：{review_budget.get('sent_provider_requests', 0)} / "
+            f"{review_budget.get('max_provider_requests', 0)}"
+        )
+    diagrams = payload.get("diagrams", [])
+    if not diagrams:
+        lines.append("")
+        lines.append("未生成教学图；Mermaid 图和规则分析结果不受影响。")
+        return "\n".join(lines) + "\n"
+    for item in diagrams:
+        lines.extend(["", f"### {item.get('title', item.get('diagram_id', '教学图'))}", ""])
+        if item.get("related_mermaid_diagram_ids"):
+            lines.append("- 对应 Mermaid：" + "、".join(item["related_mermaid_diagram_ids"]))
+        if item.get("blueprint_png", {}).get("path"):
+            lines.append(f"- Blueprint PNG：`{item['blueprint_png']['path']}`")
+        if item.get("styled_composite", {}).get("path"):
+            lines.append(f"- styled_composite：`{item['styled_composite']['path']}`")
+        if item.get("final_asset", {}).get("path"):
+            lines.append(f"- final：`{item['final_asset']['path']}`")
+        lines.append(f"- 当前展示：{item.get('display_variant', 'blueprint')}")
+        if item.get("fallback_reason"):
+            lines.append(f"- 回退原因：{item['fallback_reason']}")
+        review = item.get("review") or {}
+        if review:
+            lines.append(f"- 审查分数：{review.get('overall_score')}；通过：{review.get('passed')}")
+    lines.extend(["", "AI 教学示意图可能做视觉简化，请以规则分析和本地 Blueprint 为准。"])
     return "\n".join(lines) + "\n"

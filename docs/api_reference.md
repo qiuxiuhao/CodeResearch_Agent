@@ -37,7 +37,11 @@ POST /analysis/tasks
   "text_llm_enabled": false,
   "vision_vlm_enabled": false,
   "external_text_consent": false,
-  "external_vision_consent": false
+  "external_vision_consent": false,
+  "teaching_diagrams_enabled": true,
+  "image_generation_enabled": false,
+  "external_image_consent": false,
+  "teaching_review_vlm_enabled": false
 }
 ```
 
@@ -57,6 +61,10 @@ Multipart 字段：
 - `vision_vlm_enabled`：可选，默认 false
 - `external_text_consent`：文本能力启用时必须为 true
 - `external_vision_consent`：视觉能力启用时必须为 true
+- `teaching_diagrams_enabled`：可选，默认 true，本地 Blueprint 不需要外发授权
+- `image_generation_enabled`：可选，默认 false
+- `external_image_consent`：AI 教学图视觉层启用时必须为 true
+- `teaching_review_vlm_enabled`：可选，默认 false，启用时需要 `external_vision_consent`
 - `analysis_mode` / `external_model_consent`：仅用于兼容旧文本能力客户端
 
 任一外部能力未获得对应授权时返回 HTTP 400，且不会创建分析任务或发送外部请求。
@@ -99,10 +107,13 @@ GET /analysis/tasks/{task_id}/report
 
 - `text_llm_enabled`：是否启用文本 LLM。
 - `vision_vlm_enabled`：是否启用论文 VLM。
+- `image_generation_enabled`：是否启用 AI 教学图视觉层。
+- `teaching_review_vlm_enabled`：是否启用教学图 VLM 审查。
 - `external_text_consent`：文本外发授权。
 - `external_vision_consent`：论文 Figure 外发授权。
+- `external_image_consent`：脱敏 TeachingDiagramSpec 外发给图片生成服务商的授权。
 
-两种授权由后端独立校验。旧 `analysis_mode`/`external_model_consent` 暂时兼容文本能力，但绝不能授权图片外发。
+三类授权由后端独立校验。旧 `analysis_mode`/`external_model_consent` 暂时兼容文本能力，但绝不能授权图片生成或视觉审查外发。
 
 ### Figure Preview
 
@@ -123,9 +134,21 @@ GET /analysis/tasks/{task_id}/figures/{figure_id}/assets/{asset_id}
 ```text
 GET /llm/public-config
 GET /vision/public-config
+GET /image-generation/public-config
 ```
 
 仅返回安全的默认开关、预算、并发、模型名和 Provider 是否配置，不返回 API key。
+
+### 教学图资产
+
+```text
+GET /analysis/tasks/{task_id}/teaching-diagrams/{diagram_id}/blueprint.svg
+GET /analysis/tasks/{task_id}/teaching-diagrams/{diagram_id}/blueprint.png
+GET /analysis/tasks/{task_id}/teaching-diagrams/{diagram_id}/final.png
+GET /analysis/tasks/{task_id}/teaching-diagrams/{diagram_id}/raw.png
+```
+
+只返回 `teaching_diagrams/manifest.json` 中登记且位于任务目录内的资产。`raw.png` 可能不存在；前端应优先展示通过审查的 `final.png`，否则展示 Blueprint。
 
 ## 全局函数库
 

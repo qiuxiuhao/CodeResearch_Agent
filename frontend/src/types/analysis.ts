@@ -39,6 +39,14 @@ export type TaskSummary = {
   vision_status?: string;
   figure_count?: number;
   vision_budget?: LLMBudget;
+  teaching_diagrams_enabled?: boolean;
+  image_generation_enabled?: boolean;
+  teaching_review_vlm_enabled?: boolean;
+  external_image_consent?: boolean;
+  teaching_diagram_status?: string;
+  teaching_diagram_count?: number;
+  teaching_image_budget?: LLMBudget;
+  teaching_review_budget?: LLMBudget;
 };
 
 export type LibraryCall = {
@@ -200,6 +208,7 @@ export type LLMPublicConfig = {
   external_model_notice: string;
   default_text_llm_enabled?: boolean;
   vision?: VisionPublicConfig;
+  image_generation?: ImageGenerationPublicConfig;
 };
 
 export type VisionPublicConfig = {
@@ -209,6 +218,15 @@ export type VisionPublicConfig = {
   max_concurrency: number;
   providers: Record<string, { configured: boolean; model: string }>;
   external_vision_notice: string;
+};
+
+export type ImageGenerationPublicConfig = {
+  default_image_generation_enabled: boolean;
+  default_teaching_review_vlm_enabled: boolean;
+  max_provider_requests: number;
+  max_concurrency: number;
+  providers: Record<string, { configured: boolean; model: string }>;
+  external_image_notice: string;
 };
 
 export type FigureAnalysis = {
@@ -268,6 +286,42 @@ export type Diagram = {
   warnings?: string[];
 };
 
+export type TeachingDiagramAsset = {
+  path: string;
+  mime_type: string;
+  width: number;
+  height: number;
+  byte_size: number;
+  sha256: string;
+};
+
+export type TeachingDiagramItem = {
+  diagram_id: string;
+  title: string;
+  related_mermaid_diagram_ids?: string[];
+  blueprint_svg?: TeachingDiagramAsset | null;
+  blueprint_png?: TeachingDiagramAsset | null;
+  generated_raw?: TeachingDiagramAsset | null;
+  styled_composite?: TeachingDiagramAsset | null;
+  final_asset?: TeachingDiagramAsset | null;
+  display_variant?: "blueprint" | "ai";
+  fallback_reason?: string | null;
+  review?: { passed?: boolean; overall_score?: number } | null;
+  warnings?: string[];
+};
+
+export type TeachingDiagramManifest = {
+  version?: string;
+  status?: string;
+  teaching_diagrams_enabled?: boolean;
+  image_generation_enabled?: boolean;
+  teaching_review_vlm_enabled?: boolean;
+  external_image_consent?: boolean;
+  external_vision_consent?: boolean;
+  diagrams?: TeachingDiagramItem[];
+  warnings?: Array<Record<string, unknown> | string>;
+};
+
 export type AnalysisResult = {
   task_id: string;
   summary?: TaskSummary;
@@ -284,6 +338,7 @@ export type AnalysisResult = {
   paper_analysis?: { paper_analysis?: Record<string, unknown> };
   paper_code_alignment?: { paper_code_alignment?: Record<string, unknown> };
   diagrams?: { diagrams?: Diagram[]; warnings?: string[] };
+  teaching_diagrams?: TeachingDiagramManifest;
   library_function_docs?: { library_function_docs?: LibraryFunctionDoc[] };
   llm_explanations?: LLMExplanations;
   paper_figure_analysis?: PaperFigureAnalysis;

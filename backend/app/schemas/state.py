@@ -47,6 +47,18 @@ class AgentState(TypedDict, total=False):
     llm_budget: dict
     paper_figure_analysis: dict
     vision_budget: dict
+    teaching_diagrams_enabled: bool
+    image_generation_enabled: bool
+    teaching_review_vlm_enabled: bool
+    external_image_consent: bool
+    teaching_diagram_specs: list[dict]
+    teaching_diagram_skeletons: list[dict]
+    teaching_diagram_manifest: dict
+    diagram_evidence_catalog: list[dict]
+    teaching_diagram_warnings: list[dict]
+    teaching_plan_budget: dict
+    teaching_image_budget: dict
+    teaching_review_budget: dict
 
     report_md: str
     errors: list[dict]

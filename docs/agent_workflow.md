@@ -21,6 +21,9 @@ model_explain_llm
 paper_figure_analyze_vlm
 paper_code_align_llm
 diagram_generate
+teaching_diagram_plan
+teaching_diagram_generate
+teaching_diagram_review_vlm
 library_function_doc
 report_generate
 ```
@@ -41,6 +44,9 @@ report_generate
 - `paper_figure_analyze_vlm`：在图片 consent 通过后分析筛选 Figure，不读取整个 PDF，也不生成代码目标。
 - `paper_code_align_llm`：在文本 LLM 开启时读取规则对齐和可用 FigureAnalysis，并仅从代码 evidence catalog 生成建议关联。
 - `diagram_generate`：基于已有结构化结果生成 Mermaid 源码图。
+- `teaching_diagram_plan`：读取规则事实和 `diagrams.json`，本地生成教学图 Skeleton/Spec；文案可扩展为 DeepSeek/Qwen，但不得改变模块、连接、Shape 或公式。
+- `teaching_diagram_generate`：先生成本地 Blueprint SVG/PNG，再在独立图片授权通过时尝试生成 AI raw 图并由本地 Compositor 合成。
+- `teaching_diagram_review_vlm`：在独立视觉授权通过时审查 `styled_composite.png`，不合格则回退 Blueprint。
 - `library_function_doc`：把教学级库函数说明写入 SQLite，并复用已有说明。
 - `report_generate`：保存最终 JSON 产物并生成 `report.md`。
 
@@ -51,4 +57,4 @@ report_generate
 - 分析流程中不做网络检索。
 - 重要结论尽量带 evidence 和 confidence。
 - 论文 PDF 等可选输入缺失时，输出空结构，不影响代码分析主流程。
-- 默认纯规则模式零外部调用；文本和视觉能力具有独立 consent、预算、缓存和 retry/fallback 计数。
+- 默认纯规则模式零外部调用；文本、论文视觉、教学图图片生成和教学图审查具有独立 consent、预算、缓存和 retry/fallback 计数。

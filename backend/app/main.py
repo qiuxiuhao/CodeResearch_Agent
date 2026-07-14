@@ -17,12 +17,13 @@ from backend.app.services.analysis_service import (
     summarize_state,
 )
 from backend.app.services.library_function_service import LibraryFunctionService
+from backend.app.image_generation.config import ImageGenerationSettings
 from backend.app.llm.config import LLMSettings
 from backend.app.vision.config import VisionSettings
 from backend.app.config.pdf_safety import PDFSafetySettings, zip_max_file_bytes
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.2.4")
+app = FastAPI(title="CodeResearch Agent", version="1.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -43,6 +44,10 @@ class AnalysisTaskRequest(BaseModel):
     vision_vlm_enabled: bool | None = None
     external_text_consent: bool | None = None
     external_vision_consent: bool = False
+    teaching_diagrams_enabled: bool = True
+    image_generation_enabled: bool | None = None
+    external_image_consent: bool = False
+    teaching_review_vlm_enabled: bool | None = None
 
 
 @app.get("/health")
@@ -63,6 +68,8 @@ def create_analysis_task(request: AnalysisTaskRequest) -> dict:
             request.analysis_mode, request.external_model_consent,
             request.text_llm_enabled, request.vision_vlm_enabled,
             request.external_text_consent, request.external_vision_consent,
+            request.teaching_diagrams_enabled, request.image_generation_enabled,
+            request.external_image_consent, request.teaching_review_vlm_enabled,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -81,6 +88,10 @@ async def create_analysis_task_from_upload(
     vision_vlm_enabled: bool | None = Form(None),
     external_text_consent: bool | None = Form(None),
     external_vision_consent: bool = Form(False),
+    teaching_diagrams_enabled: bool = Form(True),
+    image_generation_enabled: bool | None = Form(None),
+    external_image_consent: bool = Form(False),
+    teaching_review_vlm_enabled: bool | None = Form(None),
 ) -> dict:
     if not zip_file.filename or not zip_file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="zip_file must be a .zip file.")
@@ -88,7 +99,8 @@ async def create_analysis_task_from_upload(
         raise HTTPException(status_code=400, detail="paper_pdf must be a .pdf file.")
     _validate_external_ai_consents(
         analysis_mode, external_model_consent, text_llm_enabled, vision_vlm_enabled,
-        external_text_consent, external_vision_consent,
+        external_text_consent, external_vision_consent, image_generation_enabled,
+        external_image_consent, teaching_review_vlm_enabled,
     )
 
     upload_dir = Path(output_root) / "_uploads" / uuid4().hex
@@ -106,18 +118,28 @@ async def create_analysis_task_from_upload(
     state = _run_analysis_with_llm_options(
         zip_path, output_root, library_db_path, paper_pdf_path, analysis_mode, external_model_consent,
         text_llm_enabled, vision_vlm_enabled, external_text_consent, external_vision_consent,
+        teaching_diagrams_enabled, image_generation_enabled, external_image_consent, teaching_review_vlm_enabled,
     )
     return summarize_state(state)
 
 
 @app.get("/llm/public-config")
 def get_llm_public_config() -> dict:
-    return {**LLMSettings.from_env().public_config(), "vision": VisionSettings.from_env().public_config()}
+    return {
+        **LLMSettings.from_env().public_config(),
+        "vision": VisionSettings.from_env().public_config(),
+        "image_generation": ImageGenerationSettings.from_env().public_config(),
+    }
 
 
 @app.get("/vision/public-config")
 def get_vision_public_config() -> dict:
     return VisionSettings.from_env().public_config()
+
+
+@app.get("/image-generation/public-config")
+def get_image_generation_public_config() -> dict:
+    return ImageGenerationSettings.from_env().public_config()
 
 
 @app.get("/analysis/tasks/{task_id}")
@@ -164,6 +186,32 @@ def get_figure_original_asset(task_id: str, figure_id: str, asset_id: str, outpu
     candidate = Path(asset_path).resolve()
     if root not in candidate.parents or not candidate.is_file():
         raise HTTPException(status_code=404, detail="Figure original asset not found.")
+    return FileResponse(candidate, media_type=asset.get("mime_type") or "application/octet-stream")
+
+
+@app.get("/analysis/tasks/{task_id}/teaching-diagrams/{diagram_id}/{asset_name}")
+def get_teaching_diagram_asset(task_id: str, diagram_id: str, asset_name: str, output_root: str = "outputs"):
+    if asset_name not in {"blueprint.svg", "blueprint.png", "final.png", "raw.png"}:
+        raise HTTPException(status_code=404, detail="Teaching diagram asset not found.")
+    result = load_task_result(task_id, output_root)
+    diagrams = result.get("teaching_diagrams", {}).get("diagrams", [])
+    item = next((diagram for diagram in diagrams if diagram.get("diagram_id") == diagram_id), None)
+    if not item:
+        raise HTTPException(status_code=404, detail="Teaching diagram not found.")
+    asset_key = {
+        "blueprint.svg": "blueprint_svg",
+        "blueprint.png": "blueprint_png",
+        "final.png": "final_asset",
+        "raw.png": "generated_raw",
+    }[asset_name]
+    asset = item.get(asset_key) or {}
+    path_value = asset.get("path")
+    if not path_value:
+        raise HTTPException(status_code=404, detail="Teaching diagram asset not found.")
+    root = (Path(output_root) / task_id).resolve()
+    candidate = Path(path_value).resolve()
+    if root not in candidate.parents or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Teaching diagram asset not found.")
     return FileResponse(candidate, media_type=asset.get("mime_type") or "application/octet-stream")
 
 
@@ -224,6 +272,8 @@ def _validate_external_model_consent(analysis_mode: str | None, consent: bool) -
 def _validate_external_ai_consents(
     analysis_mode: str | None, legacy_consent: bool, text_enabled: bool | None,
     vision_enabled: bool | None, text_consent: bool | None, vision_consent: bool,
+    image_enabled: bool | None = None, image_consent: bool = False,
+    teaching_review_enabled: bool | None = None,
 ) -> None:
     resolved_text_consent = legacy_consent if text_consent is None else text_consent
     if LLMSettings.from_env(analysis_mode, text_enabled).text_llm_enabled and not resolved_text_consent:
@@ -233,23 +283,39 @@ def _validate_external_ai_consents(
         )
     if VisionSettings.from_env(vision_enabled).enabled and not vision_consent:
         raise HTTPException(status_code=400, detail="vision_vlm_enabled=true requires external_vision_consent=true.")
+    image_settings = ImageGenerationSettings.from_env(image_enabled, image_consent, teaching_review_enabled)
+    if image_settings.enabled and not image_consent:
+        raise HTTPException(status_code=400, detail="image_generation_enabled=true requires external_image_consent=true.")
+    if image_settings.teaching_review_vlm_enabled and not vision_consent:
+        raise HTTPException(status_code=400, detail="teaching_review_vlm_enabled=true requires external_vision_consent=true.")
 
 
 def _run_analysis_with_llm_options(
     zip_path, output_root, library_db_path, paper_pdf_path, analysis_mode: str | None, consent: bool,
     text_enabled: bool | None = None, vision_enabled: bool | None = None,
     text_consent: bool | None = None, vision_consent: bool = False,
+    teaching_diagrams_enabled: bool = True, image_enabled: bool | None = None,
+    image_consent: bool = False, teaching_review_enabled: bool | None = None,
 ):
     _validate_external_ai_consents(
         analysis_mode, consent, text_enabled, vision_enabled, text_consent, vision_consent,
+        image_enabled, image_consent, teaching_review_enabled,
     )
-    if analysis_mode is None and not consent and text_enabled is None and vision_enabled is None and text_consent is None and not vision_consent:
+    if (
+        analysis_mode is None and not consent and text_enabled is None and vision_enabled is None
+        and text_consent is None and not vision_consent and teaching_diagrams_enabled
+        and image_enabled is None and not image_consent and teaching_review_enabled is None
+    ):
         return run_analysis(zip_path, output_root, library_db_path, paper_pdf_path)
     return run_analysis(
         zip_path, output_root, library_db_path, paper_pdf_path,
         analysis_mode=analysis_mode, external_model_consent=consent,
         text_llm_enabled=text_enabled, vision_vlm_enabled=vision_enabled,
         external_text_consent=text_consent, external_vision_consent=vision_consent,
+        teaching_diagrams_enabled=teaching_diagrams_enabled,
+        image_generation_enabled=image_enabled,
+        external_image_consent=image_consent,
+        teaching_review_vlm_enabled=teaching_review_enabled,
     )
 
 

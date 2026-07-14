@@ -11,8 +11,11 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
   const [inputMode, setInputMode] = useState<"path" | "upload">("path");
   const [textLLMEnabled, setTextLLMEnabled] = useState(false);
   const [visionVLMEnabled, setVisionVLMEnabled] = useState(false);
+  const [imageGenerationEnabled, setImageGenerationEnabled] = useState(false);
+  const [teachingReviewVLMEnabled, setTeachingReviewVLMEnabled] = useState(false);
   const [externalTextConsent, setExternalTextConsent] = useState(false);
   const [externalVisionConsent, setExternalVisionConsent] = useState(false);
+  const [externalImageConsent, setExternalImageConsent] = useState(false);
   const [llmConfig, setLLMConfig] = useState<LLMPublicConfig | null>(null);
   const [zipPath, setZipPath] = useState("examples/small_pytorch_project.zip");
   const [paperPath, setPaperPath] = useState("");
@@ -43,6 +46,12 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
       if (visionVLMEnabled && !externalVisionConsent) {
         throw new Error("启用论文 Figure AI 理解前必须单独同意论文图片外发");
       }
+      if (imageGenerationEnabled && !externalImageConsent) {
+        throw new Error("启用 AI 教学图视觉层前必须单独同意脱敏教学图 Spec 外发");
+      }
+      if (teachingReviewVLMEnabled && !externalVisionConsent) {
+        throw new Error("启用教学图 VLM 审查前必须同意视觉审查外发");
+      }
       const summary =
         inputMode === "path"
           ? await createTaskByPath({
@@ -54,7 +63,11 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
               text_llm_enabled: textLLMEnabled,
               vision_vlm_enabled: visionVLMEnabled,
               external_text_consent: externalTextConsent,
-              external_vision_consent: externalVisionConsent
+              external_vision_consent: externalVisionConsent,
+              teaching_diagrams_enabled: true,
+              image_generation_enabled: imageGenerationEnabled,
+              external_image_consent: externalImageConsent,
+              teaching_review_vlm_enabled: teachingReviewVLMEnabled
             })
           : await submitUpload();
       await onTaskCreated(summary);
@@ -78,6 +91,10 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
     formData.append("vision_vlm_enabled", String(visionVLMEnabled));
     formData.append("external_text_consent", String(externalTextConsent));
     formData.append("external_vision_consent", String(externalVisionConsent));
+    formData.append("teaching_diagrams_enabled", "true");
+    formData.append("image_generation_enabled", String(imageGenerationEnabled));
+    formData.append("external_image_consent", String(externalImageConsent));
+    formData.append("teaching_review_vlm_enabled", String(teachingReviewVLMEnabled));
     if (paperFile) {
       formData.append("paper_pdf", paperFile);
     }
@@ -164,6 +181,30 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
               </label>
             </div>
           )}
+          <label className="checkbox-label">
+            <input type="checkbox" checked={imageGenerationEnabled} onChange={(event) => {
+              setImageGenerationEnabled(event.target.checked);
+              if (!event.target.checked) setExternalImageConsent(false);
+            }} />
+            AI 教学图视觉层（Qwen-Image / Seedream，Blueprint 始终本地生成）
+          </label>
+          {imageGenerationEnabled && (
+            <div className="consent-panel">
+              <p>{llmConfig?.image_generation?.external_image_notice ?? "脱敏后的 TeachingDiagramSpec 可能发送到外部图片生成服务商，并可能产生费用。"}</p>
+              <p>
+                最多发送图片 Provider 请求：{llmConfig?.image_generation?.max_provider_requests ?? 8}；
+                最大并发：{llmConfig?.image_generation?.max_concurrency ?? 2}。
+              </p>
+              <label className="checkbox-label">
+                <input type="checkbox" checked={externalImageConsent} onChange={(event) => setExternalImageConsent(event.target.checked)} />
+                我确认脱敏后的教学图 Spec 允许发送到外部图片生成服务商
+              </label>
+            </div>
+          )}
+          <label className="checkbox-label">
+            <input type="checkbox" checked={teachingReviewVLMEnabled} onChange={(event) => setTeachingReviewVLMEnabled(event.target.checked)} />
+            教学图 VLM 审查（Qwen-VL / GLM，复用视觉授权）
+          </label>
         </fieldset>
         <button className="primary-button" disabled={isSubmitting} type="submit">
           {isSubmitting ? "分析中..." : "开始分析"}

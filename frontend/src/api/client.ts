@@ -19,6 +19,10 @@ export type CreateTaskPayload = {
   vision_vlm_enabled?: boolean;
   external_text_consent?: boolean;
   external_vision_consent?: boolean;
+  teaching_diagrams_enabled?: boolean;
+  image_generation_enabled?: boolean;
+  external_image_consent?: boolean;
+  teaching_review_vlm_enabled?: boolean;
 };
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -78,6 +82,10 @@ export function figurePreviewUrl(taskId: string, figureId: string): string {
 
 export function figureAssetUrl(taskId: string, figureId: string, assetId: string): string {
   return `/analysis/tasks/${encodeURIComponent(taskId)}/figures/${encodeURIComponent(figureId)}/assets/${encodeURIComponent(assetId)}`;
+}
+
+export function teachingDiagramAssetUrl(taskId: string, diagramId: string, assetName: "blueprint.svg" | "blueprint.png" | "final.png" | "raw.png"): string {
+  return `/analysis/tasks/${encodeURIComponent(taskId)}/teaching-diagrams/${encodeURIComponent(diagramId)}/${assetName}`;
 }
 
 export type GlobalLibraryQuery = {
