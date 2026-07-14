@@ -130,6 +130,13 @@ class VisionModelRouter:
                     warnings.append(_warning(exc.code, context_id, provider=provider.name, attempt=attempt + 1, message=str(exc)))
                     if not exc.recoverable:
                         break
+                except Exception:
+                    self.budget.record_request_result(reservation.reservation_id, "failed")
+                    warnings.append(_warning(
+                        "vlm_unexpected_provider_error", context_id, provider=provider.name,
+                        attempt=attempt + 1,
+                        message="Unexpected Vision Provider failure; retry or fallback may continue.",
+                    ))
         warnings.append(_warning("vlm_all_providers_failed", context_id))
         return VisionRouterResult(None, warnings)
 

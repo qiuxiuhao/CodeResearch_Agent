@@ -192,6 +192,46 @@ def test_vision_router_falls_back_to_glm_and_counts_requests(tmp_path):
     assert runtime.budget.snapshot()["sent_provider_requests"] == 2
 
 
+def test_unexpected_provider_error_is_counted_as_failed_request(tmp_path):
+    settings = VisionSettings.from_env(True).model_copy(update={
+        "cache_enabled": False, "max_retries": 0,
+    })
+    runtime = create_vision_runtime(
+        settings, [MockVisionProvider("qwen_vl", error=RuntimeError("sdk internal details"))]
+    )
+    runtime.budget.try_reserve_entities("paper_figure_analyze", 1)
+
+    result = _request(runtime)
+
+    snapshot = runtime.budget.snapshot()
+    assert result.value is None
+    assert snapshot["reserved_provider_requests"] == 1
+    assert snapshot["sent_provider_requests"] == 1
+    assert snapshot["successful_provider_requests"] == 0
+    assert any(item["code"] == "vlm_unexpected_provider_error" for item in result.warnings)
+    assert all("sdk internal details" not in item["message"] for item in result.warnings)
+
+
+def test_unexpected_primary_error_can_fallback_to_glm(tmp_path):
+    settings = VisionSettings.from_env(True).model_copy(update={
+        "cache_enabled": False, "max_retries": 0,
+    })
+    primary = MockVisionProvider("qwen_vl", error=RuntimeError("unknown SDK failure"))
+    fallback = MockVisionProvider("glm_v", response=_response)
+    runtime = create_vision_runtime(settings, [primary, fallback])
+    runtime.budget.try_reserve_entities("paper_figure_analyze", 1)
+
+    result = _request(runtime)
+
+    snapshot = runtime.budget.snapshot()
+    assert result.value is not None
+    assert result.value.metadata.provider == "glm_v"
+    assert result.value.metadata.fallback_used is True
+    assert snapshot["sent_provider_requests"] == 2
+    assert snapshot["successful_provider_requests"] == 1
+    assert any(item["code"] == "vlm_unexpected_provider_error" for item in result.warnings)
+
+
 def test_real_provider_adapters_default_to_prompt_json_without_response_format():
     captured = []
 

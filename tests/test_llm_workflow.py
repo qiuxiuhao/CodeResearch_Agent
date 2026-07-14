@@ -96,6 +96,35 @@ def test_hybrid_without_configured_provider_is_skipped(tmp_path):
     assert (Path(state["output_dir"]) / "function_analysis.json").exists()
 
 
+def test_hybrid_cache_directory_error_keeps_rule_outputs_and_report(tmp_path):
+    cache_directory = tmp_path / "cache-dir"
+    cache_directory.mkdir()
+    settings = LLMSettings.from_env("hybrid").model_copy(update={
+        "cache_path": str(cache_directory), "cache_enabled": True,
+        "max_retries": 0, "max_file_explanations": 1,
+        "max_function_explanations": 1, "max_model_explanations": 1,
+    })
+    provider = MockProvider("deepseek", responses={
+        "file_explain": _file_response,
+        "function_explain": _function_response,
+        "model_explain": _model_response,
+    })
+    runtime = create_llm_runtime(settings, [provider])
+
+    state = run_analysis(
+        "examples/small_pytorch_project.zip", tmp_path / "outputs", tmp_path / "library.sqlite3",
+        analysis_mode="hybrid", external_model_consent=True, llm_runtime=runtime,
+    )
+    output_dir = Path(state["output_dir"])
+    llm_payload = json.loads((output_dir / "llm_explanations.json").read_text(encoding="utf-8"))
+
+    assert provider.calls
+    assert any(item["code"] == "llm_cache_error" for item in llm_payload["warnings"])
+    assert (output_dir / "function_analysis.json").exists()
+    assert (output_dir / "diagrams.json").exists()
+    assert "## AI 增强解释" in (output_dir / "report.md").read_text(encoding="utf-8")
+
+
 def test_same_named_functions_from_different_files_keep_their_own_source(tmp_path):
     settings = LLMSettings.from_env("hybrid").model_copy(update={
         "cache_path": str(tmp_path / "cache.sqlite3"), "cache_enabled": False,

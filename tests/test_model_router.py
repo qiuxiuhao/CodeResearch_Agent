@@ -1,4 +1,5 @@
 import json
+import sqlite3
 
 from backend.app.llm.budget import BudgetManager
 from backend.app.llm.cache import LLMCache
@@ -50,6 +51,76 @@ def test_router_cache_hit_uses_no_second_request(tmp_path):
     assert cached.value.metadata.cache_hit is True
     assert len(provider.calls) == 1
     assert budget.snapshot()["sent_provider_requests"] == 1
+
+
+def test_llm_cache_path_directory_falls_back_to_provider(tmp_path):
+    cache_directory = tmp_path / "cache-dir"
+    cache_directory.mkdir()
+    settings = LLMSettings.from_env("hybrid").model_copy(update={
+        "cache_path": str(cache_directory), "cache_enabled": True, "max_retries": 0,
+    })
+    budget = BudgetManager(5, 5)
+    provider = MockProvider("deepseek", responses={"file_explain": _response()})
+    evidence = [make_evidence("file:main.py", "file_rule", "入口", file_path="main.py")]
+
+    result = ModelRouter(settings, [provider], budget, LLMCache(settings.cache_path)).generate_structured(
+        task_type="file_explain", context_id="main.py", system_prompt="system", input_payload={},
+        response_model=FileLLMExplanation, evidence_catalog=evidence,
+        identity_validator=lambda value: value.file_path == "main.py",
+    )
+
+    assert result.value is not None
+    assert len(provider.calls) == 1
+    assert "llm_cache_error" in result.value.metadata.warning_codes
+    assert any(item["code"] == "llm_cache_error" for item in result.warnings)
+
+
+def test_llm_cache_write_failure_keeps_validated_result(monkeypatch, tmp_path):
+    settings = LLMSettings.from_env("hybrid").model_copy(update={
+        "cache_path": str(tmp_path / "readonly.sqlite3"), "cache_enabled": True, "max_retries": 0,
+    })
+    budget = BudgetManager(5, 5)
+    provider = MockProvider("deepseek", responses={"file_explain": _response()})
+    cache = LLMCache(settings.cache_path)
+    monkeypatch.setattr(cache, "set", lambda *args, **kwargs: (_ for _ in ()).throw(PermissionError()))
+    evidence = [make_evidence("file:main.py", "file_rule", "入口", file_path="main.py")]
+
+    result = ModelRouter(settings, [provider], budget, cache).generate_structured(
+        task_type="file_explain", context_id="main.py", system_prompt="system", input_payload={},
+        response_model=FileLLMExplanation, evidence_catalog=evidence,
+    )
+
+    assert result.value is not None
+    assert result.value.metadata.status == "success"
+    assert "llm_cache_error" in result.value.metadata.warning_codes
+    assert budget.snapshot()["successful_provider_requests"] == 1
+
+
+def test_corrupt_llm_cache_json_is_ignored_and_provider_is_called(tmp_path):
+    cache_path = tmp_path / "cache.sqlite3"
+    settings = LLMSettings.from_env("hybrid").model_copy(update={
+        "cache_path": str(cache_path), "cache_enabled": True, "max_retries": 0,
+    })
+    evidence = [make_evidence("file:main.py", "file_rule", "入口", file_path="main.py")]
+    common = dict(
+        task_type="file_explain", context_id="main.py", system_prompt="system", input_payload={},
+        response_model=FileLLMExplanation, evidence_catalog=evidence,
+    )
+    first_provider = MockProvider("deepseek", responses={"file_explain": _response()})
+    assert ModelRouter(
+        settings, [first_provider], BudgetManager(5, 5), LLMCache(str(cache_path))
+    ).generate_structured(**common).value is not None
+    with sqlite3.connect(cache_path) as connection:
+        connection.execute("UPDATE llm_cache SET response_json='{broken-json'")
+
+    second_provider = MockProvider("deepseek", responses={"file_explain": _response()})
+    result = ModelRouter(
+        settings, [second_provider], BudgetManager(5, 5), LLMCache(str(cache_path))
+    ).generate_structured(**common)
+
+    assert result.value is not None
+    assert len(second_provider.calls) == 1
+    assert any(item["code"] == "llm_cache_error" for item in result.warnings)
 
 
 def test_http_success_with_invalid_schema_is_not_counted_as_success(tmp_path):

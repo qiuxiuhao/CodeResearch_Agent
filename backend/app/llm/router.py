@@ -58,9 +58,15 @@ class ModelRouter:
             return RouterResult(None, [*warnings, _warning("llm_provider_unconfigured", task_type, context_id)])
 
         total_attempts = 0
-        warning_codes = [warning["code"] for warning in warnings]
         for provider_index, provider in available:
-            cached = self.cache.get(provider.name, provider.model, prompt_version, task_type, input_hash)
+            try:
+                cached = self.cache.get(provider.name, provider.model, prompt_version, task_type, input_hash)
+            except Exception:
+                cached = None
+                warnings.append(_warning(
+                    "llm_cache_error", task_type, context_id, provider=provider.name,
+                    message="LLM cache read failed; continuing without cache.",
+                ))
             if cached is not None:
                 try:
                     value = response_model.model_validate(cached)
@@ -74,10 +80,10 @@ class ModelRouter:
                     metadata = _metadata(
                         task_type, "fallback" if provider_index else "success", provider.name, provider.model,
                         total_attempts, provider_index > 0, input_hash, prompt_version, input_truncated,
-                        cache_hit=True, warning_codes=warning_codes,
+                        cache_hit=True, warning_codes=[warning["code"] for warning in warnings],
                     )
                     return RouterResult(value.model_copy(update={"metadata": metadata}), warnings)
-                except (ValidationError, ValueError):
+                except Exception:
                     warnings.append(_warning("llm_cache_error", task_type, context_id, provider=provider.name))
 
             for attempt in range(self.settings.max_retries + 1):
@@ -116,7 +122,20 @@ class ModelRouter:
                         total_tokens=response.total_tokens, warning_codes=codes,
                     )
                     value = value.model_copy(update={"metadata": metadata})
-                    self.cache.set(provider.name, provider.model, prompt_version, task_type, input_hash, value.model_dump(mode="json"))
+                    try:
+                        self.cache.set(
+                            provider.name, provider.model, prompt_version, task_type, input_hash,
+                            value.model_dump(mode="json"),
+                        )
+                    except Exception:
+                        warnings.append(_warning(
+                            "llm_cache_error", task_type, context_id, provider=provider.name,
+                            message="LLM cache write failed; keeping the validated explanation.",
+                        ))
+                        metadata = metadata.model_copy(update={
+                            "warning_codes": [*metadata.warning_codes, "llm_cache_error"]
+                        })
+                        value = value.model_copy(update={"metadata": metadata})
                     return RouterResult(value, warnings)
                 except ValidationError:
                     self.budget.record_request_result(reservation.reservation_id, "failed")

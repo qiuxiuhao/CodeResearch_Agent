@@ -120,7 +120,7 @@ def test_single_figure_unexpected_error_does_not_abort_other_figures(tmp_path):
 
     assert result["paper_figure_analysis"]["vision_status"] == "partial"
     assert any(
-        item["code"] == "vlm_figure_unexpected_error"
+        item["code"] == "vlm_unexpected_provider_error"
         for item in result["paper_figure_analysis"]["warnings"]
     )
     assert any(item.get("vlm_analysis") for item in result["paper_figure_analysis"]["figures"])
@@ -199,6 +199,12 @@ def test_unexpected_vision_failure_still_completes_rule_workflow(tmp_path):
 
     output_dir = Path(state["output_dir"])
     assert state["paper_figure_analysis"]["vision_status"] == "failed"
+    assert state["paper_figure_analysis"]["budget"]["sent_provider_requests"] == 1
+    assert state["paper_figure_analysis"]["budget"]["successful_provider_requests"] == 0
+    assert any(
+        item["code"] == "vlm_unexpected_provider_error"
+        for item in state["paper_figure_analysis"]["warnings"]
+    )
     assert (output_dir / "diagrams.json").exists()
     assert (output_dir / "library_function_docs.json").exists()
     assert (output_dir / "report.md").exists()
