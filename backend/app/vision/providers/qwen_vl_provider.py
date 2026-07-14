@@ -25,4 +25,6 @@ class QwenVLProvider(HTTPVisionProvider):
         }
         if self.capabilities.supports_json_object:
             payload["response_format"] = {"type": "json_object"}
+        if self.disable_thinking:
+            payload["enable_thinking"] = False
         return payload

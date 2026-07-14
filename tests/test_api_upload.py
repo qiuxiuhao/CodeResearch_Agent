@@ -60,3 +60,30 @@ def test_upload_analysis_task_rejects_non_pdf_paper():
     )
 
     assert response.status_code == 400
+
+
+def test_upload_rejects_zip_over_configured_byte_limit(monkeypatch, tmp_path):
+    monkeypatch.setenv("ZIP_MAX_FILE_BYTES", "1024")
+    response = client.post(
+        "/analysis/tasks/upload",
+        data={"output_root": str(tmp_path)},
+        files={"zip_file": ("project.zip", b"x" * 1025, "application/zip")},
+    )
+
+    assert response.status_code == 413
+    assert "ZIP upload" in response.json()["detail"]
+
+
+def test_upload_rejects_pdf_over_shared_byte_limit(monkeypatch, tmp_path):
+    monkeypatch.setenv("PAPER_MAX_FILE_BYTES", "1024")
+    response = client.post(
+        "/analysis/tasks/upload",
+        data={"output_root": str(tmp_path)},
+        files={
+            "zip_file": ("project.zip", b"zip-bytes", "application/zip"),
+            "paper_pdf": ("paper.pdf", b"p" * 1025, "application/pdf"),
+        },
+    )
+
+    assert response.status_code == 413
+    assert "PDF upload" in response.json()["detail"]

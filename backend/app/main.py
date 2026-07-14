@@ -19,9 +19,10 @@ from backend.app.services.analysis_service import (
 from backend.app.services.library_function_service import LibraryFunctionService
 from backend.app.llm.config import LLMSettings
 from backend.app.vision.config import VisionSettings
+from backend.app.config.pdf_safety import PDFSafetySettings, zip_max_file_bytes
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.2.2")
+app = FastAPI(title="CodeResearch Agent", version="1.2.3")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -93,12 +94,14 @@ async def create_analysis_task_from_upload(
     upload_dir = Path(output_root) / "_uploads" / uuid4().hex
     upload_dir.mkdir(parents=True, exist_ok=True)
     zip_path = upload_dir / Path(zip_file.filename).name
-    zip_path.write_bytes(await zip_file.read())
+    await _save_upload_limited(zip_file, zip_path, zip_max_file_bytes(), "ZIP")
 
     paper_pdf_path: Path | None = None
     if paper_pdf and paper_pdf.filename:
         paper_pdf_path = upload_dir / Path(paper_pdf.filename).name
-        paper_pdf_path.write_bytes(await paper_pdf.read())
+        await _save_upload_limited(
+            paper_pdf, paper_pdf_path, PDFSafetySettings.from_env().max_file_bytes, "PDF"
+        )
 
     state = _run_analysis_with_llm_options(
         zip_path, output_root, library_db_path, paper_pdf_path, analysis_mode, external_model_consent,
@@ -248,3 +251,29 @@ def _run_analysis_with_llm_options(
         text_llm_enabled=text_enabled, vision_vlm_enabled=vision_enabled,
         external_text_consent=text_consent, external_vision_consent=vision_consent,
     )
+
+
+async def _save_upload_limited(
+    upload: UploadFile,
+    destination: Path,
+    max_bytes: int,
+    label: str,
+    chunk_size: int = 1024 * 1024,
+) -> None:
+    received = 0
+    try:
+        with destination.open("wb") as stream:
+            while True:
+                chunk = await upload.read(chunk_size)
+                if not chunk:
+                    break
+                received += len(chunk)
+                if received > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"{label} upload exceeds the configured byte limit.",
+                    )
+                stream.write(chunk)
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise

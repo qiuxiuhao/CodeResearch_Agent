@@ -60,13 +60,29 @@ def main() -> None:
         evidence_catalog=evidence,
     )
     if result.value is None:
-        raise SystemExit(json.dumps({"status": "failed", "warnings": result.warnings}, ensure_ascii=False, indent=2))
+        raise SystemExit(json.dumps({
+            "status": "failed",
+            "provider": provider.name,
+            "model": provider.model,
+            "capabilities": provider.capabilities.model_dump(),
+            "thinking_explicitly_disabled": provider.disable_thinking,
+            "warnings": result.warnings,
+        }, ensure_ascii=False, indent=2))
     value = result.value.model_dump(mode="json")
     metadata = value["metadata"]
     print(json.dumps({
         "status": "success",
         "provider": metadata["provider"],
         "model": metadata["model"],
+        "capabilities": provider.capabilities.model_dump(),
+        "thinking": {
+            "explicitly_disabled": provider.disable_thinking,
+            "provider_parameter": (
+                "enable_thinking=false" if provider.name == "qwen_vl" and provider.disable_thinking
+                else "thinking.type=disabled" if provider.name == "glm_v" and provider.disable_thinking
+                else "provider_default"
+            ),
+        },
         "latency_ms": metadata["latency_ms"],
         "usage": {key: metadata[key] for key in ("input_tokens", "output_tokens", "total_tokens")},
         "schema_valid": True,

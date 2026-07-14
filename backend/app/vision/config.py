@@ -4,6 +4,8 @@ import os
 
 from pydantic import BaseModel, Field
 
+from backend.app.config.pdf_safety import PDFSafetySettings
+
 
 class VisionProviderSettings(BaseModel):
     name: str
@@ -11,6 +13,7 @@ class VisionProviderSettings(BaseModel):
     base_url: str
     model: str
     supports_json_object: bool = False
+    disable_thinking: bool = False
 
     @property
     def configured(self) -> bool:
@@ -34,6 +37,8 @@ class VisionSettings(BaseModel):
     cache_enabled: bool = True
     cache_path: str = "data/vlm_figure_cache.sqlite3"
     prompt_version: str = "1.2.0"
+    schema_version: str = "1.2.3"
+    paper_max_file_bytes: int = Field(default=52_428_800, ge=1024)
     paper_max_pages: int = Field(default=100, ge=1, le=5000)
     paper_max_image_objects: int = Field(default=500, ge=0, le=100000)
     paper_max_figure_candidates: int = Field(default=50, ge=0, le=10000)
@@ -46,6 +51,7 @@ class VisionSettings(BaseModel):
 
     @classmethod
     def from_env(cls, enabled: bool | None = None) -> "VisionSettings":
+        pdf_safety = PDFSafetySettings.from_env()
         return cls(
             enabled=_bool_env("VISION_VLM_ENABLED", False) if enabled is None else enabled,
             qwen_vl=VisionProviderSettings(
@@ -53,12 +59,14 @@ class VisionSettings(BaseModel):
                 base_url=os.getenv("QWEN_VL_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
                 model=os.getenv("QWEN_VL_MODEL", "qwen-vl-plus"),
                 supports_json_object=_bool_env("QWEN_VL_SUPPORTS_JSON_OBJECT", False),
+                disable_thinking=_bool_env("QWEN_VL_DISABLE_THINKING", False),
             ),
             glm_v=VisionProviderSettings(
                 name="glm_v", api_key=os.getenv("GLM_V_API_KEY", ""),
                 base_url=os.getenv("GLM_V_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"),
                 model=os.getenv("GLM_V_MODEL", "glm-4.5v"),
                 supports_json_object=_bool_env("GLM_V_SUPPORTS_JSON_OBJECT", False),
+                disable_thinking=_bool_env("GLM_V_DISABLE_THINKING", False),
             ),
             timeout_seconds=_float_env("VLM_TIMEOUT_SECONDS", 45),
             max_retries=_int_env("VLM_MAX_RETRIES", 1),
@@ -73,7 +81,9 @@ class VisionSettings(BaseModel):
             cache_enabled=_bool_env("VLM_CACHE_ENABLED", True),
             cache_path=os.getenv("VLM_CACHE_PATH", "data/vlm_figure_cache.sqlite3"),
             prompt_version=os.getenv("VLM_PROMPT_VERSION", "1.2.0"),
-            paper_max_pages=_int_env("PAPER_MAX_PAGES", 100),
+            schema_version=os.getenv("VLM_SCHEMA_VERSION", "1.2.3"),
+            paper_max_file_bytes=pdf_safety.max_file_bytes,
+            paper_max_pages=pdf_safety.max_pages,
             paper_max_image_objects=_int_env("PAPER_MAX_IMAGE_OBJECTS", 500),
             paper_max_figure_candidates=_int_env("PAPER_MAX_FIGURE_CANDIDATES", 50),
             paper_max_original_asset_bytes=_int_env("PAPER_MAX_ORIGINAL_ASSET_BYTES", 104_857_600),

@@ -24,7 +24,11 @@ def run_selected_entities(
     selected: list[dict],
     skipped: list[dict],
     response_model: type[BaseModel],
-    prepare: Callable[[dict], tuple[str, dict[str, Any], list[EvidenceItem]]],
+    prepare: Callable[
+        [dict],
+        tuple[str, dict[str, Any], list[EvidenceItem]]
+        | tuple[str, dict[str, Any], list[EvidenceItem], Callable[[BaseModel], None]],
+    ],
 ) -> dict:
     if runtime is None or not state.get("text_llm_enabled", state.get("analysis_mode", "rule") == "hybrid"):
         return {**state, output_field: state.get(output_field, [])}
@@ -70,7 +74,9 @@ def run_selected_entities(
     prompt = load_prompt(prompt_file)
     jobs = []
     for item in allowed:
-        context_id, payload, evidence = prepare(item)
+        prepared = prepare(item)
+        context_id, payload, evidence = prepared[:3]
+        result_validator = prepared[3] if len(prepared) == 4 else None
         sanitized_evidence = []
         evidence_redactions = 0
         for entry in evidence:
@@ -86,14 +92,15 @@ def run_selected_entities(
             })
         catalog = merge_evidence(catalog, evidence)
         payload["evidence_catalog"] = [entry.model_dump() for entry in evidence]
-        jobs.append((context_id, payload, evidence))
+        jobs.append((context_id, payload, evidence, result_validator))
 
     def execute(job):
-        context_id, payload, evidence = job
+        context_id, payload, evidence, result_validator = job
         return context_id, runtime.router.generate_structured(
             task_type=task_type, context_id=context_id, system_prompt=prompt, input_payload=payload,
             response_model=response_model, evidence_catalog=evidence,
             identity_validator=lambda value: _identity_matches(task_type, context_id, value.model_dump()),
+            result_validator=result_validator,
         )
 
     with ThreadPoolExecutor(max_workers=runtime.settings.max_concurrency) as executor:

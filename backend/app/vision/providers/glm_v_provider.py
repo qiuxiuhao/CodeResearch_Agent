@@ -27,4 +27,6 @@ class GLMVProvider(HTTPVisionProvider):
         }
         if self.capabilities.supports_json_object:
             payload["response_format"] = {"type": "json_object"}
+        if self.disable_thinking:
+            payload["thinking"] = {"type": "disabled"}
         return payload

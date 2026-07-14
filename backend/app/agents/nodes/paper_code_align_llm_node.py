@@ -4,6 +4,7 @@ import hashlib
 
 from backend.app.llm.evidence import make_evidence
 from backend.app.llm.node_support import run_selected_entities
+from backend.app.llm.paper_code_link_validator import PaperCodeLinkValidator
 from backend.app.llm.runtime import LLMRuntime
 from backend.app.llm.selection import select_alignments
 from backend.app.schemas.llm_explanation import PaperCodeAlignLLMExplanation
@@ -36,6 +37,7 @@ def paper_code_align_llm_node(state: AgentState, llm_runtime: LLMRuntime | None 
                 start_line=target.get("line_no"), rule_field="paper_code_alignment.matched_targets",
                 confidence=item.get("confidence", "low"),
             ))
+        code_evidence = [entry for entry in evidence if entry.evidence_type == "paper_code_target"]
         related_figures = [
             figure for figure in figure_analyses
             if any(candidate.get("contribution_id") == contribution_id for candidate in figure.get("contribution_candidates", []))
@@ -50,13 +52,18 @@ def paper_code_align_llm_node(state: AgentState, llm_runtime: LLMRuntime | None 
             "contribution": contributions.get(contribution_id, {}),
             "rule_alignment": item,
             "figure_analyses": related_figures,
-            "code_evidence_catalog": [entry.model_dump(mode="json") for entry in evidence if entry.file_path],
+            "code_evidence_catalog": [entry.model_dump(mode="json") for entry in code_evidence],
             "instruction": (
                 "解释规则对齐证据，不得改变 targets、status 或 confidence。possible_code_links 只能作为建议，"
                 "且只能引用 code_evidence_catalog 中已有 ID；不得新增代码目标。"
             ),
         }
-        return contribution_id, payload, evidence
+        validator = PaperCodeLinkValidator(
+            contribution_id=contribution_id,
+            allowed_figure_ids=[str(figure.get("figure_id")) for figure in related_figures],
+            code_evidence_catalog=code_evidence,
+        )
+        return contribution_id, payload, evidence, validator.validate
 
     return run_selected_entities(
         state=state, runtime=llm_runtime, task_type="paper_code_align", output_field="paper_code_align_llm_explanations",

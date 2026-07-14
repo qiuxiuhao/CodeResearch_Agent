@@ -26,6 +26,7 @@ class HTTPVisionProvider(BaseVisionProvider):
         self.api_key = settings.api_key
         self.base_url = settings.base_url.rstrip("/")
         self.model = settings.model
+        self.disable_thinking = settings.disable_thinking
         self.timeout_seconds = timeout_seconds
         self._client = client
         self.capabilities = VisionProviderCapabilities(

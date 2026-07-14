@@ -17,8 +17,14 @@ from backend.app.schemas.paper_figure import (
 from backend.app.vision.config import VisionSettings
 
 
-CAPTION_PATTERN = re.compile(r"^\s*(figure|fig\.?)\s*([0-9]+(?:\s*[a-z])?)\s*[:.\-]?\s*", re.I)
-REFERENCE_PATTERN = re.compile(r"\b(?:figure|fig\.?)\s*([0-9]+(?:\s*[a-z])?)\b", re.I)
+CAPTION_PATTERN = re.compile(
+    r"^\s*(?:(?:figure|fig\.?)\s*|图\s*)(?P<label>[0-9]+(?:\s*[a-z])?)\s*[:：.\-]?\s*",
+    re.I,
+)
+REFERENCE_PATTERN = re.compile(
+    r"(?:(?:\b(?:figure|fig\.?)\s*)|图\s*)(?P<label>[0-9]+(?:\s*[a-z])?)\b",
+    re.I,
+)
 IMPORTANT_WORDS = {"architecture", "framework", "overview", "pipeline", "method", "network", "workflow", "model"}
 
 
@@ -52,6 +58,17 @@ def extract_paper_figures(
         result["extraction_status"] = "failed"
         result["warnings"].append(_warning("paper_figure_pdf_missing", str(path)))
         return result
+    try:
+        if path.stat().st_size > settings.paper_max_file_bytes:
+            result["extraction_status"] = "failed"
+            result["warnings"].append(_warning(
+                "paper_max_file_bytes_exceeded", "论文文件超过 PAPER_MAX_FILE_BYTES，已跳过 Figure 提取。"
+            ))
+            return result
+    except OSError:
+        result["extraction_status"] = "failed"
+        result["warnings"].append(_warning("paper_figure_pdf_unreadable", "无法读取论文文件元数据。"))
+        return result
 
     paper_hash = _file_sha256(path)
     result["paper_hash"] = paper_hash
@@ -64,6 +81,7 @@ def extract_paper_figures(
     original_bytes = 0
     candidates: list[dict[str, Any]] = []
     page_texts: dict[int, str] = {}
+    page_caption_labels: dict[int, list[str]] = {}
     timed_out = False
 
     try:
@@ -79,7 +97,7 @@ def extract_paper_figures(
                 page_number = page_index + 1
                 page_text = page.get_text("text")
                 page_texts[page_number] = page_text
-                references = [_normalize_label(match.group(1)) for match in REFERENCE_PATTERN.finditer(page_text)]
+                references = [_normalize_label(match.group("label")) for match in REFERENCE_PATTERN.finditer(page_text)]
                 result["page_text_index"].append({
                     "page_number": page_number,
                     "text_hash": hashlib.sha256(page_text.encode("utf-8")).hexdigest(),
@@ -88,6 +106,7 @@ def extract_paper_figures(
                 })
                 blocks = _text_blocks(page)
                 captions = _caption_blocks(blocks)
+                page_caption_labels[page_number] = [item["normalized_label"] for item in captions]
                 image_infos = page.get_image_info(xrefs=True)
                 image_object_count += len(image_infos)
                 if image_object_count > settings.paper_max_image_objects:
@@ -123,7 +142,11 @@ def extract_paper_figures(
                         if asset:
                             assets.append(asset)
                             original_bytes += consumed
-                    reference_count = references.count(caption["normalized_label"])
+                    reference_count = max(
+                        0,
+                        references.count(caption["normalized_label"])
+                        - page_caption_labels[page_number].count(caption["normalized_label"]),
+                    )
                     section_name = _section_for_page(page_number, paper_analysis.get("sections", []))
                     score, reasons = _selection_score(caption["text"], reference_count, section_name, figure_bbox, page.rect)
                     candidates.append(PaperFigure(
@@ -152,8 +175,12 @@ def extract_paper_figures(
         result["warnings"].append(_warning("paper_extraction_timeout", "Figure 提取达到时间上限，已保留完成结果。"))
     result["section_page_map"] = _section_page_map(paper_analysis.get("sections", []))
     reference_counts = Counter()
-    for text in page_texts.values():
-        reference_counts.update(_normalize_label(match.group(1)) for match in REFERENCE_PATTERN.finditer(text))
+    for page_number, text in page_texts.items():
+        page_counts = Counter(
+            _normalize_label(match.group("label")) for match in REFERENCE_PATTERN.finditer(text)
+        )
+        page_counts.subtract(page_caption_labels.get(page_number, []))
+        reference_counts.update({key: max(0, count) for key, count in page_counts.items()})
     result["figure_reference_count"] = dict(sorted(reference_counts.items()))
     candidates = _dedupe_candidates(candidates, result["skipped_figures"])
     candidates.sort(key=lambda item: (
@@ -190,10 +217,10 @@ def _caption_blocks(blocks: list[dict]) -> list[dict]:
         match = CAPTION_PATTERN.match(block["text"])
         if not match:
             continue
-        label_number = re.sub(r"\s+", "", match.group(2))
+        label_number = re.sub(r"\s+", "", match.group("label"))
         label = f"Figure {label_number}"
         captions.append({
-            "label": label, "normalized_label": _normalize_label(match.group(2)),
+            "label": label, "normalized_label": _normalize_label(match.group("label")),
             "text": block["text"][:4000], "bbox": block["bbox"], "confidence": "high",
         })
     return captions
@@ -221,19 +248,33 @@ def _figure_bbox(page_rect, caption_bbox, image_infos, drawing_rects, previous_c
     x0, y0, x1, y1 = caption_bbox
     lower_bound = max(0.0, previous_caption_bottom)
     max_lookback = max(lower_bound, y0 - page_rect.height * 0.55)
-    related = []
+    above = []
+    below = []
+    max_lookahead = min(page_rect.height, y1 + page_rect.height * 0.55)
     for info in image_infos:
         bbox = tuple(float(value) for value in info.get("bbox", (0, 0, 0, 0)))
         if len(bbox) == 4 and bbox[1] < y0 and bbox[3] > max_lookback:
-            related.append(bbox)
+            above.append(bbox)
+        if len(bbox) == 4 and bbox[3] > y1 and bbox[1] < max_lookahead:
+            below.append(bbox)
     for bbox in drawing_rects:
         if bbox[1] < y0 and bbox[3] > max_lookback:
-            related.append(bbox)
+            above.append(bbox)
+        if bbox[3] > y1 and bbox[1] < max_lookahead:
+            below.append(bbox)
+    related = above
+    caption_above = False
+    if below and (not above or min(item[1] for item in below) - y1 < y0 - max(item[3] for item in above)):
+        related = below
+        caption_above = True
     if related:
         xs0 = [item[0] for item in related] + [x0]
-        ys0 = [item[1] for item in related]
+        ys0 = [item[1] for item in related] + ([y0] if caption_above else [])
         xs1 = [item[2] for item in related] + [x1]
-        return _clamp_bbox((min(xs0) - 6, min(ys0) - 6, max(xs1) + 6, y1 + 3), page_rect)
+        ys1 = [item[3] for item in related] + [y1]
+        return _clamp_bbox((min(xs0) - 6, min(ys0) - 6, max(xs1) + 6, max(ys1) + 6), page_rect)
+    if y0 < page_rect.height * 0.3:
+        return _clamp_bbox((page_rect.width * 0.04, y0 - 3, page_rect.width * 0.96, max_lookahead), page_rect)
     return _clamp_bbox((page_rect.width * 0.04, max(max_lookback, y0 - page_rect.height * 0.42), page_rect.width * 0.96, y1 + 3), page_rect)
 
 
@@ -387,6 +428,7 @@ def _file_sha256(path):
 
 def _limit_snapshot(settings):
     return {
+        "max_file_bytes": settings.paper_max_file_bytes,
         "max_pages": settings.paper_max_pages,
         "max_image_objects": settings.paper_max_image_objects,
         "max_figure_candidates": settings.paper_max_figure_candidates,

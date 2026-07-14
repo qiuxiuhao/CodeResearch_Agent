@@ -1,6 +1,11 @@
 from pathlib import Path
 
-from backend.app.tools.paper_figure_extract_tool import extract_paper_figures
+from backend.app.tools.paper_figure_extract_tool import (
+    REFERENCE_PATTERN,
+    _caption_blocks,
+    _figure_bbox,
+    extract_paper_figures,
+)
 from backend.app.vision.config import VisionSettings
 
 
@@ -49,7 +54,8 @@ def test_extracts_caption_bbox_stable_id_and_canonical_preview(tmp_path):
     assert Path(preview["path"]).exists()
     assert preview["width"] > 0 and preview["height"] > 0
     assert first["page_text_index"][0]["figure_references"]
-    assert first["figure_reference_count"]["1"] >= 1
+    assert first["figure_reference_count"]["1"] == 1
+    assert figure["reference_count"] == 1
 
 
 def test_pdf_page_limit_preserves_completed_results(tmp_path):
@@ -62,3 +68,31 @@ def test_pdf_page_limit_preserves_completed_results(tmp_path):
     assert result["figures"]
     assert all(item["page_number"] == 1 for item in result["figures"])
     assert any(item["code"] == "paper_max_pages_exceeded" for item in result["warnings"])
+
+
+def test_chinese_caption_variants_are_detected():
+    blocks = [
+        {"bbox": (10, 10, 100, 30), "text": "图 1 模型结构"},
+        {"bbox": (10, 40, 100, 60), "text": "图1：整体流程"},
+        {"bbox": (10, 70, 100, 90), "text": "图 2a 子模块"},
+    ]
+
+    captions = _caption_blocks(blocks)
+
+    assert [item["normalized_label"] for item in captions] == ["1", "1", "2a"]
+    assert [match.group("label") for match in REFERENCE_PATTERN.finditer("参见图 1、图1：以及图 2a")] == ["1", "1", "2a"]
+
+
+def test_caption_above_figure_uses_lower_visual_region():
+    import fitz
+
+    bbox = _figure_bbox(
+        fitz.Rect(0, 0, 600, 800),
+        (80, 80, 520, 110),
+        [],
+        [(100, 140, 500, 340)],
+        0,
+    )
+
+    assert bbox[1] <= 80
+    assert bbox[3] >= 340

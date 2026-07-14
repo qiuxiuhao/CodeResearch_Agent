@@ -53,10 +53,17 @@ class VisionModelRouter:
 
         attempts = 0
         for provider_index, provider in available:
-            cached = self.cache.get(
-                provider.name, provider.model, self.settings.prompt_version, "paper_figure_analyze",
-                image_hash, caption_hash, input_hash,
-            )
+            try:
+                cached = self.cache.get(
+                    provider.name, provider.model, self.settings.prompt_version, "paper_figure_analyze",
+                    image_hash, caption_hash, input_hash, self.settings.schema_version,
+                )
+            except Exception:
+                cached = None
+                warnings.append(_warning(
+                    "vlm_cache_error", context_id, provider=provider.name,
+                    message="Vision cache read failed; continuing without cache.",
+                ))
             if cached is not None:
                 try:
                     value = FigureAnalysis.model_validate(cached)
@@ -96,10 +103,21 @@ class VisionModelRouter:
                         warning_codes=[item["code"] for item in warnings],
                     )
                     value = value.model_copy(update={"metadata": metadata})
-                    self.cache.set(
-                        provider.name, provider.model, self.settings.prompt_version, "paper_figure_analyze",
-                        image_hash, caption_hash, input_hash, value.model_dump(mode="json"),
-                    )
+                    try:
+                        self.cache.set(
+                            provider.name, provider.model, self.settings.prompt_version, "paper_figure_analyze",
+                            image_hash, caption_hash, input_hash, self.settings.schema_version,
+                            value.model_dump(mode="json"),
+                        )
+                    except Exception:
+                        warnings.append(_warning(
+                            "vlm_cache_error", context_id, provider=provider.name,
+                            message="Vision cache write failed; keeping the validated analysis result.",
+                        ))
+                        metadata = metadata.model_copy(update={
+                            "warning_codes": [*metadata.warning_codes, "vlm_cache_error"]
+                        })
+                        value = value.model_copy(update={"metadata": metadata})
                     return VisionRouterResult(value, warnings)
                 except ValidationError:
                     self.budget.record_request_result(reservation.reservation_id, "failed")

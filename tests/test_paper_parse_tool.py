@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from backend.app.tools.paper_parse_tool import parse_paper_pdf
+from backend.app.config.pdf_safety import PDFSafetySettings
 
 
 def _write_sample_pdf(path: Path) -> None:
@@ -88,3 +89,33 @@ def test_parse_paper_pdf_missing_file_returns_error(tmp_path):
     assert analysis.paper_provided is True
     assert analysis.errors
     assert analysis.confidence == "low"
+
+
+def test_parse_paper_pdf_respects_page_limit_and_keeps_partial_text(tmp_path):
+    import fitz
+
+    pdf_path = tmp_path / "many-pages.pdf"
+    document = fitz.open()
+    for index in range(3):
+        page = document.new_page()
+        page.insert_text((72, 72), f"Page {index + 1} unique text")
+    document.save(pdf_path)
+    document.close()
+    settings = PDFSafetySettings(max_file_bytes=1_000_000, max_pages=2, max_text_chars=10_000, parse_timeout_seconds=10)
+
+    analysis = parse_paper_pdf(pdf_path, settings)
+
+    assert analysis.page_count == 2
+    assert analysis.raw_text_char_count > 0
+    assert any("PAPER_MAX_PAGES" in warning for warning in analysis.warnings)
+
+
+def test_parse_paper_pdf_stops_at_text_character_limit(tmp_path):
+    pdf_path = tmp_path / "paper.pdf"
+    _write_sample_pdf(pdf_path)
+    settings = PDFSafetySettings(max_file_bytes=1_000_000, max_pages=10, max_text_chars=80, parse_timeout_seconds=10)
+
+    analysis = parse_paper_pdf(pdf_path, settings)
+
+    assert analysis.raw_text_char_count <= 80
+    assert any("PAPER_MAX_TEXT_CHARS" in warning for warning in analysis.warnings)

@@ -177,3 +177,30 @@ def test_langgraph_workflow_with_paper_pdf_outputs_paper_analysis(tmp_path):
     assert "论文解析与论文代码对齐" in report_md
     assert "图示分析" in report_md
     assert "SimpleNet Alignment Paper" in report_md
+
+
+def test_partial_paper_parse_still_writes_analysis_and_report(monkeypatch, tmp_path):
+    import fitz
+
+    pdf_path = tmp_path / "long-paper.pdf"
+    document = fitz.open()
+    for index in range(3):
+        page = document.new_page()
+        page.insert_text((72, 72), f"Page {index + 1}\nMethod\nWe propose a model module.")
+    document.save(pdf_path)
+    document.close()
+    monkeypatch.setenv("PAPER_MAX_PAGES", "1")
+
+    state = run_analysis(
+        Path("examples/small_pytorch_project.zip"),
+        tmp_path / "outputs",
+        tmp_path / "library.sqlite3",
+        pdf_path,
+    )
+    output_dir = Path(state["output_dir"])
+    paper_payload = json.loads((output_dir / "paper_analysis.json").read_text(encoding="utf-8"))
+
+    assert paper_payload["paper_analysis"]["page_count"] == 1
+    assert any("PAPER_MAX_PAGES" in item for item in paper_payload["paper_analysis"]["warnings"])
+    assert (output_dir / "report.md").exists()
+    assert "图示分析" in (output_dir / "report.md").read_text(encoding="utf-8")

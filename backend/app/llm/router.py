@@ -42,6 +42,7 @@ class ModelRouter:
         evidence_catalog: list[EvidenceItem],
         prompt_version: str = "1.1",
         identity_validator: Callable[[BaseModel], bool] | None = None,
+        result_validator: Callable[[BaseModel], None] | None = None,
     ) -> RouterResult:
         sanitized, redaction_count = sanitize_payload(input_payload)
         sanitized, input_truncated = truncate_payload(sanitized, self.settings.max_input_chars)
@@ -67,6 +68,8 @@ class ModelRouter:
                         raise ValueError("invalid cached evidence refs")
                     if identity_validator is not None and not identity_validator(value):
                         raise ValueError("invalid cached entity identity")
+                    if result_validator is not None:
+                        result_validator(value)
                     self.budget.record_cache_hit()
                     metadata = _metadata(
                         task_type, "fallback" if provider_index else "success", provider.name, provider.model,
@@ -98,6 +101,11 @@ class ModelRouter:
                         raise ProviderError("llm_invalid_evidence_reference", "Model returned an unknown evidence reference.")
                     if identity_validator is not None and not identity_validator(value):
                         raise ProviderError("llm_identity_validation_failed", "Model returned an unexpected entity identity.")
+                    if result_validator is not None:
+                        try:
+                            result_validator(value)
+                        except ValueError as exc:
+                            raise ProviderError("llm_invalid_code_link", str(exc)) from exc
                     self.budget.record_request_result(reservation.reservation_id, "success")
                     status = "fallback" if provider_index else "success"
                     codes = [warning["code"] for warning in warnings]

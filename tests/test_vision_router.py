@@ -1,4 +1,5 @@
 import json
+import sqlite3
 
 import httpx
 
@@ -101,6 +102,62 @@ def test_vision_cache_hit_avoids_second_provider_request(tmp_path):
     assert runtime.budget.snapshot()["cache_hits"] == 1
 
 
+def test_cache_path_directory_falls_back_to_provider(tmp_path):
+    cache_directory = tmp_path / "cache-dir"
+    cache_directory.mkdir()
+    settings = VisionSettings.from_env(True).model_copy(update={
+        "cache_path": str(cache_directory), "cache_enabled": True, "max_retries": 0,
+    })
+    provider = MockVisionProvider("qwen_vl", response=_response)
+    runtime = create_vision_runtime(settings, [provider])
+    runtime.budget.try_reserve_entities("paper_figure_analyze", 1)
+
+    result = _request(runtime)
+
+    assert result.value is not None
+    assert len(provider.calls) == 1
+    assert any(item["code"] == "vlm_cache_error" for item in result.warnings)
+
+
+def test_cache_write_failure_keeps_validated_result(monkeypatch, tmp_path):
+    settings = VisionSettings.from_env(True).model_copy(update={
+        "cache_path": str(tmp_path / "readonly.sqlite3"), "cache_enabled": True, "max_retries": 0,
+    })
+    provider = MockVisionProvider("qwen_vl", response=_response)
+    runtime = create_vision_runtime(settings, [provider])
+    runtime.budget.try_reserve_entities("paper_figure_analyze", 1)
+    monkeypatch.setattr(runtime.router.cache, "set", lambda *args, **kwargs: (_ for _ in ()).throw(PermissionError()))
+
+    result = _request(runtime)
+
+    assert result.value is not None
+    assert result.value.metadata.status == "success"
+    assert "vlm_cache_error" in result.value.metadata.warning_codes
+    assert runtime.budget.snapshot()["successful_provider_requests"] == 1
+
+
+def test_corrupt_cache_json_is_ignored_and_provider_is_called(tmp_path):
+    cache_path = tmp_path / "cache.sqlite3"
+    settings = VisionSettings.from_env(True).model_copy(update={
+        "cache_path": str(cache_path), "cache_enabled": True, "max_retries": 0,
+    })
+    first_provider = MockVisionProvider("qwen_vl", response=_response)
+    first_runtime = create_vision_runtime(settings, [first_provider])
+    first_runtime.budget.try_reserve_entities("paper_figure_analyze", 1)
+    assert _request(first_runtime).value is not None
+    with sqlite3.connect(cache_path) as connection:
+        connection.execute("UPDATE vision_cache_v2 SET response_json='{broken-json'")
+
+    second_provider = MockVisionProvider("qwen_vl", response=_response)
+    second_runtime = create_vision_runtime(settings, [second_provider])
+    second_runtime.budget.try_reserve_entities("paper_figure_analyze", 1)
+    result = _request(second_runtime)
+
+    assert result.value is not None
+    assert len(second_provider.calls) == 1
+    assert any(item["code"] == "vlm_cache_error" for item in result.warnings)
+
+
 def test_invalid_contribution_candidate_fails_validation(tmp_path):
     def invalid(request):
         value = _response(request)
@@ -160,4 +217,33 @@ def test_real_provider_adapters_default_to_prompt_json_without_response_format()
 
     assert len(captured) == 2
     assert all("response_format" not in payload for payload in captured)
+    assert "enable_thinking" not in captured[0]
+    assert "thinking" not in captured[1]
     assert all(payload["messages"][1]["content"][0]["type"] == "image_url" for payload in captured)
+
+
+def test_provider_specific_thinking_disable_parameters_are_isolated():
+    captured = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({"ok": True})}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    request = VisionRequest(
+        context_id=FIGURE_ID, system_prompt="system", input_payload={"figure_id": FIGURE_ID},
+        image_bytes=b"png", mime_type="image/png", response_model=FigureAnalysis, max_output_tokens=100,
+    )
+    QwenVLProvider(VisionProviderSettings(
+        name="qwen_vl", api_key="test", base_url="https://qwen.test", model="vision",
+        disable_thinking=True,
+    ), 5, client).analyze_figure(request)
+    GLMVProvider(VisionProviderSettings(
+        name="glm_v", api_key="test", base_url="https://glm.test", model="vision",
+        disable_thinking=True,
+    ), 5, client).analyze_figure(request)
+
+    assert captured[0]["enable_thinking"] is False
+    assert "thinking" not in captured[0]
+    assert captured[1]["thinking"] == {"type": "disabled"}
+    assert "enable_thinking" not in captured[1]
