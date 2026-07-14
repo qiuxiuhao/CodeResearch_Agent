@@ -19,9 +19,12 @@ bash scripts/validate.sh
 
 ```bash
 python scripts/smoke_llm.py --provider deepseek --i-understand-cost
+python scripts/smoke_vlm.py --provider qwen_vl --i-understand-cost
 ```
 
 该命令可能产生费用，不属于 `validate.sh`。
+
+Vision 自动测试使用 MockVisionProvider，并覆盖 Figure 提取、稳定 ID、bbox、独立 consent、结构化校验、预算、缓存和 fallback。`smoke_vlm.py` 默认只发送无敏感信息的合成架构图；`--probe-json-object` 仅用于手动验证供应商能力，不会自动修改配置。
 
 ## 手动命令
 

@@ -1,6 +1,8 @@
 import type { AnalysisResult, Mode } from "../types/analysis";
 import { EmptyState } from "./EmptyState";
 import { AIExplanationCard } from "./AIExplanationCard";
+import { PaperFigureGallery } from "./PaperFigureGallery";
+import { VisionStatusBanner } from "./VisionStatusBanner";
 
 export function PaperAnalysisPanel({ result, mode }: { result: AnalysisResult; mode: Mode }) {
   const paper = result.paper_analysis?.paper_analysis;
@@ -25,6 +27,9 @@ export function PaperAnalysisPanel({ result, mode }: { result: AnalysisResult; m
           </article>
         ))}
       </div>
+      <h3>论文 Figure</h3>
+      <VisionStatusBanner vision={result.paper_figure_analysis} />
+      <PaperFigureGallery taskId={result.task_id} figures={result.paper_figure_analysis?.figures ?? []} />
       <h3>代码对齐</h3>
       <div className="card-grid">
         {alignmentItems.map((item, index) => (
@@ -38,6 +43,13 @@ export function PaperAnalysisPanel({ result, mode }: { result: AnalysisResult; m
                 (explanation) => explanation.contribution_id === item.contribution_id
               )}
             />
+            {result.llm_explanations?.paper_code_alignment_explanations?.find(
+              (explanation) => explanation.contribution_id === item.contribution_id
+            )?.possible_code_links?.map((link, linkIndex) => (
+              <p className="muted" key={`${link.figure_id}-${linkIndex}`}>
+                AI 建议关联：{link.figure_id} → {link.code_evidence_refs.join("、")}（{link.confidence}）
+              </p>
+            ))}
           </article>
         ))}
       </div>

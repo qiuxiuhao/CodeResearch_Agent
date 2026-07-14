@@ -5,6 +5,7 @@ from typing import Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -17,9 +18,10 @@ from backend.app.services.analysis_service import (
 )
 from backend.app.services.library_function_service import LibraryFunctionService
 from backend.app.llm.config import LLMSettings
+from backend.app.vision.config import VisionSettings
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.1.4")
+app = FastAPI(title="CodeResearch Agent", version="1.2.2")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -36,6 +38,10 @@ class AnalysisTaskRequest(BaseModel):
     paper_pdf_path: str | None = None
     analysis_mode: Literal["rule", "hybrid"] | None = None
     external_model_consent: bool = False
+    text_llm_enabled: bool | None = None
+    vision_vlm_enabled: bool | None = None
+    external_text_consent: bool | None = None
+    external_vision_consent: bool = False
 
 
 @app.get("/health")
@@ -54,6 +60,8 @@ def create_analysis_task(request: AnalysisTaskRequest) -> dict:
         state = _run_analysis_with_llm_options(
             request.zip_path, request.output_root, request.library_db_path, request.paper_pdf_path,
             request.analysis_mode, request.external_model_consent,
+            request.text_llm_enabled, request.vision_vlm_enabled,
+            request.external_text_consent, request.external_vision_consent,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -68,12 +76,19 @@ async def create_analysis_task_from_upload(
     library_db_path: str | None = Form(None),
     analysis_mode: Literal["rule", "hybrid"] | None = Form(None),
     external_model_consent: bool = Form(False),
+    text_llm_enabled: bool | None = Form(None),
+    vision_vlm_enabled: bool | None = Form(None),
+    external_text_consent: bool | None = Form(None),
+    external_vision_consent: bool = Form(False),
 ) -> dict:
     if not zip_file.filename or not zip_file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="zip_file must be a .zip file.")
     if paper_pdf and paper_pdf.filename and not paper_pdf.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="paper_pdf must be a .pdf file.")
-    _validate_external_model_consent(analysis_mode, external_model_consent)
+    _validate_external_ai_consents(
+        analysis_mode, external_model_consent, text_llm_enabled, vision_vlm_enabled,
+        external_text_consent, external_vision_consent,
+    )
 
     upload_dir = Path(output_root) / "_uploads" / uuid4().hex
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -87,13 +102,19 @@ async def create_analysis_task_from_upload(
 
     state = _run_analysis_with_llm_options(
         zip_path, output_root, library_db_path, paper_pdf_path, analysis_mode, external_model_consent,
+        text_llm_enabled, vision_vlm_enabled, external_text_consent, external_vision_consent,
     )
     return summarize_state(state)
 
 
 @app.get("/llm/public-config")
 def get_llm_public_config() -> dict:
-    return LLMSettings.from_env().public_config()
+    return {**LLMSettings.from_env().public_config(), "vision": VisionSettings.from_env().public_config()}
+
+
+@app.get("/vision/public-config")
+def get_vision_public_config() -> dict:
+    return VisionSettings.from_env().public_config()
 
 
 @app.get("/analysis/tasks/{task_id}")
@@ -110,6 +131,37 @@ def get_analysis_task_report(task_id: str, output_root: str = "outputs") -> dict
         return load_task_report(task_id, output_root)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/analysis/tasks/{task_id}/figures/{figure_id}/preview")
+def get_figure_preview(task_id: str, figure_id: str, output_root: str = "outputs"):
+    result = load_task_result(task_id, output_root)
+    figures = result.get("paper_figure_analysis", {}).get("figures", [])
+    figure = next((item for item in figures if item.get("figure_id") == figure_id), None)
+    preview_path = (figure or {}).get("canonical_preview", {}).get("path")
+    if not preview_path:
+        raise HTTPException(status_code=404, detail="Figure preview not found.")
+    root = (Path(output_root) / task_id).resolve()
+    candidate = Path(preview_path).resolve()
+    if root not in candidate.parents or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Figure preview not found.")
+    return FileResponse(candidate, media_type="image/png")
+
+
+@app.get("/analysis/tasks/{task_id}/figures/{figure_id}/assets/{asset_id}")
+def get_figure_original_asset(task_id: str, figure_id: str, asset_id: str, output_root: str = "outputs"):
+    result = load_task_result(task_id, output_root)
+    figures = result.get("paper_figure_analysis", {}).get("figures", [])
+    figure = next((item for item in figures if item.get("figure_id") == figure_id), None)
+    asset = next((item for item in (figure or {}).get("original_assets", []) if item.get("asset_id") == asset_id), None)
+    asset_path = (asset or {}).get("path")
+    if not asset_path:
+        raise HTTPException(status_code=404, detail="Figure original asset not found.")
+    root = (Path(output_root) / task_id).resolve()
+    candidate = Path(asset_path).resolve()
+    if root not in candidate.parents or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Figure original asset not found.")
+    return FileResponse(candidate, media_type=asset.get("mime_type") or "application/octet-stream")
 
 
 @app.get("/library/functions")
@@ -163,20 +215,36 @@ def _library_service(library_db_path: str | None) -> LibraryFunctionService:
 
 
 def _validate_external_model_consent(analysis_mode: str | None, consent: bool) -> None:
-    settings = LLMSettings.from_env(analysis_mode)
-    if settings.analysis_mode == "hybrid" and not consent:
+    _validate_external_ai_consents(analysis_mode, consent, None, False, None, False)
+
+
+def _validate_external_ai_consents(
+    analysis_mode: str | None, legacy_consent: bool, text_enabled: bool | None,
+    vision_enabled: bool | None, text_consent: bool | None, vision_consent: bool,
+) -> None:
+    resolved_text_consent = legacy_consent if text_consent is None else text_consent
+    if LLMSettings.from_env(analysis_mode, text_enabled).text_llm_enabled and not resolved_text_consent:
         raise HTTPException(
             status_code=400,
-            detail="hybrid mode requires external_model_consent=true before code is sent to external model providers.",
+            detail="text_llm_enabled=true requires external_text_consent=true (legacy external_model_consent=true).",
         )
+    if VisionSettings.from_env(vision_enabled).enabled and not vision_consent:
+        raise HTTPException(status_code=400, detail="vision_vlm_enabled=true requires external_vision_consent=true.")
 
 
 def _run_analysis_with_llm_options(
-    zip_path, output_root, library_db_path, paper_pdf_path, analysis_mode: str | None, consent: bool
+    zip_path, output_root, library_db_path, paper_pdf_path, analysis_mode: str | None, consent: bool,
+    text_enabled: bool | None = None, vision_enabled: bool | None = None,
+    text_consent: bool | None = None, vision_consent: bool = False,
 ):
-    if analysis_mode is None and not consent:
+    _validate_external_ai_consents(
+        analysis_mode, consent, text_enabled, vision_enabled, text_consent, vision_consent,
+    )
+    if analysis_mode is None and not consent and text_enabled is None and vision_enabled is None and text_consent is None and not vision_consent:
         return run_analysis(zip_path, output_root, library_db_path, paper_pdf_path)
     return run_analysis(
         zip_path, output_root, library_db_path, paper_pdf_path,
         analysis_mode=analysis_mode, external_model_consent=consent,
+        text_llm_enabled=text_enabled, vision_vlm_enabled=vision_enabled,
+        external_text_consent=text_consent, external_vision_consent=vision_consent,
     )

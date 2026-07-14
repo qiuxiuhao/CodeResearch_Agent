@@ -1,5 +1,6 @@
 import type { AnalysisResult } from "../types/analysis";
 import { AIStatusBanner } from "./AIStatusBanner";
+import { VisionStatusBanner } from "./VisionStatusBanner";
 
 export function SummaryCards({ result }: { result: AnalysisResult }) {
   const summary = result.summary ?? {};
@@ -10,7 +11,8 @@ export function SummaryCards({ result }: { result: AnalysisResult }) {
     ["库函数调用", summary.library_call_count],
     ["模型", summary.model_count],
     ["论文贡献", summary.paper_contribution_count],
-    ["图示", summary.diagram_count]
+    ["图示", summary.diagram_count],
+    ["论文 Figure", summary.figure_count]
   ];
   return (
     <section className="tab-content">
@@ -25,6 +27,7 @@ export function SummaryCards({ result }: { result: AnalysisResult }) {
       </div>
       <p className="muted">任务：{result.task_id}</p>
       <AIStatusBanner llm={result.llm_explanations} />
+      <VisionStatusBanner vision={result.paper_figure_analysis} />
     </section>
   );
 }

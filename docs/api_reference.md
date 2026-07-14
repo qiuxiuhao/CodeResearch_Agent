@@ -33,9 +33,11 @@ POST /analysis/tasks
   "zip_path": "examples/small_pytorch_project.zip",
   "output_root": "outputs",
   "library_db_path": null,
-  "paper_pdf_path": null
-  ,"analysis_mode": "rule"
-  ,"external_model_consent": false
+  "paper_pdf_path": null,
+  "text_llm_enabled": false,
+  "vision_vlm_enabled": false,
+  "external_text_consent": false,
+  "external_vision_consent": false
 }
 ```
 
@@ -51,10 +53,13 @@ Multipart 字段：
 - `paper_pdf`：可选，`.pdf` 文件
 - `output_root`：可选，默认 `outputs`
 - `library_db_path`：可选
-- `analysis_mode`：`rule` 或 `hybrid`，缺省按环境变量后回退 `rule`
-- `external_model_consent`：hybrid 必须为 `true`
+- `text_llm_enabled`：可选，默认 false
+- `vision_vlm_enabled`：可选，默认 false
+- `external_text_consent`：文本能力启用时必须为 true
+- `external_vision_consent`：视觉能力启用时必须为 true
+- `analysis_mode` / `external_model_consent`：仅用于兼容旧文本能力客户端
 
-hybrid 未授权时返回 HTTP 400，且不会创建分析任务或发送外部请求。
+任一外部能力未获得对应授权时返回 HTTP 400，且不会创建分析任务或发送外部请求。
 
 ## LLM 公共配置
 
@@ -87,6 +92,40 @@ GET /analysis/tasks/{task_id}/report
 ```
 
 只返回 `report.md`。
+
+### AI 开关与授权
+
+`POST /analysis/tasks` 和 upload form 支持：
+
+- `text_llm_enabled`：是否启用文本 LLM。
+- `vision_vlm_enabled`：是否启用论文 VLM。
+- `external_text_consent`：文本外发授权。
+- `external_vision_consent`：论文 Figure 外发授权。
+
+两种授权由后端独立校验。旧 `analysis_mode`/`external_model_consent` 暂时兼容文本能力，但绝不能授权图片外发。
+
+### Figure Preview
+
+```text
+GET /analysis/tasks/{task_id}/figures/{figure_id}/preview
+```
+
+只返回当前任务 `paper_figure_analysis.json` 中登记且位于任务目录内的 canonical preview。
+
+```text
+GET /analysis/tasks/{task_id}/figures/{figure_id}/assets/{asset_id}
+```
+
+只返回该 Figure 登记的原始 xref/inline 资产，使用相同的任务目录边界校验。
+
+### 公共 AI 配置
+
+```text
+GET /llm/public-config
+GET /vision/public-config
+```
+
+仅返回安全的默认开关、预算、并发、模型名和 Provider 是否配置，不返回 API key。
 
 ## 全局函数库
 

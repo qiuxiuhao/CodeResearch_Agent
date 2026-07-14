@@ -26,7 +26,7 @@ def run_selected_entities(
     response_model: type[BaseModel],
     prepare: Callable[[dict], tuple[str, dict[str, Any], list[EvidenceItem]]],
 ) -> dict:
-    if runtime is None or state.get("analysis_mode", "rule") != "hybrid":
+    if runtime is None or not state.get("text_llm_enabled", state.get("analysis_mode", "rule") == "hybrid"):
         return {**state, output_field: state.get(output_field, [])}
     if not runtime.router.has_available_provider:
         provider_skips = [

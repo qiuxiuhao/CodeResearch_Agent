@@ -22,6 +22,7 @@ class ProviderSettings(BaseModel):
 
 class LLMSettings(BaseModel):
     analysis_mode: AnalysisMode = "rule"
+    text_llm_enabled: bool = False
     deepseek: ProviderSettings
     qwen: ProviderSettings
     timeout_seconds: float = Field(default=45, ge=1, le=300)
@@ -44,10 +45,16 @@ class LLMSettings(BaseModel):
         return str(value).strip().lower() if value is not None else value
 
     @classmethod
-    def from_env(cls, analysis_mode: str | None = None) -> "LLMSettings":
-        resolved_mode = analysis_mode if analysis_mode is not None else os.getenv("ANALYSIS_MODE", "rule")
+    def from_env(cls, analysis_mode: str | None = None, text_llm_enabled: bool | None = None) -> "LLMSettings":
+        legacy_mode = analysis_mode if analysis_mode is not None else os.getenv("ANALYSIS_MODE", "rule")
+        if text_llm_enabled is None:
+            enabled = _bool_env("TEXT_LLM_ENABLED", str(legacy_mode).strip().lower() == "hybrid")
+        else:
+            enabled = text_llm_enabled
+        resolved_mode = "hybrid" if enabled else "rule"
         return cls(
             analysis_mode=resolved_mode,
+            text_llm_enabled=enabled,
             deepseek=ProviderSettings(
                 name="deepseek",
                 api_key=os.getenv("DEEPSEEK_API_KEY", ""),
@@ -78,6 +85,7 @@ class LLMSettings(BaseModel):
     def public_config(self) -> dict:
         return {
             "default_analysis_mode": self.analysis_mode,
+            "default_text_llm_enabled": self.text_llm_enabled,
             "max_function_explanations": self.max_function_explanations,
             "max_file_explanations": self.max_file_explanations,
             "max_model_explanations": self.max_model_explanations,

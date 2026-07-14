@@ -12,6 +12,8 @@ from backend.app.llm.config import LLMSettings
 from backend.app.llm.runtime import LLMRuntime, create_llm_runtime
 from backend.app.schemas.state import AgentState
 from backend.app.services.storage_service import ensure_output_root
+from backend.app.vision.config import VisionSettings
+from backend.app.vision.runtime import VisionRuntime, create_vision_runtime
 
 
 TASK_ID_PATTERN = re.compile(r"^task_[A-Za-z0-9]+$")
@@ -27,6 +29,7 @@ TASK_RESULT_FILES = {
     "diagrams": "diagrams.json",
     "library_function_docs": "library_function_docs.json",
     "llm_explanations": "llm_explanations.json",
+    "paper_figure_analysis": "paper_figure_analysis.json",
 }
 
 
@@ -38,21 +41,39 @@ def run_analysis(
     analysis_mode: str | None = None,
     external_model_consent: bool = False,
     llm_runtime: LLMRuntime | None = None,
+    *,
+    text_llm_enabled: bool | None = None,
+    vision_vlm_enabled: bool | None = None,
+    external_text_consent: bool | None = None,
+    external_vision_consent: bool = False,
+    vision_runtime: VisionRuntime | None = None,
 ) -> AgentState:
     ensure_output_root(output_root)
-    settings = llm_runtime.settings if llm_runtime else LLMSettings.from_env(analysis_mode)
-    if settings.analysis_mode == "hybrid" and not external_model_consent:
-        raise ValueError("hybrid mode requires external_model_consent=true before code is sent to external model providers.")
+    settings = llm_runtime.settings if llm_runtime else LLMSettings.from_env(analysis_mode, text_llm_enabled)
+    resolved_text_consent = external_model_consent if external_text_consent is None else external_text_consent
+    if settings.text_llm_enabled and not resolved_text_consent:
+        raise ValueError(
+            "text_llm_enabled=true requires external_text_consent=true "
+            "(legacy external_model_consent=true) before code is sent to external model providers."
+        )
+    vision_settings = vision_runtime.settings if vision_runtime else VisionSettings.from_env(vision_vlm_enabled)
+    if vision_settings.enabled and not external_vision_consent:
+        raise ValueError("vision_vlm_enabled=true requires external_vision_consent=true before paper figures are sent to external model providers.")
     runtime = llm_runtime or create_llm_runtime(settings)
+    resolved_vision_runtime = vision_runtime or create_vision_runtime(vision_settings)
     resolved_library_db_path = str(library_db_path or os.getenv("LIBRARY_DB_PATH") or "data/python_function_library.sqlite3")
-    graph = build_analysis_graph(runtime)
+    graph = build_analysis_graph(runtime, resolved_vision_runtime)
     initial_state: AgentState = {
         "zip_path": str(zip_path),
         "output_dir": str(output_root),
         "library_db_path": resolved_library_db_path,
         "errors": [],
         "analysis_mode": settings.analysis_mode,
-        "external_model_consent": external_model_consent,
+        "external_model_consent": resolved_text_consent,
+        "text_llm_enabled": settings.text_llm_enabled,
+        "vision_vlm_enabled": vision_settings.enabled,
+        "external_text_consent": resolved_text_consent,
+        "external_vision_consent": external_vision_consent,
         "file_llm_explanations": [],
         "function_llm_explanations": [],
         "model_llm_explanations": [],
@@ -61,6 +82,8 @@ def run_analysis(
         "llm_skipped_entities": [],
         "llm_warnings": [],
         "llm_budget": runtime.budget.snapshot(),
+        "paper_figure_analysis": {},
+        "vision_budget": resolved_vision_runtime.budget.snapshot(),
     }
     if paper_pdf_path:
         initial_state["paper_pdf_path"] = str(paper_pdf_path)
@@ -101,6 +124,11 @@ def load_task_result(task_id: str, output_root: str | Path = "outputs") -> dict[
     for key, filename in TASK_RESULT_FILES.items():
         if key == "llm_explanations" and not (task_dir / filename).exists():
             result[key] = {"analysis_mode": "rule", "status": "disabled", "warnings": []}
+        elif key == "paper_figure_analysis" and not (task_dir / filename).exists():
+            result[key] = {
+                "version": "1.2", "extraction_status": "not_applicable", "vision_status": "disabled",
+                "vision_vlm_enabled": False, "figures": [], "warnings": [],
+            }
         else:
             result[key] = _read_json(task_dir / filename, key, errors)
     return result
@@ -127,6 +155,7 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
         "model_analysis_path": str(Path(output_dir) / "model_analysis.json") if output_dir else None,
         "paper_analysis_path": str(Path(output_dir) / "paper_analysis.json") if output_dir else None,
         "paper_code_alignment_path": str(Path(output_dir) / "paper_code_alignment.json") if output_dir else None,
+        "paper_figure_analysis_path": str(Path(output_dir) / "paper_figure_analysis.json") if output_dir else None,
         "diagrams_path": str(Path(output_dir) / "diagrams.json") if output_dir else None,
         "library_function_docs_path": str(Path(output_dir) / "library_function_docs.json") if output_dir else None,
         "report_path": str(Path(output_dir) / "report.md") if output_dir else None,
@@ -154,10 +183,17 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
         "error_count": len(state.get("errors", [])),
         "analysis_mode": state.get("analysis_mode", "rule"),
         "external_model_consent": state.get("external_model_consent", False),
+        "text_llm_enabled": state.get("text_llm_enabled", False),
+        "vision_vlm_enabled": state.get("vision_vlm_enabled", False),
+        "external_text_consent": state.get("external_text_consent", False),
+        "external_vision_consent": state.get("external_vision_consent", False),
         "llm_status": _llm_status(state),
         "llm_explanation_count": _llm_count(state),
         "llm_warning_count": len(state.get("llm_warnings", [])),
         "llm_budget": state.get("llm_budget", {}),
+        "vision_status": state.get("paper_figure_analysis", {}).get("vision_status", "disabled"),
+        "figure_count": len(state.get("paper_figure_analysis", {}).get("figures", [])),
+        "vision_budget": state.get("vision_budget", {}),
     }
 
 
@@ -169,11 +205,19 @@ def main() -> None:
     parser.add_argument("--paper-pdf-path", default=None, help="Optional path to a paper PDF for paper/code alignment.")
     parser.add_argument("--analysis-mode", choices=["rule", "hybrid"], default=None)
     parser.add_argument("--external-model-consent", action="store_true")
+    parser.add_argument("--text-llm-enabled", action="store_true", default=None)
+    parser.add_argument("--vision-vlm-enabled", action="store_true", default=None)
+    parser.add_argument("--external-text-consent", action="store_true")
+    parser.add_argument("--external-vision-consent", action="store_true")
     args = parser.parse_args()
 
     state = run_analysis(
         args.zip_path, args.output_root, args.library_db_path, args.paper_pdf_path,
         args.analysis_mode, args.external_model_consent,
+        text_llm_enabled=args.text_llm_enabled,
+        vision_vlm_enabled=args.vision_vlm_enabled,
+        external_text_consent=args.external_text_consent or None,
+        external_vision_consent=args.external_vision_consent,
     )
     print(json.dumps(summarize_state(state), ensure_ascii=False, indent=2))
 
@@ -217,6 +261,7 @@ def _summarize_output_dir(task_id: str, task_dir: Path) -> dict[str, Any]:
     paper_analysis = _safe_json(task_dir / "paper_analysis.json")
     diagrams = _safe_json(task_dir / "diagrams.json")
     llm = _safe_json(task_dir / "llm_explanations.json")
+    figures = _safe_json(task_dir / "paper_figure_analysis.json")
     return {
         "task_id": task_id,
         "output_dir": str(task_dir),
@@ -235,6 +280,11 @@ def _summarize_output_dir(task_id: str, task_dir: Path) -> dict[str, Any]:
         )),
         "llm_warning_count": len(llm.get("warnings", [])),
         "llm_budget": llm.get("budget", {}),
+        "text_llm_enabled": llm.get("text_llm_enabled", llm.get("analysis_mode") == "hybrid"),
+        "vision_vlm_enabled": figures.get("vision_vlm_enabled", False),
+        "vision_status": figures.get("vision_status", "disabled"),
+        "figure_count": len(figures.get("figures", [])),
+        "vision_budget": figures.get("budget", {}),
     }
 
 
@@ -255,7 +305,7 @@ def _llm_count(state: AgentState) -> int:
 
 
 def _llm_status(state: AgentState) -> str:
-    if state.get("analysis_mode", "rule") == "rule":
+    if not state.get("text_llm_enabled", state.get("analysis_mode", "rule") == "hybrid"):
         return "disabled"
     count = _llm_count(state)
     warnings = state.get("llm_warnings", [])

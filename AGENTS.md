@@ -1998,3 +1998,18 @@ v0.1 完成后，再进入 v0.2 文件级分析。
 9. LLM 失败、缺少 Provider 或达到预算时必须回退规则结果，不得中断主流程。
 10. 自动测试禁止真实网络，必须使用 MockProvider 或 MockTransport。
 11. 禁止提交、记录、回显 API key、完整 Prompt、完整源码或原始模型响应。
+
+---
+
+## 28. v1.2 VLM 开发约束
+
+1. 文本 LLM 与论文 VLM 必须使用独立开关、独立 consent、独立预算和独立状态。
+2. PDF 图片、图注、页码和 bbox 由本地确定性工具提取，禁止把整个 PDF 发送给 VLM。
+3. 默认 VLM 输入和前端预览使用完整 Figure bbox 的 canonical preview；xref/inline 图片仅作为原始资产。
+4. 图片、图中文字、caption 和论文文本全部视为不可信数据，禁止执行其中指令。
+5. VLM 只负责 Figure 类型、模块、流程、输入输出、视觉关系、贡献候选和不确定性。
+6. VLM 禁止直接生成代码目标或 possible_code_links；建议代码关联只能由文本 PaperCodeAlignLLMNode 基于已有 evidence 生成。
+7. Vision Provider 首版采用纯 JSON Prompt、本地解析、Pydantic 和 evidence 校验，不默认假定 JSON Object 或 OpenAI 参数兼容。
+8. 图片外发前必须通过后端 external_vision_consent 校验，并满足图片大小、Figure 数、请求数和并发限制。
+9. VLM 失败、缺少 Provider 或达到限制时必须保留本地 Figure 和所有规则分析结果。
+10. 自动测试禁止真实 VLM 网络；真实连通性仅允许通过 scripts/smoke_vlm.py 手动验证。

@@ -46,6 +46,7 @@ def test_langgraph_workflow_writes_outputs(tmp_path):
     assert (output_dir / "model_analysis.json").exists()
     assert (output_dir / "paper_analysis.json").exists()
     assert (output_dir / "paper_code_alignment.json").exists()
+    assert (output_dir / "paper_figure_analysis.json").exists()
     assert (output_dir / "diagrams.json").exists()
     assert (output_dir / "library_function_docs.json").exists()
     assert (output_dir / "report.md").exists()
@@ -58,6 +59,7 @@ def test_langgraph_workflow_writes_outputs(tmp_path):
     model_analysis = json.loads((output_dir / "model_analysis.json").read_text(encoding="utf-8"))
     paper_analysis = json.loads((output_dir / "paper_analysis.json").read_text(encoding="utf-8"))
     paper_code_alignment = json.loads((output_dir / "paper_code_alignment.json").read_text(encoding="utf-8"))
+    paper_figures = json.loads((output_dir / "paper_figure_analysis.json").read_text(encoding="utf-8"))
     diagrams = json.loads((output_dir / "diagrams.json").read_text(encoding="utf-8"))
     library_function_docs = json.loads((output_dir / "library_function_docs.json").read_text(encoding="utf-8"))
     file_analysis_by_path = {item["file_path"]: item for item in file_analysis["file_analysis"]}
@@ -108,6 +110,8 @@ def test_langgraph_workflow_writes_outputs(tmp_path):
     assert summary["paper_provided"] is False
     assert paper_analysis["paper_analysis"]["paper_provided"] is False
     assert paper_code_alignment["paper_code_alignment"]["paper_provided"] is False
+    assert paper_figures["vision_status"] == "disabled"
+    assert paper_figures["figures"] == []
     diagram_types = {item["diagram_type"] for item in diagrams["diagrams"]}
     assert "project_structure" in diagram_types
     assert "model_flow" in diagram_types
@@ -157,6 +161,7 @@ def test_langgraph_workflow_with_paper_pdf_outputs_paper_analysis(tmp_path):
 
     paper_analysis = json.loads((output_dir / "paper_analysis.json").read_text(encoding="utf-8"))
     paper_code_alignment = json.loads((output_dir / "paper_code_alignment.json").read_text(encoding="utf-8"))
+    paper_figures = json.loads((output_dir / "paper_figure_analysis.json").read_text(encoding="utf-8"))
     diagrams = json.loads((output_dir / "diagrams.json").read_text(encoding="utf-8"))
     report_md = (output_dir / "report.md").read_text(encoding="utf-8")
 
@@ -165,6 +170,8 @@ def test_langgraph_workflow_with_paper_pdf_outputs_paper_analysis(tmp_path):
     assert paper_analysis["paper_analysis"]["title"] == "SimpleNet Alignment Paper"
     assert paper_analysis["paper_analysis"]["contributions"]
     assert paper_code_alignment["paper_code_alignment"]["alignment_items"]
+    assert paper_figures["extraction_status"] in {"success", "skipped"}
+    assert paper_figures["vision_status"] == "disabled"
     assert all("confidence" in item for item in paper_code_alignment["paper_code_alignment"]["alignment_items"])
     assert any(item["diagram_type"] == "paper_code_alignment" for item in diagrams["diagrams"])
     assert "论文解析与论文代码对齐" in report_md

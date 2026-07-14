@@ -33,6 +33,10 @@ class AgentState(TypedDict, total=False):
 
     analysis_mode: str
     external_model_consent: bool
+    text_llm_enabled: bool
+    vision_vlm_enabled: bool
+    external_text_consent: bool
+    external_vision_consent: bool
     file_llm_explanations: list[dict]
     function_llm_explanations: list[dict]
     model_llm_explanations: list[dict]
@@ -41,6 +45,8 @@ class AgentState(TypedDict, total=False):
     llm_skipped_entities: list[dict]
     llm_warnings: list[dict]
     llm_budget: dict
+    paper_figure_analysis: dict
+    vision_budget: dict
 
     report_md: str
     errors: list[dict]

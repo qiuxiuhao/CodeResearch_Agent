@@ -62,3 +62,33 @@ def test_get_analysis_task_reports_missing_files(tmp_path):
     response = client.get("/analysis/tasks/task_abc999", params={"output_root": str(tmp_path)})
     assert response.status_code == 200
     assert response.json()["errors"]
+
+
+def test_get_figure_preview_only_serves_registered_task_asset(tmp_path):
+    task_dir = tmp_path / "task_fig123"
+    preview_dir = task_dir / "paper_figures" / "previews"
+    preview_dir.mkdir(parents=True)
+    preview = preview_dir / "figure.png"
+    preview.write_bytes(b"png-bytes")
+    original = task_dir / "paper_figures" / "original" / "asset.png"
+    original.parent.mkdir(parents=True)
+    original.write_bytes(b"original-bytes")
+    _write_json(task_dir / "paper_figure_analysis.json", {"figures": [{
+        "figure_id": "fig_1234567890abcdef1234",
+        "canonical_preview": {"path": str(preview)},
+        "original_assets": [{"asset_id": "asset_123", "path": str(original), "mime_type": "image/png"}],
+    }]})
+
+    response = client.get(
+        "/analysis/tasks/task_fig123/figures/fig_1234567890abcdef1234/preview",
+        params={"output_root": str(tmp_path)},
+    )
+
+    assert response.status_code == 200
+    assert response.content == b"png-bytes"
+    asset_response = client.get(
+        "/analysis/tasks/task_fig123/figures/fig_1234567890abcdef1234/assets/asset_123",
+        params={"output_root": str(tmp_path)},
+    )
+    assert asset_response.status_code == 200
+    assert asset_response.content == b"original-bytes"

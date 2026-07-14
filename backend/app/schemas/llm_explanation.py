@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from backend.app.schemas.paper_figure import SuggestedCodeLink
+
 
 Confidence = Literal["high", "medium", "low"]
 CallStatus = Literal["success", "fallback", "skipped", "failed"]
@@ -104,3 +106,4 @@ class PaperCodeAlignLLMExplanation(ExplanationBase):
     evidence_interpretation: list[str] = Field(default_factory=list, max_length=20)
     teaching_explanation: str = Field(min_length=1, max_length=3000)
     needs_review: bool = False
+    possible_code_links: list[SuggestedCodeLink] = Field(default_factory=list, max_length=20)

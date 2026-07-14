@@ -43,7 +43,7 @@ examples/small_pytorch_project.zip
 
 ## 4. 可选论文演示
 
-如果本地有论文 PDF，可以在可选论文字段中提供路径。v1.1 仍只做文本提取和规则论文代码对齐；可选 LLM 只解释规则对齐，不解析图表、公式或表格。
+如果本地有论文 PDF，可以在可选论文字段中提供路径。v1.2 会在本地提取 Figure、图注、页码和 canonical preview；用户单独启用并授权论文 VLM 后，系统才会把筛选后的 Figure 发送给 Qwen-VL/GLM-4.5V。文本 LLM 与论文 VLM 可以分别启用。
 
 ## 5. 讲解重点
 

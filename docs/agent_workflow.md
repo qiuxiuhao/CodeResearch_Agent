@@ -13,10 +13,12 @@ library_call_extract
 function_analyze
 model_analyze
 paper_analyze
+paper_figure_extract
 paper_code_align
 file_explain_llm
 function_explain_llm
 model_explain_llm
+paper_figure_analyze_vlm
 paper_code_align_llm
 diagram_generate
 library_function_doc
@@ -33,8 +35,11 @@ report_generate
 - `function_analyze`：总结函数用途、输入、输出、实现逻辑和库函数调用。
 - `model_analyze`：识别 `nn.Module` 风格的模型类、网络层、forward 流程和模块候选。
 - `paper_analyze`：可选解析本地论文 PDF，提取标题、摘要、贡献点、关键词和模块名。
+- `paper_figure_extract`：本地提取 Figure caption、页码、bbox、引用次数、原始资产和 canonical preview。
 - `paper_code_align`：把论文贡献点对齐到文件、类、函数和模型模块，并标注置信度。
-- 四个 `*_llm` 节点：仅在 hybrid 且后端 consent 通过时，基于已完成的规则事实生成独立教学解释。
+- 三个普通 `*_llm` 节点：仅在文本 LLM 开关和文本 consent 通过时生成独立教学解释。
+- `paper_figure_analyze_vlm`：在图片 consent 通过后分析筛选 Figure，不读取整个 PDF，也不生成代码目标。
+- `paper_code_align_llm`：在文本 LLM 开启时读取规则对齐和可用 FigureAnalysis，并仅从代码 evidence catalog 生成建议关联。
 - `diagram_generate`：基于已有结构化结果生成 Mermaid 源码图。
 - `library_function_doc`：把教学级库函数说明写入 SQLite，并复用已有说明。
 - `report_generate`：保存最终 JSON 产物并生成 `report.md`。
@@ -46,4 +51,4 @@ report_generate
 - 分析流程中不做网络检索。
 - 重要结论尽量带 evidence 和 confidence。
 - 论文 PDF 等可选输入缺失时，输出空结构，不影响代码分析主流程。
-- rule 模式零外部调用；hybrid 的 retry/fallback 请求在发送前由 BudgetManager 原子预留。
+- 默认纯规则模式零外部调用；文本和视觉能力具有独立 consent、预算、缓存和 retry/fallback 计数。

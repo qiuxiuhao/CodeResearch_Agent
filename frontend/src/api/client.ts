@@ -15,6 +15,10 @@ export type CreateTaskPayload = {
   paper_pdf_path?: string | null;
   analysis_mode?: AnalysisMode;
   external_model_consent?: boolean;
+  text_llm_enabled?: boolean;
+  vision_vlm_enabled?: boolean;
+  external_text_consent?: boolean;
+  external_vision_consent?: boolean;
 };
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -66,6 +70,14 @@ export function getTaskReport(taskId: string): Promise<{ task_id: string; report
 
 export function getLLMPublicConfig(): Promise<LLMPublicConfig> {
   return requestJson<LLMPublicConfig>("/llm/public-config");
+}
+
+export function figurePreviewUrl(taskId: string, figureId: string): string {
+  return `/analysis/tasks/${encodeURIComponent(taskId)}/figures/${encodeURIComponent(figureId)}/preview`;
+}
+
+export function figureAssetUrl(taskId: string, figureId: string, assetId: string): string {
+  return `/analysis/tasks/${encodeURIComponent(taskId)}/figures/${encodeURIComponent(figureId)}/assets/${encodeURIComponent(assetId)}`;
 }
 
 export type GlobalLibraryQuery = {

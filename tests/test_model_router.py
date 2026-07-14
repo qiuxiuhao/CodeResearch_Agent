@@ -7,7 +7,7 @@ from backend.app.llm.evidence import make_evidence
 from backend.app.llm.exceptions import ProviderError
 from backend.app.llm.providers.mock_provider import MockProvider
 from backend.app.llm.router import ModelRouter
-from backend.app.schemas.llm_explanation import FileLLMExplanation, FunctionLLMExplanation
+from backend.app.schemas.llm_explanation import FileLLMExplanation, FunctionLLMExplanation, PaperCodeAlignLLMExplanation
 
 
 def _response():
@@ -120,3 +120,34 @@ def test_long_function_input_stays_structured_and_preserves_identity_and_evidenc
     assert len(json.dumps(sent, ensure_ascii=False, sort_keys=True, separators=(",", ":"))) <= settings.max_input_chars
     assert result.value.metadata.input_truncated is True
     assert "llm_input_truncated" in result.value.metadata.warning_codes
+
+
+def test_suggested_code_link_cannot_reference_unknown_code_evidence(tmp_path):
+    settings = LLMSettings.from_env("hybrid").model_copy(update={
+        "cache_path": str(tmp_path / "cache.sqlite3"), "cache_enabled": False, "max_retries": 0,
+    })
+    budget = BudgetManager(1, 1)
+    response = {
+        "contribution_id": "C1", "contribution_title": "Architecture",
+        "alignment_summary": "规则对齐支持该建议。", "evidence_interpretation": [],
+        "teaching_explanation": "Figure 与实现可能相关。", "needs_review": True,
+        "uncertainties": [], "evidence_refs": ["alignment:C1:rule"],
+        "possible_code_links": [{
+            "figure_id": "fig_1234567890abcdef1234", "contribution_id": "C1",
+            "code_evidence_refs": ["unknown:code:target"], "reason": "无效引用",
+            "confidence": "low", "uncertainties": [], "suggested": True,
+        }],
+    }
+    provider = MockProvider("deepseek", responses={"paper_code_align": response})
+    router = ModelRouter(settings, [provider], budget, LLMCache(settings.cache_path, enabled=False))
+    evidence = [make_evidence("alignment:C1:rule", "paper_alignment_rule", "规则对齐")]
+
+    result = router.generate_structured(
+        task_type="paper_code_align", context_id="C1", system_prompt="system", input_payload={},
+        response_model=PaperCodeAlignLLMExplanation, evidence_catalog=evidence,
+        identity_validator=lambda value: value.contribution_id == "C1",
+    )
+
+    assert result.value is None
+    assert budget.snapshot()["successful_provider_requests"] == 0
+    assert any(item["code"] == "llm_invalid_evidence_reference" for item in result.warnings)

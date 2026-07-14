@@ -29,6 +29,8 @@ def report_generate_node(state: AgentState) -> AgentState:
     llm_payload = {
         "analysis_mode": state.get("analysis_mode", "rule"),
         "external_model_consent": state.get("external_model_consent", False),
+        "text_llm_enabled": state.get("text_llm_enabled", False),
+        "external_text_consent": state.get("external_text_consent", False),
         "status": _llm_status(state),
         "budget": state.get("llm_budget", {}),
         "usage": _llm_usage(state),
@@ -53,6 +55,8 @@ def report_generate_node(state: AgentState) -> AgentState:
         },
     )
     save_json(output_dir / "llm_explanations.json", llm_payload)
+    figure_payload = state.get("paper_figure_analysis", {})
+    save_json(output_dir / "paper_figure_analysis.json", figure_payload)
     save_json(output_dir / "file_analysis.json", {"file_analysis": file_analysis, "errors": errors})
     save_json(
         output_dir / "library_calls.json",
@@ -97,7 +101,7 @@ def report_generate_node(state: AgentState) -> AgentState:
         library_function_docs,
         skipped_low_confidence_library_calls,
     )
-    report_text = report.report_md + _llm_report_section(llm_payload)
+    report_text = report.report_md + _llm_report_section(llm_payload) + _vision_report_section(figure_payload)
     (output_dir / "report.md").write_text(report_text, encoding="utf-8")
     return {**state, "report_md": report_text}
 
@@ -120,7 +124,7 @@ def _llm_usage(state: AgentState) -> dict:
 
 
 def _llm_status(state: AgentState) -> str:
-    if state.get("analysis_mode", "rule") == "rule":
+    if not state.get("text_llm_enabled", state.get("analysis_mode", "rule") == "hybrid"):
         return "disabled"
     explanations = _all_explanations(state)
     selected = state.get("llm_budget", {}).get("selected_entities", 0)
@@ -153,6 +157,60 @@ def _llm_report_section(payload: dict) -> str:
             lines.extend([f"#### {item.get(key, '未命名')}", "", str(summary), ""])
             if item.get("evidence_refs"):
                 lines.append("证据引用：" + ", ".join(item["evidence_refs"]))
+            for link in item.get("possible_code_links", []):
+                lines.append(
+                    f"- AI 建议关联：Figure `{link.get('figure_id')}` → "
+                    f"{', '.join(link.get('code_evidence_refs', []))} "
+                    f"({link.get('confidence', 'low')}, suggested=true)"
+                )
     if payload["status"] in {"disabled", "skipped", "failed"}:
         lines.extend(["", "当前任务保留并展示完整的规则分析结果。"])
+    return "\n".join(lines) + "\n"
+
+
+def _vision_report_section(payload: dict) -> str:
+    lines = [
+        "", "## 论文 Figure 理解", "",
+        f"- VLM 开启：{payload.get('vision_vlm_enabled', False)}",
+        f"- 外部图片授权：{payload.get('external_vision_consent', False)}",
+        f"- 本地提取状态：{payload.get('extraction_status', 'not_applicable')}",
+        f"- VLM 状态：{payload.get('vision_status', 'disabled')}",
+    ]
+    budget = payload.get("budget", {})
+    lines.append(f"- Figure 实体：{budget.get('selected_entities', 0)} / {budget.get('max_total_entities', 0)}")
+    lines.append(f"- Provider 请求：{budget.get('sent_provider_requests', 0)} / {budget.get('max_provider_requests', 0)}")
+    for figure in payload.get("figures", []):
+        caption = figure.get("caption", {})
+        lines.extend([
+            "", f"### {caption.get('label', figure.get('figure_id', 'Figure'))}", "",
+            f"- 页码：{figure.get('page_number')}",
+            f"- 图注：{caption.get('text', '')}",
+        ])
+        preview = figure.get("canonical_preview") or {}
+        if preview.get("path"):
+            lines.append(f"- Canonical preview：`{preview['path']}`")
+        analysis = figure.get("vlm_analysis") or {}
+        if analysis:
+            metadata = analysis.get("metadata") or {}
+            module_labels = "；".join(item.get("name", "") for item in analysis.get("modules", [])) or "无"
+            flow_labels = "；".join(
+                f"{item.get('source', '')} → {item.get('target', '')}" for item in analysis.get("flows", [])
+            ) or "无"
+            lines.extend([
+                f"- Figure 类型：{analysis.get('figure_type', 'other')}",
+                f"- AI 摘要：{analysis.get('summary', '')}",
+                f"- 模块：{module_labels}",
+                f"- 流程：{flow_labels}",
+                f"- 输入：{'、'.join(analysis.get('inputs', [])) or '无'}",
+                f"- 输出：{'、'.join(analysis.get('outputs', [])) or '无'}",
+                f"- Provider：{metadata.get('provider') or '无'} / {metadata.get('model') or '无'}",
+                f"- 缓存命中：{metadata.get('cache_hit', False)}；tokens：{metadata.get('total_tokens')}",
+            ])
+            if analysis.get("uncertainties"):
+                lines.append("- 不确定性：" + "；".join(analysis["uncertainties"]))
+            if analysis.get("contribution_candidates"):
+                labels = [f"{item.get('contribution_id')}（候选）" for item in analysis["contribution_candidates"]]
+                lines.append("- 论文贡献候选：" + "、".join(labels))
+    if not payload.get("figures"):
+        lines.extend(["", "未提取到可展示的论文 Figure；原论文文本解析和规则代码对齐不受影响。"])
     return "\n".join(lines) + "\n"

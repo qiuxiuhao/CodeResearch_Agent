@@ -32,6 +32,13 @@ export type TaskSummary = {
   llm_explanation_count?: number;
   llm_warning_count?: number;
   llm_budget?: LLMBudget;
+  text_llm_enabled?: boolean;
+  vision_vlm_enabled?: boolean;
+  external_text_consent?: boolean;
+  external_vision_consent?: boolean;
+  vision_status?: string;
+  figure_count?: number;
+  vision_budget?: LLMBudget;
 };
 
 export type LibraryCall = {
@@ -142,6 +149,15 @@ export type LLMExplanation = {
   uncertainties?: string[];
   needs_review?: boolean;
   metadata?: LLMCallMetadata | null;
+  possible_code_links?: Array<{
+    figure_id: string;
+    contribution_id: string;
+    code_evidence_refs: string[];
+    reason: string;
+    confidence: string;
+    uncertainties?: string[];
+    suggested: true;
+  }>;
 };
 
 export type LLMBudget = {
@@ -159,6 +175,8 @@ export type LLMBudget = {
 export type LLMExplanations = {
   analysis_mode?: AnalysisMode;
   external_model_consent?: boolean;
+  text_llm_enabled?: boolean;
+  external_text_consent?: boolean;
   status?: string;
   budget?: LLMBudget;
   usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number; cache_hits?: number };
@@ -180,6 +198,65 @@ export type LLMPublicConfig = {
   max_concurrency: number;
   providers: Record<string, { configured: boolean; model: string }>;
   external_model_notice: string;
+  default_text_llm_enabled?: boolean;
+  vision?: VisionPublicConfig;
+};
+
+export type VisionPublicConfig = {
+  default_vision_vlm_enabled: boolean;
+  max_figure_analyses: number;
+  max_provider_requests: number;
+  max_concurrency: number;
+  providers: Record<string, { configured: boolean; model: string }>;
+  external_vision_notice: string;
+};
+
+export type FigureAnalysis = {
+  figure_id: string;
+  figure_type: string;
+  summary: string;
+  modules?: Array<{ name: string; role: string }>;
+  flows?: Array<{ source: string; target: string; relation: string }>;
+  inputs?: string[];
+  outputs?: string[];
+  visual_relations?: Array<{ subject: string; relation: string; object: string }>;
+  contribution_candidates?: Array<{ contribution_id: string; reason: string; confidence: string }>;
+  uncertainties?: string[];
+  evidence_refs?: string[];
+  metadata?: LLMCallMetadata | null;
+};
+
+export type PaperFigure = {
+  figure_id: string;
+  page_number: number;
+  page_width: number;
+  page_height: number;
+  page_rotation: number;
+  bbox: number[];
+  normalized_bbox: number[];
+  caption: { label: string; text: string; confidence: string };
+  original_assets?: Array<{
+    asset_id: string;
+    kind: string;
+    path: string;
+    mime_type: string;
+    byte_size: number;
+    sha256: string;
+  }>;
+  canonical_preview?: { path: string; width: number; height: number; byte_size: number; sha256: string } | null;
+  selection?: { selected: boolean; score: number; reasons: string[]; skip_reason?: string | null };
+  vlm_analysis?: FigureAnalysis | null;
+};
+
+export type PaperFigureAnalysis = {
+  extraction_status?: string;
+  vision_status?: string;
+  vision_vlm_enabled?: boolean;
+  external_vision_consent?: boolean;
+  budget?: LLMBudget;
+  figures?: PaperFigure[];
+  skipped_figures?: Array<Record<string, unknown>>;
+  warnings?: Array<Record<string, unknown>>;
 };
 
 export type Diagram = {
@@ -209,6 +286,7 @@ export type AnalysisResult = {
   diagrams?: { diagrams?: Diagram[]; warnings?: string[] };
   library_function_docs?: { library_function_docs?: LibraryFunctionDoc[] };
   llm_explanations?: LLMExplanations;
+  paper_figure_analysis?: PaperFigureAnalysis;
   report_md?: string;
   errors?: Array<Record<string, unknown>>;
 };

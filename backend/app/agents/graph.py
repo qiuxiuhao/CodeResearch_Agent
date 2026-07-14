@@ -14,6 +14,8 @@ from backend.app.agents.nodes.library_function_doc_node import library_function_
 from backend.app.agents.nodes.model_analyze_node import model_analyze_node
 from backend.app.agents.nodes.model_explain_llm_node import model_explain_llm_node
 from backend.app.agents.nodes.paper_analyze_node import paper_analyze_node
+from backend.app.agents.nodes.paper_figure_analyze_vlm_node import paper_figure_analyze_vlm_node
+from backend.app.agents.nodes.paper_figure_extract_node import paper_figure_extract_node
 from backend.app.agents.nodes.paper_code_align_node import paper_code_align_node
 from backend.app.agents.nodes.paper_code_align_llm_node import paper_code_align_llm_node
 from backend.app.agents.nodes.report_generate_node import report_generate_node
@@ -21,13 +23,16 @@ from backend.app.agents.nodes.repo_scan_node import repo_scan_node
 from backend.app.agents.nodes.unzip_node import unzip_node
 from backend.app.schemas.state import AgentState
 from backend.app.llm.runtime import LLMRuntime
+from backend.app.vision.runtime import VisionRuntime
 
 
-def build_analysis_graph(llm_runtime: LLMRuntime | None = None):
+def build_analysis_graph(llm_runtime: LLMRuntime | None = None, vision_runtime: VisionRuntime | None = None):
     file_llm = partial(file_explain_llm_node, llm_runtime=llm_runtime)
     function_llm = partial(function_explain_llm_node, llm_runtime=llm_runtime)
     model_llm = partial(model_explain_llm_node, llm_runtime=llm_runtime)
     paper_llm = partial(paper_code_align_llm_node, llm_runtime=llm_runtime)
+    figure_extract = partial(paper_figure_extract_node, vision_runtime=vision_runtime)
+    figure_vlm = partial(paper_figure_analyze_vlm_node, vision_runtime=vision_runtime)
     try:
         from langgraph.graph import END, START, StateGraph
     except ImportError:
@@ -40,10 +45,12 @@ def build_analysis_graph(llm_runtime: LLMRuntime | None = None):
             function_analyze_node,
             model_analyze_node,
             paper_analyze_node,
+            figure_extract,
             paper_code_align_node,
             file_llm,
             function_llm,
             model_llm,
+            figure_vlm,
             paper_llm,
             diagram_generate_node,
             library_function_doc_node,
@@ -59,10 +66,12 @@ def build_analysis_graph(llm_runtime: LLMRuntime | None = None):
     workflow.add_node("function_analyze", function_analyze_node)
     workflow.add_node("model_analyze", model_analyze_node)
     workflow.add_node("paper_analyze", paper_analyze_node)
+    workflow.add_node("paper_figure_extract", figure_extract)
     workflow.add_node("paper_code_align", paper_code_align_node)
     workflow.add_node("file_explain_llm", file_llm)
     workflow.add_node("function_explain_llm", function_llm)
     workflow.add_node("model_explain_llm", model_llm)
+    workflow.add_node("paper_figure_analyze_vlm", figure_vlm)
     workflow.add_node("paper_code_align_llm", paper_llm)
     workflow.add_node("diagram_generate", diagram_generate_node)
     workflow.add_node("library_function_doc", library_function_doc_node)
@@ -76,11 +85,13 @@ def build_analysis_graph(llm_runtime: LLMRuntime | None = None):
     workflow.add_edge("library_call_extract", "function_analyze")
     workflow.add_edge("function_analyze", "model_analyze")
     workflow.add_edge("model_analyze", "paper_analyze")
-    workflow.add_edge("paper_analyze", "paper_code_align")
+    workflow.add_edge("paper_analyze", "paper_figure_extract")
+    workflow.add_edge("paper_figure_extract", "paper_code_align")
     workflow.add_edge("paper_code_align", "file_explain_llm")
     workflow.add_edge("file_explain_llm", "function_explain_llm")
     workflow.add_edge("function_explain_llm", "model_explain_llm")
-    workflow.add_edge("model_explain_llm", "paper_code_align_llm")
+    workflow.add_edge("model_explain_llm", "paper_figure_analyze_vlm")
+    workflow.add_edge("paper_figure_analyze_vlm", "paper_code_align_llm")
     workflow.add_edge("paper_code_align_llm", "diagram_generate")
     workflow.add_edge("diagram_generate", "library_function_doc")
     workflow.add_edge("library_function_doc", "report_generate")

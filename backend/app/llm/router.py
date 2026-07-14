@@ -63,7 +63,7 @@ class ModelRouter:
             if cached is not None:
                 try:
                     value = response_model.model_validate(cached)
-                    if not validate_evidence_refs(getattr(value, "evidence_refs", []), evidence_catalog):
+                    if not validate_evidence_refs(_all_evidence_refs(value.model_dump()), evidence_catalog):
                         raise ValueError("invalid cached evidence refs")
                     if identity_validator is not None and not identity_validator(value):
                         raise ValueError("invalid cached entity identity")
@@ -94,7 +94,7 @@ class ModelRouter:
                         max_output_tokens=self.settings.max_output_tokens,
                     ))
                     value = response_model.model_validate(response.data)
-                    if not validate_evidence_refs(getattr(value, "evidence_refs", []), evidence_catalog):
+                    if not validate_evidence_refs(_all_evidence_refs(value.model_dump()), evidence_catalog):
                         raise ProviderError("llm_invalid_evidence_reference", "Model returned an unknown evidence reference.")
                     if identity_validator is not None and not identity_validator(value):
                         raise ProviderError("llm_identity_validation_failed", "Model returned an unexpected entity identity.")
@@ -146,3 +146,17 @@ def _warning(code: str, task_type: str, context_id: str, *, provider: str | None
         "code": code, "task_type": task_type, "context_id": context_id, "provider": provider,
         "attempt": attempt, "message": message or code.replace("_", " "), "recoverable": True,
     }
+
+
+def _all_evidence_refs(payload: object) -> list[str]:
+    refs: list[str] = []
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if key in {"evidence_refs", "code_evidence_refs"} and isinstance(value, list):
+                refs.extend(str(item) for item in value)
+            else:
+                refs.extend(_all_evidence_refs(value))
+    elif isinstance(payload, list):
+        for value in payload:
+            refs.extend(_all_evidence_refs(value))
+    return refs

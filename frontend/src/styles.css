@@ -171,6 +171,44 @@ button {
   font-weight: 700;
 }
 
+.figure-gallery {
+  display: grid;
+  gap: 16px;
+}
+
+.figure-card {
+  display: grid;
+  grid-template-columns: minmax(240px, 42%) 1fr;
+  gap: 16px;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfd;
+}
+
+.figure-card img {
+  width: 100%;
+  max-height: 520px;
+  object-fit: contain;
+  border: 1px solid #d8dee4;
+  background: #ffffff;
+}
+
+.figure-placeholder {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  background: #eef2f7;
+  color: #6b7280;
+}
+
+.vlm-analysis {
+  margin-top: 12px;
+  padding: 12px;
+  border-left: 4px solid #0f766e;
+  background: #f0fdfa;
+}
+
 .task-list {
   display: grid;
   gap: 8px;
@@ -327,6 +365,10 @@ pre {
   .split,
   .library-layout,
   .filter-bar {
+    display: block;
+  }
+
+  .figure-card {
     display: block;
   }
 
