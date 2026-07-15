@@ -255,10 +255,12 @@ def _teaching_diagram_report_section(payload: dict) -> str:
             lines.append("- 对应 Mermaid：" + "、".join(item["related_mermaid_diagram_ids"]))
         if item.get("blueprint_png", {}).get("path"):
             lines.append(f"- Blueprint PNG：`{item['blueprint_png']['path']}`")
-        if item.get("styled_composite", {}).get("path"):
-            lines.append(f"- styled_composite：`{item['styled_composite']['path']}`")
-        if item.get("final_asset", {}).get("path"):
-            lines.append(f"- final：`{item['final_asset']['path']}`")
+        styled_composite = item.get("styled_composite") or {}
+        final_asset = item.get("final_asset") or {}
+        if styled_composite.get("path"):
+            lines.append(f"- styled_composite：`{styled_composite['path']}`")
+        if final_asset.get("path"):
+            lines.append(f"- final：`{final_asset['path']}`")
         lines.append(f"- 当前展示：{item.get('display_variant', 'blueprint')}")
         if item.get("fallback_reason"):
             lines.append(f"- 回退原因：{item['fallback_reason']}")

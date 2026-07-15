@@ -26,6 +26,7 @@ def teaching_diagram_generate_node(
     if not manifest.teaching_diagrams_enabled:
         return state
     root = Path(state["output_dir"]) / "teaching_diagrams"
+    task_root = Path(state["output_dir"])
     renderer = BlueprintRenderer()
     compositor = TeachingDiagramCompositor()
     items: list[TeachingDiagramManifestItem] = []
@@ -35,7 +36,7 @@ def teaching_diagram_generate_node(
             spec = TeachingDiagramSpec.model_validate(spec_payload)
             spec_path = root / "specs" / f"{spec.diagram_id}.json"
             save_json(spec_path, spec.model_dump(mode="json"))
-            blueprint = renderer.render(spec, root)
+            blueprint = renderer.render(spec, root, task_root=task_root)
             generated_raw = None
             provider_attempts: list[TeachingDiagramProviderAttempt] = []
             ai_dir = root / "ai" / spec.diagram_id
@@ -60,7 +61,7 @@ def teaching_diagram_generate_node(
                 if result.image_path:
                     from backend.app.teaching_diagrams.assets import asset_from_file
 
-                    generated_raw = asset_from_file(result.image_path, result.mime_type or "image/png")
+                    generated_raw = asset_from_file(result.image_path, result.mime_type or "image/png", relative_to=task_root)
                     provider_attempts.append(TeachingDiagramProviderAttempt(
                         provider=str(result.metadata.get("provider", "unknown")),
                         model=result.metadata.get("model"),
@@ -70,9 +71,13 @@ def teaching_diagram_generate_node(
                     provider_attempts.append(TeachingDiagramProviderAttempt(provider="image_router", status="failed"))
             composite = compositor.compose(
                 spec=spec,
-                blueprint_png=Path(blueprint["png"].path),
+                blueprint_png=_task_path(task_root, blueprint["png"].path),
                 ai_dir=ai_dir,
-                generated_raw=Path(generated_raw.path) if generated_raw else None,
+                generated_raw=_task_path(task_root, generated_raw.path) if generated_raw else None,
+                task_root=task_root,
+                max_bytes=image_runtime.settings.max_single_image_bytes if image_runtime else 10_485_760,
+                max_width=image_runtime.settings.max_width if image_runtime else 1536,
+                max_height=image_runtime.settings.max_height if image_runtime else 1536,
             )
             item_warnings = [*blueprint.get("warnings", []), *composite.get("warnings", [])]
             item = TeachingDiagramManifestItem(
@@ -80,15 +85,15 @@ def teaching_diagram_generate_node(
                 title=spec.source_entity.title,
                 related_mermaid_diagram_ids=spec.related_mermaid_diagram_ids,
                 source_entity=spec.source_entity,
-                spec_path=str(spec_path),
+                spec_path=str(spec_path.relative_to(task_root)),
                 blueprint_svg=blueprint["svg"],
                 blueprint_png=blueprint["png"],
                 generated_raw=generated_raw,
                 styled_composite=composite["styled_composite"],
-                final_asset=composite["final"],
+                final_asset=None,
                 display_variant="blueprint",
                 display_asset=blueprint["png"],
-                fallback_reason="review_not_enabled_or_not_passed",
+                fallback_reason="review_not_enabled_or_not_passed" if generated_raw else "ai_image_unavailable",
                 provider_attempts=provider_attempts,
                 warnings=item_warnings,
             )
@@ -113,3 +118,8 @@ def teaching_diagram_generate_node(
         "teaching_diagram_manifest": manifest.model_dump(mode="json"),
         "teaching_image_budget": manifest.budget.get("teaching_image", {}),
     }
+
+
+def _task_path(task_root: Path, path_value: str) -> Path:
+    path = Path(path_value)
+    return path if path.is_absolute() else task_root / path

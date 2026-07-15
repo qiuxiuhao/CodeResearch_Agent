@@ -25,9 +25,15 @@ def validate_image_file(
     if expected_mime and expected_mime in ALLOWED_IMAGE_MIME and mime != expected_mime:
         raise ValueError("image mime mismatch")
     pixmap = fitz.Pixmap(str(path))
-    if pixmap.width > max_width or pixmap.height > max_height:
+    try:
+        width, height = pixmap.width, pixmap.height
+    finally:
+        pixmap = None  # type: ignore[assignment]
+    if width > max_width or height > max_height:
         raise ValueError("image dimensions exceed configured limit")
-    return {"mime_type": mime, "width": pixmap.width, "height": pixmap.height, "byte_size": len(data)}
+    if width * height > max_width * max_height:
+        raise ValueError("image pixel count exceeds configured limit")
+    return {"mime_type": mime, "width": width, "height": height, "byte_size": len(data)}
 
 
 def write_validated_image(
@@ -40,11 +46,19 @@ def write_validated_image(
     max_height: int,
 ) -> dict:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(image_bytes)
+    input_mime = _detect_mime(image_bytes)
+    if mime_type in ALLOWED_IMAGE_MIME and input_mime != mime_type:
+        raise ValueError("image mime mismatch")
+    png_bytes = _normalize_to_png(image_bytes, max_width=max_width, max_height=max_height)
+    if len(png_bytes) > max_bytes:
+        raise ValueError("image byte limit exceeded")
+    if path.suffix.lower() != ".png":
+        path = path.with_suffix(".png")
+    path.write_bytes(png_bytes)
     try:
         return validate_image_file(
             path,
-            expected_mime=mime_type,
+            expected_mime="image/png",
             max_bytes=max_bytes,
             max_width=max_width,
             max_height=max_height,
@@ -52,6 +66,36 @@ def write_validated_image(
     except Exception:
         path.unlink(missing_ok=True)
         raise
+
+
+def normalize_image_bytes_to_png(
+    image_bytes: bytes,
+    *,
+    mime_type: str,
+    max_bytes: int,
+    max_width: int,
+    max_height: int,
+) -> tuple[bytes, dict]:
+    input_mime = _detect_mime(image_bytes)
+    if mime_type in ALLOWED_IMAGE_MIME and input_mime != mime_type:
+        raise ValueError("image mime mismatch")
+    png_bytes = _normalize_to_png(image_bytes, max_width=max_width, max_height=max_height)
+    if len(png_bytes) > max_bytes:
+        raise ValueError("image byte limit exceeded")
+    info = {
+        "mime_type": "image/png",
+        "width": 0,
+        "height": 0,
+        "byte_size": len(png_bytes),
+    }
+    doc = fitz.open(stream=png_bytes, filetype="png")
+    try:
+        pixmap = doc[0].get_pixmap(alpha=False)
+        info["width"] = pixmap.width
+        info["height"] = pixmap.height
+    finally:
+        doc.close()
+    return png_bytes, info
 
 
 def _detect_mime(data: bytes) -> str:
@@ -64,3 +108,26 @@ def _detect_mime(data: bytes) -> str:
     if data.lstrip().startswith((b"<svg", b"<html", b"<!DOCTYPE")):
         raise ValueError("active or vector content is not allowed as generated image")
     return "application/octet-stream"
+
+
+def _normalize_to_png(image_bytes: bytes, *, max_width: int, max_height: int) -> bytes:
+    mime = _detect_mime(image_bytes)
+    if mime not in ALLOWED_IMAGE_MIME:
+        raise ValueError("unsupported image mime")
+    doc = fitz.open(stream=image_bytes, filetype=_filetype_for_mime(mime))
+    try:
+        if doc.page_count < 1:
+            raise ValueError("image decode failed")
+        page = doc[0]
+        pixmap = page.get_pixmap(alpha=False)
+        if pixmap.width > max_width or pixmap.height > max_height:
+            raise ValueError("image dimensions exceed configured limit")
+        if pixmap.width * pixmap.height > max_width * max_height:
+            raise ValueError("image pixel count exceeds configured limit")
+        return pixmap.tobytes("png")
+    finally:
+        doc.close()
+
+
+def _filetype_for_mime(mime: str) -> str:
+    return {"image/png": "png", "image/jpeg": "jpeg", "image/webp": "webp"}[mime]

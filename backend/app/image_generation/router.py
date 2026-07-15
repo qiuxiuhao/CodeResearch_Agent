@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from shutil import copyfile
 from typing import Iterable
 
 from backend.app.image_generation.cache import ImageGenerationCache
@@ -8,7 +9,7 @@ from backend.app.image_generation.config import ImageGenerationSettings
 from backend.app.image_generation.downloader import SafeImageDownloader
 from backend.app.image_generation.exceptions import ImageGenerationError
 from backend.app.image_generation.providers.base_provider import BaseImageProvider
-from backend.app.image_generation.safety import write_validated_image
+from backend.app.image_generation.safety import validate_image_file, write_validated_image
 from backend.app.image_generation.types import ImageGenerationRequest, ImageRouterResult
 from backend.app.llm.budget import BudgetManager
 
@@ -30,9 +31,13 @@ class ImageGenerationRouter:
     def has_available_provider(self) -> bool:
         return any(provider.configured for provider in self.providers)
 
-    def generate(self, request: ImageGenerationRequest) -> ImageRouterResult:
+    def generate(self, request: ImageGenerationRequest, *, provider_names: list[str] | None = None) -> ImageRouterResult:
         warnings: list[dict] = []
-        for provider_index, provider in enumerate([item for item in self.providers if item.configured]):
+        providers = [item for item in self.providers if item.configured]
+        if provider_names is not None:
+            wanted = set(provider_names)
+            providers = [item for item in providers if item.name in wanted]
+        for provider_index, provider in enumerate(providers):
             cache_key = {
                 "provider": provider.name,
                 "model": provider.model,
@@ -49,10 +54,17 @@ class ImageGenerationRouter:
                 cached = None
                 warnings.append(_warning("image_cache_error", request.diagram_id, provider=provider.name))
             if cached and cached.get("cached_asset_path"):
-                path = Path(cached["cached_asset_path"])
-                if path.is_file():
+                try:
+                    path = Path(cached["cached_asset_path"])
+                    info = _validate_cached(path, cached, request)
+                    output_path = request.output_dir / "generated_raw.png"
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    _copy_or_link(path, output_path)
+                    info = {**cached, **info, "cache_hit": True, "current_task_asset": str(output_path)}
                     self.budget.record_cache_hit()
-                    return ImageRouterResult(path, cached.get("mime_type", "image/png"), {**cached, "cache_hit": True}, warnings)
+                    return ImageRouterResult(output_path, "image/png", info, warnings)
+                except Exception:
+                    warnings.append(_warning("image_cache_error", request.diagram_id, provider=provider.name))
 
             reservation = self.budget.try_reserve_provider_request(
                 provider.name, "teaching_image_generate", request.diagram_id,
@@ -92,7 +104,8 @@ class ImageGenerationRouter:
                     "cache_hit": False,
                 }
                 try:
-                    self.cache.set(cache_key, image_bytes, metadata)
+                    cached_metadata = self.cache.set(cache_key, output_path.read_bytes(), metadata)
+                    metadata = {**cached_metadata, "cache_hit": False, "current_task_asset": str(output_path)}
                 except Exception:
                     warnings.append(_warning("image_cache_error", request.diagram_id, provider=provider.name))
                 return ImageRouterResult(output_path, info["mime_type"], metadata, warnings)
@@ -104,7 +117,7 @@ class ImageGenerationRouter:
             except Exception:
                 self.budget.record_request_result(reservation.reservation_id, "failed")
                 warnings.append(_warning("image_provider_unknown_error", request.diagram_id, provider=provider.name))
-        if not self.providers or not any(provider.configured for provider in self.providers):
+        if not providers:
             warnings.append(_warning("image_provider_unconfigured", request.diagram_id))
         return ImageRouterResult(None, None, {}, warnings)
 
@@ -118,3 +131,31 @@ def _warning(code: str, diagram_id: str, *, provider: str | None = None) -> dict
         "message": code.replace("_", " "),
         "recoverable": True,
     }
+
+
+def _validate_cached(path: Path, cached: dict, request: ImageGenerationRequest) -> dict:
+    if not path.is_file():
+        raise ValueError("missing cached image")
+    data = path.read_bytes()
+    import hashlib
+
+    sha256 = hashlib.sha256(data).hexdigest()
+    if cached.get("sha256") and cached["sha256"] != sha256:
+        raise ValueError("cached image hash mismatch")
+    info = validate_image_file(
+        path,
+        expected_mime="image/png",
+        max_bytes=request.max_output_bytes,
+        max_width=request.width,
+        max_height=request.height,
+    )
+    return {**info, "sha256": sha256}
+
+
+def _copy_or_link(source: Path, target: Path) -> None:
+    try:
+        if target.exists():
+            target.unlink()
+        target.hardlink_to(source)
+    except Exception:
+        copyfile(source, target)

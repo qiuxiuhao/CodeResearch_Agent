@@ -8,11 +8,17 @@ import fitz
 from backend.app.schemas.teaching_diagram import TeachingDiagramAsset
 
 
-def asset_from_file(path: Path, mime_type: str) -> TeachingDiagramAsset:
+def asset_from_file(path: Path, mime_type: str, *, relative_to: Path | None = None) -> TeachingDiagramAsset:
     data = path.read_bytes()
     width, height = _image_size(path, mime_type)
+    asset_path = path
+    if relative_to is not None:
+        try:
+            asset_path = path.resolve().relative_to(relative_to.resolve())
+        except ValueError:
+            asset_path = path
     return TeachingDiagramAsset(
-        path=str(path),
+        path=str(asset_path),
         mime_type=mime_type,
         width=width,
         height=height,

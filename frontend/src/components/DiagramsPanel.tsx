@@ -42,6 +42,7 @@ function TeachingDiagramCard({ result, diagram }: { result: AnalysisResult; diag
   const [view, setView] = useState<TeachingView>(diagram.display_variant === "ai" ? "ai" : "blueprint");
   const relatedMermaid = (result.diagrams?.diagrams ?? []).filter((item) => diagram.related_mermaid_diagram_ids?.includes(item.id || ""));
   const hasAi = Boolean(diagram.final_asset && diagram.display_variant === "ai");
+  const preferSvgBlueprint = (diagram.warnings ?? []).includes("teaching_diagram_font_unavailable");
   return (
     <article className="item-card">
       <h3>{diagram.title || diagram.diagram_id}</h3>
@@ -59,8 +60,12 @@ function TeachingDiagramCard({ result, diagram }: { result: AnalysisResult; diag
       {view === "mermaid" && (
         relatedMermaid.length > 0 ? relatedMermaid.map((item) => <MermaidBlock key={item.id} code={item.mermaid || ""} />) : <p className="muted">未找到直接映射的 Mermaid 图。</p>
       )}
-      {view === "blueprint" && diagram.blueprint_png && (
-        <img className="figure-preview" src={teachingDiagramAssetUrl(result.task_id, diagram.diagram_id, "blueprint.png")} alt={`${diagram.title} Blueprint`} />
+      {view === "blueprint" && (diagram.blueprint_png || diagram.blueprint_svg) && (
+        <img
+          className="figure-preview"
+          src={teachingDiagramAssetUrl(result.task_id, diagram.diagram_id, preferSvgBlueprint && diagram.blueprint_svg ? "blueprint.svg" : "blueprint.png")}
+          alt={`${diagram.title} Blueprint`}
+        />
       )}
       {view === "ai" && hasAi && (
         <>

@@ -23,7 +23,7 @@ from backend.app.vision.config import VisionSettings
 from backend.app.config.pdf_safety import PDFSafetySettings, zip_max_file_bytes
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.3.0")
+app = FastAPI(title="CodeResearch Agent", version="1.3.1")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -209,7 +209,8 @@ def get_teaching_diagram_asset(task_id: str, diagram_id: str, asset_name: str, o
     if not path_value:
         raise HTTPException(status_code=404, detail="Teaching diagram asset not found.")
     root = (Path(output_root) / task_id).resolve()
-    candidate = Path(path_value).resolve()
+    path = Path(path_value)
+    candidate = path.resolve() if path.is_absolute() else (root / path).resolve()
     if root not in candidate.parents or not candidate.is_file():
         raise HTTPException(status_code=404, detail="Teaching diagram asset not found.")
     return FileResponse(candidate, media_type=asset.get("mime_type") or "application/octet-stream")

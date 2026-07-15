@@ -11,6 +11,9 @@ class ImageProviderSettings(BaseModel):
     base_url: str
     model: str
     allowed_domains: list[str] = Field(default_factory=list)
+    endpoint_path: str = ""
+    workspace: str = ""
+    supports_async: bool = False
 
     @property
     def configured(self) -> bool:
@@ -25,15 +28,15 @@ class ImageGenerationSettings(BaseModel):
     seedream: ImageProviderSettings
     timeout_seconds: float = Field(default=60, ge=1, le=600)
     max_provider_requests: int = Field(default=8, ge=0, le=1000)
-    max_concurrency: int = Field(default=2, ge=1, le=16)
+    max_concurrency: int = Field(default=1, ge=1, le=1)
     max_single_image_bytes: int = Field(default=10_485_760, ge=1024)
     max_width: int = Field(default=1536, ge=64, le=8192)
     max_height: int = Field(default=1536, ge=64, le=8192)
     cache_enabled: bool = True
     cache_path: str = "data/image_generation_cache.sqlite3"
     cache_asset_root: str = "data/image_generation_cache"
-    prompt_version: str = "1.3.0"
-    schema_version: str = "1.3.0"
+    prompt_version: str = "1.3.1"
+    schema_version: str = "1.3.1"
     task_max_poll_seconds: float = Field(default=90, ge=1, le=3600)
     task_poll_interval_seconds: float = Field(default=2, ge=0.1, le=120)
     task_max_poll_attempts: int = Field(default=45, ge=1, le=1000)
@@ -55,9 +58,12 @@ class ImageGenerationSettings(BaseModel):
             qwen_image=ImageProviderSettings(
                 name="qwen_image",
                 api_key=os.getenv("QWEN_IMAGE_API_KEY", ""),
-                base_url=os.getenv("QWEN_IMAGE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+                base_url=os.getenv("QWEN_IMAGE_BASE_URL", "https://dashscope.aliyuncs.com"),
                 model=os.getenv("QWEN_IMAGE_MODEL", "qwen-image"),
                 allowed_domains=_csv_env("QWEN_IMAGE_ALLOWED_DOMAINS", "dashscope.aliyuncs.com"),
+                endpoint_path=os.getenv("QWEN_IMAGE_ENDPOINT_PATH", "/api/v1/services/aigc/multimodal-generation/generation"),
+                workspace=os.getenv("QWEN_IMAGE_WORKSPACE", ""),
+                supports_async=_bool_env("QWEN_IMAGE_SUPPORTS_ASYNC", False),
             ),
             seedream=ImageProviderSettings(
                 name="seedream",
@@ -65,18 +71,20 @@ class ImageGenerationSettings(BaseModel):
                 base_url=os.getenv("SEEDREAM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
                 model=os.getenv("SEEDREAM_MODEL", "seedream"),
                 allowed_domains=_csv_env("SEEDREAM_ALLOWED_DOMAINS", "ark.cn-beijing.volces.com"),
+                endpoint_path=os.getenv("SEEDREAM_ENDPOINT_PATH", "/images/generations"),
+                supports_async=_bool_env("SEEDREAM_SUPPORTS_ASYNC", False),
             ),
             timeout_seconds=_float_env("IMAGE_GENERATION_TIMEOUT_SECONDS", 60),
             max_provider_requests=_int_env("TEACHING_IMAGE_MAX_PROVIDER_REQUESTS", _int_env("IMAGE_GENERATION_MAX_PROVIDER_REQUESTS", 8)),
-            max_concurrency=_int_env("IMAGE_GENERATION_MAX_CONCURRENCY", 2),
+            max_concurrency=1,
             max_single_image_bytes=_int_env("IMAGE_GENERATION_MAX_SINGLE_IMAGE_BYTES", 10_485_760),
             max_width=_int_env("IMAGE_GENERATION_MAX_WIDTH", 1536),
             max_height=_int_env("IMAGE_GENERATION_MAX_HEIGHT", 1536),
             cache_enabled=_bool_env("IMAGE_GENERATION_CACHE_ENABLED", True),
             cache_path=os.getenv("IMAGE_GENERATION_CACHE_PATH", "data/image_generation_cache.sqlite3"),
             cache_asset_root=os.getenv("IMAGE_GENERATION_CACHE_ASSET_ROOT", "data/image_generation_cache"),
-            prompt_version=os.getenv("IMAGE_GENERATION_PROMPT_VERSION", "1.3.0"),
-            schema_version=os.getenv("IMAGE_GENERATION_SCHEMA_VERSION", "1.3.0"),
+            prompt_version=os.getenv("IMAGE_GENERATION_PROMPT_VERSION", "1.3.1"),
+            schema_version=os.getenv("IMAGE_GENERATION_SCHEMA_VERSION", "1.3.1"),
             task_max_poll_seconds=_float_env("IMAGE_TASK_MAX_POLL_SECONDS", 90),
             task_poll_interval_seconds=_float_env("IMAGE_TASK_POLL_INTERVAL_SECONDS", 2),
             task_max_poll_attempts=_int_env("IMAGE_TASK_MAX_POLL_ATTEMPTS", 45),

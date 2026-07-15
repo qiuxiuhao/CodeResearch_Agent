@@ -42,6 +42,11 @@ def build_analysis_graph(
     figure_extract = partial(paper_figure_extract_node, vision_runtime=vision_runtime)
     figure_vlm = partial(paper_figure_analyze_vlm_node, vision_runtime=vision_runtime)
     teaching_generate = partial(teaching_diagram_generate_node, image_runtime=image_runtime)
+    teaching_review = partial(
+        teaching_diagram_review_vlm_node,
+        vision_runtime=vision_runtime,
+        image_runtime=image_runtime,
+    )
     try:
         from langgraph.graph import END, START, StateGraph
     except ImportError:
@@ -64,7 +69,7 @@ def build_analysis_graph(
             diagram_generate_node,
             teaching_diagram_plan_node,
             teaching_generate,
-            teaching_diagram_review_vlm_node,
+            teaching_review,
             library_function_doc_node,
             report_generate_node,
         ])
@@ -88,7 +93,7 @@ def build_analysis_graph(
     workflow.add_node("diagram_generate", diagram_generate_node)
     workflow.add_node("teaching_diagram_plan", teaching_diagram_plan_node)
     workflow.add_node("teaching_diagram_generate", teaching_generate)
-    workflow.add_node("teaching_diagram_review_vlm", teaching_diagram_review_vlm_node)
+    workflow.add_node("teaching_diagram_review_vlm", teaching_review)
     workflow.add_node("library_function_doc", library_function_doc_node)
     workflow.add_node("report_generate", report_generate_node)
 

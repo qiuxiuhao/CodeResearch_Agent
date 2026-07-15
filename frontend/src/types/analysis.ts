@@ -299,12 +299,22 @@ export type TeachingDiagramItem = {
   diagram_id: string;
   title: string;
   related_mermaid_diagram_ids?: string[];
+  source_entity?: {
+    entity_type?: string;
+    entity_id?: string;
+    title?: string;
+    file_path?: string | null;
+    qualified_name?: string | null;
+    class_name?: string | null;
+  };
+  spec_path?: string;
   blueprint_svg?: TeachingDiagramAsset | null;
   blueprint_png?: TeachingDiagramAsset | null;
   generated_raw?: TeachingDiagramAsset | null;
   styled_composite?: TeachingDiagramAsset | null;
   final_asset?: TeachingDiagramAsset | null;
   display_variant?: "blueprint" | "ai";
+  display_asset?: TeachingDiagramAsset | null;
   fallback_reason?: string | null;
   review?: { passed?: boolean; overall_score?: number } | null;
   warnings?: string[];

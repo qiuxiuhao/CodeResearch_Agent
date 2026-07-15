@@ -165,7 +165,7 @@ def load_task_result(task_id: str, output_root: str | Path = "outputs") -> dict[
             }
         elif key == "teaching_diagrams" and not (task_dir / filename).exists():
             result[key] = {
-                "version": "1.3.0", "status": "disabled", "diagrams": [], "warnings": [],
+                "version": "1.3.1", "status": "disabled", "diagrams": [], "warnings": [],
             }
         else:
             result[key] = _read_json(task_dir / filename, key, errors)

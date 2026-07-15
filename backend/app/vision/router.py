@@ -3,9 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, datetime
-from typing import Iterable
+from typing import Callable, Iterable
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from backend.app.llm.budget import BudgetManager
 from backend.app.schemas.paper_figure import FigureAnalysis, VisionCallMetadata, VisionEvidenceItem
@@ -140,6 +140,93 @@ class VisionModelRouter:
         warnings.append(_warning("vlm_all_providers_failed", context_id))
         return VisionRouterResult(None, warnings)
 
+    def analyze_structured_image(
+        self,
+        *,
+        context_id: str,
+        system_prompt: str,
+        input_payload: dict,
+        image_bytes: bytes,
+        mime_type: str,
+        response_model: type[BaseModel],
+        task_type: str,
+        prompt_version: str,
+        validator: Callable[[BaseModel], None] | None = None,
+    ) -> VisionRouterResult:
+        image_hash = hashlib.sha256(image_bytes).hexdigest()
+        warnings: list[dict] = []
+        available = [(index, provider) for index, provider in enumerate(self.providers) if provider.configured]
+        if not available:
+            return VisionRouterResult(None, [_warning_for_task(task_type, "vlm_provider_unconfigured", context_id, message="Vision provider is not configured.")])
+        attempts = 0
+        for provider_index, provider in available:
+            for attempt in range(self.settings.max_retries + 1):
+                attempts += 1
+                reservation = self.budget.try_reserve_provider_request(
+                    provider.name,
+                    task_type,
+                    context_id,
+                    retry=attempt > 0,
+                    fallback=provider_index > 0 and attempt == 0,
+                )
+                if not reservation.allowed:
+                    warnings.append(_warning_for_task(task_type, "vlm_provider_request_budget_exceeded", context_id, provider=provider.name))
+                    return VisionRouterResult(None, warnings)
+                try:
+                    response = provider.analyze_figure(VisionRequest(
+                        context_id=context_id,
+                        system_prompt=system_prompt,
+                        input_payload=input_payload,
+                        image_bytes=image_bytes,
+                        mime_type=mime_type,
+                        response_model=response_model,
+                        max_output_tokens=self.settings.max_output_tokens,
+                    ))
+                    value = response_model.model_validate(response.data)
+                    if validator:
+                        validator(value)
+                    self.budget.record_request_result(reservation.reservation_id, "success")
+                    metadata = {
+                        "status": "fallback" if provider_index else "success",
+                        "provider": provider.name,
+                        "model": provider.model,
+                        "attempts": attempts,
+                        "fallback_used": provider_index > 0,
+                        "latency_ms": response.latency_ms,
+                        "input_tokens": response.input_tokens,
+                        "output_tokens": response.output_tokens,
+                        "total_tokens": response.total_tokens,
+                        "image_hash": image_hash,
+                        "generated_at": datetime.now(UTC).isoformat(),
+                        "cache_hit": False,
+                        "prompt_version": prompt_version,
+                        "warning_codes": [item["code"] for item in warnings],
+                    }
+                    return VisionRouterResult(value.model_copy(update={"metadata": metadata}), warnings)
+                except ValidationError:
+                    self.budget.record_request_result(reservation.reservation_id, "failed")
+                    warnings.append(_warning_for_task(task_type, "vlm_schema_validation_failed", context_id, provider=provider.name, attempt=attempt + 1))
+                except ValueError as exc:
+                    self.budget.record_request_result(reservation.reservation_id, "failed")
+                    warnings.append(_warning_for_task(task_type, "vlm_evidence_validation_failed", context_id, provider=provider.name, attempt=attempt + 1, message=str(exc)))
+                except VisionProviderError as exc:
+                    self.budget.record_request_result(reservation.reservation_id, "failed")
+                    warnings.append(_warning_for_task(task_type, exc.code, context_id, provider=provider.name, attempt=attempt + 1, message=str(exc)))
+                    if not exc.recoverable:
+                        break
+                except Exception:
+                    self.budget.record_request_result(reservation.reservation_id, "failed")
+                    warnings.append(_warning_for_task(
+                        task_type,
+                        "vlm_unexpected_provider_error",
+                        context_id,
+                        provider=provider.name,
+                        attempt=attempt + 1,
+                        message="Unexpected Vision Provider failure; retry or fallback may continue.",
+                    ))
+        warnings.append(_warning_for_task(task_type, "vlm_all_providers_failed", context_id))
+        return VisionRouterResult(None, warnings)
+
 
 def _validate_value(value: FigureAnalysis, context_id: str, valid_evidence: set[str], valid_contributions: set[str]) -> None:
     if value.figure_id != context_id:
@@ -171,3 +258,9 @@ def _warning(code: str, context_id: str, *, provider: str | None = None, attempt
         "provider": provider, "attempt": attempt, "message": message or code.replace("_", " "),
         "recoverable": True,
     }
+
+
+def _warning_for_task(task_type: str, code: str, context_id: str, *, provider: str | None = None, attempt: int | None = None, message: str | None = None) -> dict:
+    warning = _warning(code, context_id, provider=provider, attempt=attempt, message=message)
+    warning["task_type"] = task_type
+    return warning

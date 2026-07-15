@@ -14,13 +14,15 @@ from backend.app.image_generation.types import ImageGenerationRequest, ImageGene
 
 
 class OpenAICompatibleImageProvider(BaseImageProvider):
-    def __init__(self, settings: ImageProviderSettings, *, timeout_seconds: float = 60) -> None:
+    def __init__(self, settings: ImageProviderSettings, *, timeout_seconds: float = 60, transport: httpx.BaseTransport | None = None) -> None:
         self.name = settings.name
         self.model = settings.model
         self.api_key = settings.api_key
         self.base_url = settings.base_url.rstrip("/")
+        self.endpoint_path = settings.endpoint_path or "/images/generations"
         self.allowed_domains = settings.allowed_domains
         self.timeout_seconds = timeout_seconds
+        self._transport = transport
         self.capabilities = ImageProviderCapabilities(supports_json_prompt=True)
 
     @property
@@ -33,7 +35,7 @@ class OpenAICompatibleImageProvider(BaseImageProvider):
         payload = self._payload(request)
         started = time.monotonic()
         try:
-            with httpx.Client(timeout=self.timeout_seconds) as client:
+            with httpx.Client(timeout=self.timeout_seconds, transport=self._transport) as client:
                 response = client.post(
                     self._endpoint(),
                     headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
@@ -57,7 +59,9 @@ class OpenAICompatibleImageProvider(BaseImageProvider):
         return self._parse_response(body, latency_ms)
 
     def _endpoint(self) -> str:
-        return self.base_url if self.base_url.endswith("/images/generations") else f"{self.base_url}/images/generations"
+        if self.base_url.endswith(self.endpoint_path):
+            return self.base_url
+        return f"{self.base_url}/{self.endpoint_path.lstrip('/')}"
 
     def _payload(self, request: ImageGenerationRequest) -> dict[str, Any]:
         prompt = (

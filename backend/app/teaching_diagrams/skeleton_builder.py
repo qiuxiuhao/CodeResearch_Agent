@@ -112,9 +112,10 @@ def _build_model_skeleton(
     catalog: dict[str, TeachingDiagramEvidenceItem],
 ) -> TeachingDiagramSkeleton | None:
     class_name = str(model.get("class_name") or "Model")
+    file_key = str(model.get("file_path") or "")
     source = TeachingDiagramSourceEntity(
         entity_type="model",
-        entity_id=f"model:{class_name}",
+        entity_id=f"model:{file_key}:{class_name}",
         title=f"{class_name} 模型数据流",
         file_path=model.get("file_path"),
         class_name=class_name,
@@ -123,7 +124,7 @@ def _build_model_skeleton(
     evidence_id = _add_evidence(
         catalog,
         "model_analysis",
-        f"model:{_safe_id(class_name)}",
+        f"model:{_safe_id(file_key)}:{_safe_id(class_name)}",
         f"模型类 {class_name} 来自规则 model_analysis。",
         file_path=model.get("file_path"),
         class_name=class_name,
@@ -153,7 +154,7 @@ def _build_model_skeleton(
         step_evidence = _add_evidence(
             catalog,
             "model_analysis",
-            f"model:{_safe_id(class_name)}:forward:{step.get('order', len(step_modules) + 1)}",
+            f"model:{_safe_id(file_key)}:{_safe_id(class_name)}:forward:{step.get('order', len(step_modules) + 1)}",
             str(step.get("explanation") or step.get("expression") or "forward step"),
             file_path=model.get("file_path"),
             class_name=class_name,
@@ -191,7 +192,7 @@ def _build_model_skeleton(
             layer_evidence = _add_evidence(
                 catalog,
                 "model_analysis",
-                f"model:{_safe_id(class_name)}:layer:{_safe_id(layer_id)}",
+                f"model:{_safe_id(file_key)}:{_safe_id(class_name)}:layer:{_safe_id(layer_id)}",
                 f"模型层 {layer.get('assigned_name') or layer.get('name')} 类型为 {layer.get('layer_type') or 'unknown'}。",
                 file_path=model.get("file_path"),
                 class_name=class_name,
@@ -220,9 +221,9 @@ def _build_model_skeleton(
                 label="return", evidence_refs=[evidence_id],
             ))
 
-    for module in modules:
-        if module.kind in {"input", "output"}:
-            shapes.append(TeachingDiagramShape(module_id=module.id, label="shape: 规则未确认", evidence_refs=module.evidence_refs))
+    warnings = []
+    if any(module.kind in {"input", "output"} for module in modules):
+        warnings.append("未发现具体 Tensor Shape evidence，已省略未确认 Shape。")
     for step in model.get("forward_steps", [])[:3]:
         expression = str(step.get("expression") or "")
         if expression and any(token in expression for token in ("+", "-", "*", "/", "matmul", "softmax")):
@@ -234,7 +235,7 @@ def _build_model_skeleton(
 
     if len(modules) < 2:
         return None
-    return _finalize_skeleton(source, related, sections, modules, connections, shapes, formulas, [evidence_id])
+    return _finalize_skeleton(source, related, sections, modules, connections, shapes, formulas, [evidence_id], warnings)
 
 
 def _build_function_skeleton(
@@ -243,14 +244,15 @@ def _build_function_skeleton(
     catalog: dict[str, TeachingDiagramEvidenceItem],
 ) -> TeachingDiagramSkeleton | None:
     qualified_name = str(function.get("qualified_name") or function.get("function_name") or "function")
+    file_key = str(function.get("file_path") or "")
     source = TeachingDiagramSourceEntity(
-        entity_type="function", entity_id=f"function:{qualified_name}", title=f"{qualified_name} 函数逻辑",
+        entity_type="function", entity_id=f"function:{file_key}:{qualified_name}", title=f"{qualified_name} 函数逻辑",
         file_path=function.get("file_path"), qualified_name=qualified_name,
         class_name=function.get("class_name"),
     )
     related = diagram_ids_by_type.get("function_logic", [])
     evidence_id = _add_evidence(
-        catalog, "function_analysis", f"function:{_safe_id(qualified_name)}",
+        catalog, "function_analysis", f"function:{_safe_id(file_key)}:{_safe_id(qualified_name)}",
         f"函数 {qualified_name} 来自规则 function_analysis。",
         file_path=function.get("file_path"), qualified_name=qualified_name,
         function_name=function.get("function_name"), line_no=function.get("start_line"),
@@ -297,7 +299,7 @@ def _build_data_flow_skeleton(
     useful = [item for item in file_analysis if item.get("file_type") in {"dataset", "training", "model", "entry"}]
     if len(useful) < 2:
         return None
-    source = TeachingDiagramSourceEntity(entity_type="data_flow", entity_id="data_flow:project", title="项目数据流概览")
+    source = TeachingDiagramSourceEntity(entity_type="data_flow", entity_id="data_flow:project", title="项目建议阅读顺序")
     modules: list[TeachingDiagramModule] = []
     connections: list[TeachingDiagramConnection] = []
     evidence_refs: list[str] = []
@@ -310,14 +312,14 @@ def _build_data_flow_skeleton(
         evidence_refs.append(evidence_id)
         modules.append(TeachingDiagramModule(
             id=f"file_{len(modules) + 1}", label=str(item.get("file_path")), kind="module",
-            section_id="project_data_flow", role=item.get("file_type"), evidence_refs=[evidence_id],
+            section_id="project_reading_order", role=item.get("file_type"), evidence_refs=[evidence_id],
         ))
     for first, second in zip(modules, modules[1:]):
         connections.append(TeachingDiagramConnection(
             id=f"edge_{first.id}_{second.id}", source_module_id=first.id, target_module_id=second.id,
-            label="项目结构顺序", evidence_refs=[*first.evidence_refs, *second.evidence_refs],
+            label="建议阅读顺序", evidence_refs=[*first.evidence_refs, *second.evidence_refs],
         ))
-    sections = [TeachingDiagramSection(id="project_data_flow", title="项目数据流", module_ids=[item.id for item in modules], evidence_refs=evidence_refs)]
+    sections = [TeachingDiagramSection(id="project_reading_order", title="项目建议阅读顺序", module_ids=[item.id for item in modules], evidence_refs=evidence_refs)]
     return _finalize_skeleton(source, diagram_ids_by_type.get("project_structure", []), sections, modules, connections, [], [], evidence_refs)
 
 
@@ -330,6 +332,7 @@ def _finalize_skeleton(
     shapes: list[TeachingDiagramShape],
     formulas: list[TeachingDiagramFormula],
     evidence_refs: list[str],
+    extra_warnings: list[str] | None = None,
 ) -> TeachingDiagramSkeleton:
     module_ids = {item.id for item in modules}
     section_ids = {item.id for item in sections}
@@ -344,6 +347,7 @@ def _finalize_skeleton(
         warnings.append("存在未映射分区的模块。")
     if any(connection.source_module_id not in module_ids or connection.target_module_id not in module_ids for connection in connections):
         raise ValueError("Illegal teaching diagram connection.")
+    warnings.extend(extra_warnings or [])
     legend = [
         TeachingDiagramLegendItem(label="输入", color="#dbeafe", meaning="进入该流程的数据或参数"),
         TeachingDiagramLegendItem(label="计算", color="#dcfce7", meaning="规则识别到的层、函数或操作"),
