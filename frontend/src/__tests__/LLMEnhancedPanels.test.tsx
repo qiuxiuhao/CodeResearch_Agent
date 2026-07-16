@@ -33,6 +33,39 @@ test("text and vision AI switches show independent budgets and require independe
         })
       };
     }
+    if (url.includes("/settings/providers")) {
+      return {
+        ok: true,
+        headers: { get: () => "application/json" },
+        json: async () => ({
+          revision: 1,
+          providers: [
+            {
+              id: "deepseek",
+              display_name: "DeepSeek",
+              group: "text_llm",
+              enabled: true,
+              configured: true,
+              api_key_source: "UI",
+              revision: 1,
+              source: {},
+              fields: { model: "deepseek-chat" }
+            },
+            {
+              id: "qwen_vl",
+              display_name: "Qwen-VL",
+              group: "vision_vlm",
+              enabled: true,
+              configured: true,
+              api_key_source: "UI",
+              revision: 1,
+              source: {},
+              fields: { model: "qwen-vl-plus" }
+            }
+          ]
+        })
+      };
+    }
     return {
       ok: true,
       headers: { get: () => "application/json" },
@@ -50,12 +83,12 @@ test("text and vision AI switches show independent budgets and require independe
 
   fireEvent.click(screen.getByText("开始分析"));
   await waitFor(() => expect(onError).toHaveBeenCalledWith(expect.stringContaining("必须同意")));
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 
   fireEvent.click(screen.getByLabelText(/我确认脱敏后的文本分析内容允许发送/));
   fireEvent.click(screen.getByText("开始分析"));
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-  const request = fetchMock.mock.calls[1][1];
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+  const request = fetchMock.mock.calls[2][1];
   if (!request) throw new Error("expected task creation request options");
   expect(String(request.body)).toContain('"external_model_consent":true');
   expect(String(request.body)).toContain('"text_llm_enabled":true');
@@ -68,8 +101,8 @@ test("text and vision AI switches show independent budgets and require independe
   await waitFor(() => expect(onError).toHaveBeenCalledWith(expect.stringContaining("单独同意")));
   fireEvent.click(screen.getByLabelText(/筛选后的论文 Figure/));
   fireEvent.click(screen.getByText("开始分析"));
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
-  const visionRequest = fetchMock.mock.calls[2][1];
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+  const visionRequest = fetchMock.mock.calls[3][1];
   if (!visionRequest) throw new Error("expected vision task creation request options");
   expect(String(visionRequest.body)).toContain('"vision_vlm_enabled":true');
   expect(String(visionRequest.body)).toContain('"external_vision_consent":true');

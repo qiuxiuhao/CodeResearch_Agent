@@ -15,6 +15,7 @@ from backend.app.llm.runtime import LLMRuntime, create_llm_runtime
 from backend.app.schemas.state import AgentState
 from backend.app.services.ai_usage import build_ai_usage, build_ai_usage_from_outputs
 from backend.app.services.storage_service import ensure_output_root
+from backend.app.settings.provider_settings import ProviderSettingsService
 from backend.app.vision.config import VisionSettings
 from backend.app.vision.runtime import VisionRuntime, create_vision_runtime
 
@@ -95,6 +96,7 @@ def run_analysis(
         external_image_consent,
         external_teaching_review_consent,
     )
+    _validate_enabled_provider_base_urls(settings, vision_settings, image_settings)
     runtime = llm_runtime or create_llm_runtime(settings)
     resolved_vision_runtime = vision_runtime or create_vision_runtime(vision_settings)
     resolved_image_runtime = image_runtime or create_image_generation_runtime(image_settings)
@@ -149,6 +151,22 @@ def run_analysis(
     if paper_pdf_path:
         initial_state["paper_pdf_path"] = str(paper_pdf_path)
     return graph.invoke(initial_state)
+
+
+def _validate_enabled_provider_base_urls(
+    llm_settings: LLMSettings,
+    vision_settings: VisionSettings,
+    image_settings: ImageGenerationSettings,
+) -> None:
+    provider_ids: list[str] = []
+    if llm_settings.text_llm_enabled or llm_settings.teaching_narrative_llm_enabled:
+        provider_ids.extend(["deepseek", "qwen"])
+    if vision_settings.enabled or image_settings.teaching_review_vlm_enabled:
+        provider_ids.extend(["qwen_vl", "glm_v"])
+    if image_settings.enabled:
+        provider_ids.extend(["qwen_image", "seedream"])
+    if provider_ids:
+        ProviderSettingsService().validate_runtime_base_urls(provider_ids)
 
 
 def list_task_summaries(output_root: str | Path = "outputs", limit: int = 50) -> list[dict[str, Any]]:

@@ -43,6 +43,11 @@ def validate_base_url(
         _validate_dns(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80), allow_local_endpoint)
 
 
+def is_custom_base_url(provider_id: str, base_url: str) -> bool:
+    official = OFFICIAL_BASE_URLS.get(provider_id)
+    return bool(official and not _same_origin_or_path(base_url, official))
+
+
 def _same_origin_or_path(value: str, official: str) -> bool:
     parsed_value = urlparse(value.rstrip("/"))
     parsed_official = urlparse(official.rstrip("/"))

@@ -66,6 +66,8 @@ def teaching_diagram_generate_node(
                         provider=str(result.metadata.get("provider", "unknown")),
                         model=result.metadata.get("model"),
                         status="cache_hit" if result.metadata.get("cache_hit") else "success",
+                        latency_ms=result.metadata.get("latency_ms"),
+                        cache_hit=bool(result.metadata.get("cache_hit")),
                     ))
                 else:
                     provider_attempts.append(TeachingDiagramProviderAttempt(provider="image_router", status="failed"))

@@ -31,7 +31,7 @@ from backend.app.schemas.provider_settings import (
     ProviderValidateRequest,
 )
 from backend.app.settings.provider_settings import ProviderSettingsService
-from backend.app.settings.secret_store import SecretStoreConflictError
+from backend.app.settings.secret_store import SecretStoreConflictError, SecretStoreError
 from backend.app.settings.security import require_settings_write_access
 
 
@@ -44,7 +44,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_analysis_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="analysis-task")
+_analysis_executor: ThreadPoolExecutor | None = None
+
+
+def _get_analysis_executor() -> ThreadPoolExecutor:
+    global _analysis_executor
+    if _analysis_executor is None or getattr(_analysis_executor, "_shutdown", False):
+        _analysis_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="analysis-task")
+    return _analysis_executor
+
+
+@app.on_event("shutdown")
+def _shutdown_analysis_executor() -> None:
+    global _analysis_executor
+    if _analysis_executor is not None:
+        _analysis_executor.shutdown(wait=False, cancel_futures=True)
+        _analysis_executor = None
 
 
 class AnalysisTaskRequest(BaseModel):
@@ -103,7 +118,7 @@ def create_analysis_task_async(request: AnalysisTaskRequest) -> dict:
     )
     task_id = new_task_id()
     progress = progress_store.create(task_id=task_id, output_root=request.output_root)
-    _analysis_executor.submit(
+    _get_analysis_executor().submit(
         _run_background_analysis,
         task_id,
         request.zip_path,
@@ -222,7 +237,7 @@ async def create_analysis_task_from_upload_async(
 
     task_id = new_task_id()
     progress = progress_store.create(task_id=task_id, output_root=output_root)
-    _analysis_executor.submit(
+    _get_analysis_executor().submit(
         _run_background_analysis,
         task_id,
         zip_path,
@@ -276,6 +291,8 @@ def put_provider_settings(provider_id: str, payload: ProviderSettingsUpdateReque
         return ProviderSettingsService().save(provider_id, payload).model_dump(mode="json")
     except SecretStoreConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except SecretStoreError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -287,6 +304,8 @@ def delete_provider_api_key(provider_id: str, payload: ProviderApiKeyDeleteReque
         return ProviderSettingsService().delete_api_key(provider_id, payload).model_dump(mode="json")
     except SecretStoreConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except SecretStoreError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

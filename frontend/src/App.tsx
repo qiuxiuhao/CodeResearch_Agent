@@ -61,7 +61,7 @@ export default function App() {
   return (
     <AppShell mode={mode} onModeChange={setMode} onOpenSettings={() => setSettingsOpen(true)}>
       <aside className="sidebar">
-        <TaskForm onTaskCreated={handleTaskCreated} onError={setError} />
+        <TaskForm onTaskCreated={handleTaskCreated} onError={setError} onOpenSettings={() => setSettingsOpen(true)} />
         <section className="panel">
           <h2>最近任务</h2>
           {tasks.length === 0 ? (

@@ -210,6 +210,8 @@ def _regenerate_with_seedream(
         provider=str(result.metadata.get("provider", "seedream")),
         model=result.metadata.get("model"),
         status="cache_hit" if result.metadata.get("cache_hit") else "success",
+        latency_ms=result.metadata.get("latency_ms"),
+        cache_hit=bool(result.metadata.get("cache_hit")),
     ))
     composite = TeachingDiagramCompositor().compose(
         spec=spec,

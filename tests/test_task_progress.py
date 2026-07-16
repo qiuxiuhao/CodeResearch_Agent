@@ -7,13 +7,14 @@ from backend.app.agents.graph import ANALYSIS_GRAPH_STEPS
 from backend.app.services.task_progress import AnalysisProgressStore
 
 
-client = TestClient(main.app)
-
-
 class _InlineExecutor:
     def submit(self, fn, *args, **kwargs):
         fn(*args, **kwargs)
         return _DoneFuture()
+
+    def shutdown(self, wait=True, cancel_futures=False):
+        del wait, cancel_futures
+        return None
 
 
 class _DoneFuture:
@@ -69,26 +70,27 @@ def test_async_analysis_endpoint_exposes_background_progress(monkeypatch, tmp_pa
     monkeypatch.setattr(main, "_analysis_executor", _InlineExecutor())
     monkeypatch.setattr(main, "run_analysis", fake_run_analysis)
 
-    response = client.post(
-        "/analysis/tasks/async",
-        json={
-            "zip_path": "examples/small_pytorch_project.zip",
-            "output_root": str(tmp_path),
-            "analysis_mode": "rule",
-            "text_llm_enabled": False,
-            "teaching_narrative_llm_enabled": False,
-            "vision_vlm_enabled": False,
-            "image_generation_enabled": False,
-            "teaching_review_vlm_enabled": False,
-        },
-    )
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/analysis/tasks/async",
+            json={
+                "zip_path": "examples/small_pytorch_project.zip",
+                "output_root": str(tmp_path),
+                "analysis_mode": "rule",
+                "text_llm_enabled": False,
+                "teaching_narrative_llm_enabled": False,
+                "vision_vlm_enabled": False,
+                "image_generation_enabled": False,
+                "teaching_review_vlm_enabled": False,
+            },
+        )
 
-    assert response.status_code == 200
-    created = response.json()
-    assert created["status"] == "queued"
-    assert created["task_id"] == captured["task_id"]
+        assert response.status_code == 200
+        created = response.json()
+        assert created["status"] == "queued"
+        assert created["task_id"] == captured["task_id"]
 
-    progress_response = client.get(f"/analysis/tasks/{created['task_id']}/progress", params={"output_root": str(tmp_path)})
+        progress_response = client.get(f"/analysis/tasks/{created['task_id']}/progress", params={"output_root": str(tmp_path)})
     assert progress_response.status_code == 200
     progress = progress_response.json()
     assert progress["status"] == "completed"

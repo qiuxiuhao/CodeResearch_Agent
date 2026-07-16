@@ -24,9 +24,12 @@ def main() -> None:
     parser.add_argument("--review-provider", choices=["qwen_vl", "glm_v"], default="qwen_vl")
     parser.add_argument("--output-root", default="/tmp/code_research_agent_smoke_image")
     parser.add_argument("--i-understand-cost", action="store_true", required=True)
+    parser.add_argument("--i-understand-image-transfer", action="store_true", required=True)
     args = parser.parse_args()
     if not args.i_understand_cost:
         raise SystemExit("Pass --i-understand-cost to acknowledge the real external request and possible fee.")
+    if not args.i_understand_image_transfer:
+        raise SystemExit("Pass --i-understand-image-transfer to acknowledge the sanitized public teaching spec may be sent to the image provider.")
 
     settings = ImageGenerationSettings.from_env(True, external_image_consent=True, teaching_review_vlm_enabled=args.review).model_copy(update={
         "cache_enabled": False,
@@ -52,6 +55,7 @@ def main() -> None:
     request_width, request_height = provider.request_size()
     print(json.dumps({
         "about_to_send_paid_request": True,
+        "about_to_transfer_image_spec": True,
         "provider": provider.name,
         "model": provider.model,
         "request_size": {"width": request_width, "height": request_height},
@@ -88,6 +92,16 @@ def main() -> None:
                 "raw_sha256": (item.get("generated_raw") or {}).get("sha256"),
                 "final_sha256": (item.get("final_asset") or {}).get("sha256"),
                 "review_passed": (item.get("review") or {}).get("passed"),
+                "provider_attempts": [
+                    {
+                        "provider": attempt.get("provider"),
+                        "model": attempt.get("model"),
+                        "status": attempt.get("status"),
+                        "latency_ms": attempt.get("latency_ms"),
+                        "cache_hit": attempt.get("cache_hit", attempt.get("status") == "cache_hit"),
+                    }
+                    for attempt in item.get("provider_attempts", [])
+                ],
                 "display_variant": item.get("display_variant"),
                 "fallback_reason": item.get("fallback_reason"),
                 "fallback_blueprint": (item.get("blueprint_png") or {}).get("path"),

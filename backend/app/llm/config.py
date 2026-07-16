@@ -27,7 +27,7 @@ class LLMSettings(BaseModel):
     deepseek: ProviderSettings
     qwen: ProviderSettings
     timeout_seconds: float = Field(default=45, ge=1, le=300)
-    max_retries: int = Field(default=1, ge=0, le=3)
+    max_retries: int = Field(default=1, ge=0, le=5)
     max_input_chars: int = Field(default=12000, ge=1000, le=200000)
     max_output_tokens: int = Field(default=1200, ge=128, le=16000)
     max_function_explanations: int = Field(default=20, ge=0, le=500)
@@ -62,8 +62,9 @@ class LLMSettings(BaseModel):
         else:
             narrative_enabled = teaching_narrative_llm_enabled
         resolved_mode = "hybrid" if enabled else "rule"
-        deepseek_values = _runtime_provider_values("deepseek")
-        qwen_values = _runtime_provider_values("qwen")
+        deepseek_values, deepseek_source = _runtime_provider_bundle("deepseek")
+        qwen_values, qwen_source = _runtime_provider_bundle("qwen")
+        provider_values = [(deepseek_values, deepseek_source), (qwen_values, qwen_source)]
         return cls(
             analysis_mode=resolved_mode,
             text_llm_enabled=enabled,
@@ -80,10 +81,10 @@ class LLMSettings(BaseModel):
                 base_url=qwen_values.get("base_url", os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")),
                 model=qwen_values.get("model", os.getenv("QWEN_MODEL", "qwen-plus")),
             ),
-            timeout_seconds=_float_env("LLM_TIMEOUT_SECONDS", 45),
-            max_retries=_int_env("LLM_MAX_RETRIES", 1),
+            timeout_seconds=float(_runtime_scalar(provider_values, "timeout_seconds", "LLM_TIMEOUT_SECONDS", 45)),
+            max_retries=int(_runtime_scalar(provider_values, "retry", "LLM_MAX_RETRIES", 1)),
             max_input_chars=_int_env("LLM_MAX_INPUT_CHARS", 12000),
-            max_output_tokens=_int_env("LLM_MAX_OUTPUT_TOKENS", 1200),
+            max_output_tokens=int(_runtime_scalar(provider_values, "max_output_tokens", "LLM_MAX_OUTPUT_TOKENS", 1200)),
             max_function_explanations=_int_env("LLM_MAX_FUNCTION_EXPLANATIONS", 20),
             max_file_explanations=_int_env("LLM_MAX_FILE_EXPLANATIONS", 10),
             max_model_explanations=_int_env("LLM_MAX_MODEL_EXPLANATIONS", 5),
@@ -135,10 +136,20 @@ def _bool_env(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _runtime_provider_values(provider_id: str) -> dict[str, str]:
+def _runtime_scalar(provider_values: list[tuple[dict[str, object], dict[str, str]]], field: str, env_name: str, default: int | float) -> object:
+    for source_name in ("UI", "Environment"):
+        for values, source in provider_values:
+            if values.get("enabled") is False:
+                continue
+            if source.get(field) == source_name:
+                return values[field]
+    return _float_env(env_name, float(default)) if isinstance(default, float) else _int_env(env_name, int(default))
+
+
+def _runtime_provider_bundle(provider_id: str) -> tuple[dict[str, object], dict[str, str]]:
     try:
         from backend.app.settings.provider_settings import ProviderSettingsService
 
-        return ProviderSettingsService().runtime_provider_values(provider_id)
+        return ProviderSettingsService().runtime_provider_bundle(provider_id)
     except Exception:
-        return {}
+        return {}, {}

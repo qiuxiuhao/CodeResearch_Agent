@@ -29,10 +29,11 @@ from backend.app.schemas.provider_settings import (
 from backend.app.settings.secret_store import (
     SecretStore,
     SecretStoreConflictError,
+    SecretStoreError,
     looks_like_masked_key,
     masked_key,
 )
-from backend.app.settings.ssrf_guard import validate_base_url
+from backend.app.settings.ssrf_guard import is_custom_base_url, validate_base_url
 from backend.app.vision.config import VisionProviderSettings
 from backend.app.vision.providers.glm_v_provider import GLMVProvider
 from backend.app.vision.providers.qwen_vl_provider import QwenVLProvider
@@ -133,12 +134,16 @@ class ProviderSettingsService:
     def list_public_settings(self) -> ProviderSettingsListResponse:
         revision = self.store.current_revision()
         warnings: list[str] = []
+        try:
+            self.store.read()
+        except SecretStoreError as exc:
+            warnings.append(str(exc))
         providers = []
         for provider_id in PROVIDERS:
             try:
                 providers.append(self.get_public_settings(provider_id, revision=revision))
-            except Exception:
-                warnings.append(f"{provider_id}: settings unavailable")
+            except SecretStoreError as exc:
+                warnings.append(f"{provider_id}: {exc}")
         return ProviderSettingsListResponse(revision=revision, providers=providers, warnings=warnings)
 
     def get_public_settings(self, provider_id: str, *, revision: int | None = None) -> ProviderPublicSettings:
@@ -146,6 +151,7 @@ class ProviderSettingsService:
         values, source = self._resolved_values(provider_id)
         key = str(values.pop("api_key", "") or "")
         key_source = source.get("api_key")
+        api_key_source = "UI" if key_source == "UI" else "Environment" if key_source == "Environment" else "None"
         configured = bool(key.strip() and str(values.get("model", "")).strip() and str(values.get("base_url", "")).strip())
         fields = {key_name: value for key_name, value in values.items() if key_name != "api_key"}
         warnings = []
@@ -160,6 +166,7 @@ class ProviderSettingsService:
             enabled=bool(fields.get("enabled", True)),
             configured=configured,
             masked_key=masked_key(key),
+            api_key_source=api_key_source,  # type: ignore[arg-type]
             revision=self.store.current_revision() if revision is None else revision,
             source={key_name: value for key_name, value in source.items() if key_name != "api_key"},
             fields=fields,
@@ -171,6 +178,29 @@ class ProviderSettingsService:
         if values.get("enabled") is False:
             values["api_key"] = ""
         return values
+
+    def runtime_provider_bundle(self, provider_id: str) -> tuple[dict[str, Any], dict[str, str]]:
+        values, source = self._resolved_values(provider_id)
+        if values.get("enabled") is False:
+            values["api_key"] = ""
+        return values, source
+
+    def validate_runtime_base_urls(self, provider_ids: list[str]) -> None:
+        for provider_id in provider_ids:
+            values, _source = self._resolved_values(provider_id)
+            if values.get("enabled") is False or not str(values.get("api_key", "")).strip():
+                continue
+            base_url = str(values.get("base_url", "")).strip()
+            if not base_url:
+                continue
+            custom = is_custom_base_url(provider_id, base_url)
+            validate_base_url(
+                provider_id,
+                base_url,
+                allow_custom_base_url=bool(values.get("allow_custom_base_url")),
+                allow_local_endpoint=bool(values.get("allow_local_endpoint")),
+                resolve_dns=custom or bool(values.get("allow_local_endpoint")),
+            )
 
     def validate(
         self,
@@ -203,6 +233,9 @@ class ProviderSettingsService:
         retry = values.get("retry")
         if retry is not None and not (0 <= int(retry) <= 5):
             errors.append("retry must be between 0 and 5.")
+        max_output_tokens = values.get("max_output_tokens")
+        if max_output_tokens is not None and not (128 <= int(max_output_tokens) <= 16000):
+            errors.append("max_output_tokens must be between 128 and 16000.")
         for name in ("request_width", "request_height"):
             value = values.get(name)
             if value is not None and not (64 <= int(value) <= 4096):
@@ -210,8 +243,8 @@ class ProviderSettingsService:
         domains = values.get("allowed_domains")
         if domains is not None and any(not _valid_hostname(item) for item in domains):
             errors.append("allowed_domains contains an invalid hostname.")
-        if values.get("supports_async"):
-            warnings.append("Async image task polling is reserved and not enabled in v1.3.3.")
+        if provider_id in {"qwen_image", "seedream"} and effective_values.get("supports_async"):
+            raise ValueError("supports_async=true is not supported in v1.3.3.")
         base_url = values.get("base_url")
         if base_url:
             try:

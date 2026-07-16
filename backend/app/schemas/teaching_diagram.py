@@ -180,6 +180,8 @@ class TeachingDiagramProviderAttempt(StrictTeachingModel):
     provider: str
     model: str | None = None
     status: Literal["success", "failed", "skipped", "cache_hit"]
+    latency_ms: int | None = Field(default=None, ge=0)
+    cache_hit: bool = False
     warning_code: str | None = None
 
 

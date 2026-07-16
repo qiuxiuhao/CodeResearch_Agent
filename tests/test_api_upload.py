@@ -5,9 +5,6 @@ from fastapi.testclient import TestClient
 from backend.app.main import app
 
 
-client = TestClient(app)
-
-
 def test_upload_analysis_task_passes_files_to_run_analysis(monkeypatch, tmp_path):
     captured: dict[str, str | None] = {}
 
@@ -26,14 +23,15 @@ def test_upload_analysis_task_passes_files_to_run_analysis(monkeypatch, tmp_path
 
     monkeypatch.setattr("backend.app.main.run_analysis", fake_run_analysis)
 
-    response = client.post(
-        "/analysis/tasks/upload",
-        data={"output_root": str(tmp_path), "library_db_path": str(tmp_path / "library.sqlite3")},
-        files={
-            "zip_file": ("project.zip", b"zip-bytes", "application/zip"),
-            "paper_pdf": ("paper.pdf", b"pdf-bytes", "application/pdf"),
-        },
-    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/analysis/tasks/upload",
+            data={"output_root": str(tmp_path), "library_db_path": str(tmp_path / "library.sqlite3")},
+            files={
+                "zip_file": ("project.zip", b"zip-bytes", "application/zip"),
+                "paper_pdf": ("paper.pdf", b"pdf-bytes", "application/pdf"),
+            },
+        )
 
     assert response.status_code == 200
     assert captured["zip_path"] and captured["zip_path"].endswith("project.zip")
@@ -42,33 +40,36 @@ def test_upload_analysis_task_passes_files_to_run_analysis(monkeypatch, tmp_path
 
 
 def test_upload_analysis_task_rejects_non_zip():
-    response = client.post(
-        "/analysis/tasks/upload",
-        files={"zip_file": ("project.txt", b"text", "text/plain")},
-    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/analysis/tasks/upload",
+            files={"zip_file": ("project.txt", b"text", "text/plain")},
+        )
 
     assert response.status_code == 400
 
 
 def test_upload_analysis_task_rejects_non_pdf_paper():
-    response = client.post(
-        "/analysis/tasks/upload",
-        files={
-            "zip_file": ("project.zip", b"zip-bytes", "application/zip"),
-            "paper_pdf": ("paper.txt", b"text", "text/plain"),
-        },
-    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/analysis/tasks/upload",
+            files={
+                "zip_file": ("project.zip", b"zip-bytes", "application/zip"),
+                "paper_pdf": ("paper.txt", b"text", "text/plain"),
+            },
+        )
 
     assert response.status_code == 400
 
 
 def test_upload_rejects_zip_over_configured_byte_limit(monkeypatch, tmp_path):
     monkeypatch.setenv("ZIP_MAX_FILE_BYTES", "1024")
-    response = client.post(
-        "/analysis/tasks/upload",
-        data={"output_root": str(tmp_path)},
-        files={"zip_file": ("project.zip", b"x" * 1025, "application/zip")},
-    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/analysis/tasks/upload",
+            data={"output_root": str(tmp_path)},
+            files={"zip_file": ("project.zip", b"x" * 1025, "application/zip")},
+        )
 
     assert response.status_code == 413
     assert "ZIP upload" in response.json()["detail"]
@@ -76,14 +77,15 @@ def test_upload_rejects_zip_over_configured_byte_limit(monkeypatch, tmp_path):
 
 def test_upload_rejects_pdf_over_shared_byte_limit(monkeypatch, tmp_path):
     monkeypatch.setenv("PAPER_MAX_FILE_BYTES", "1024")
-    response = client.post(
-        "/analysis/tasks/upload",
-        data={"output_root": str(tmp_path)},
-        files={
-            "zip_file": ("project.zip", b"zip-bytes", "application/zip"),
-            "paper_pdf": ("paper.pdf", b"p" * 1025, "application/pdf"),
-        },
-    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/analysis/tasks/upload",
+            data={"output_root": str(tmp_path)},
+            files={
+                "zip_file": ("project.zip", b"zip-bytes", "application/zip"),
+                "paper_pdf": ("paper.pdf", b"p" * 1025, "application/pdf"),
+            },
+        )
 
     assert response.status_code == 413
     assert "PDF upload" in response.json()["detail"]

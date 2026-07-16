@@ -400,6 +400,7 @@ export type ProviderPublicSettings = {
   enabled: boolean;
   configured: boolean;
   masked_key?: string | null;
+  api_key_source: "UI" | "Environment" | "None";
   revision: number;
   source: Record<string, ProviderFieldSource>;
   fields: Record<string, unknown>;

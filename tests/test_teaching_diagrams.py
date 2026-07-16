@@ -693,10 +693,11 @@ def test_image_cache_hit_copies_raw_to_current_task_and_api_returns_200(tmp_path
 
     assert raw_path.is_file()
     assert second_provider.calls == []
-    response = TestClient(app).get(
-        f"/analysis/tasks/{second['task_id']}/teaching-diagrams/{item['diagram_id']}/raw.png",
-        params={"output_root": str(tmp_path / "second")},
-    )
+    with TestClient(app) as client:
+        response = client.get(
+            f"/analysis/tasks/{second['task_id']}/teaching-diagrams/{item['diagram_id']}/raw.png",
+            params={"output_root": str(tmp_path / "second")},
+        )
     assert first["teaching_diagram_manifest"]["diagrams"][0]["generated_raw"]["sha256"] == item["generated_raw"]["sha256"]
     assert response.status_code == 200
 

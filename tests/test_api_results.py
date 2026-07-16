@@ -8,9 +8,6 @@ from fastapi.testclient import TestClient
 from backend.app.main import app
 
 
-client = TestClient(app)
-
-
 def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
@@ -30,28 +27,29 @@ def test_list_and_get_analysis_task_result(tmp_path):
     _write_json(task_dir / "library_function_docs.json", {"library_function_docs": []})
     (task_dir / "report.md").write_text("# report", encoding="utf-8")
 
-    list_response = client.get("/analysis/tasks", params={"output_root": str(tmp_path)})
-    assert list_response.status_code == 200
-    assert list_response.json()["tasks"][0]["task_id"] == "task_abc123"
+    with TestClient(app) as client:
+        list_response = client.get("/analysis/tasks", params={"output_root": str(tmp_path)})
+        assert list_response.status_code == 200
+        assert list_response.json()["tasks"][0]["task_id"] == "task_abc123"
 
-    result_response = client.get("/analysis/tasks/task_abc123", params={"output_root": str(tmp_path)})
+        result_response = client.get("/analysis/tasks/task_abc123", params={"output_root": str(tmp_path)})
+        report_response = client.get("/analysis/tasks/task_abc123/report", params={"output_root": str(tmp_path)})
     assert result_response.status_code == 200
     body = result_response.json()
     assert body["task_id"] == "task_abc123"
     assert body["repo_index"]["python_files"] == ["main.py"]
     assert body["report_md"] == "# report"
-
-    report_response = client.get("/analysis/tasks/task_abc123/report", params={"output_root": str(tmp_path)})
     assert report_response.status_code == 200
     assert report_response.json()["report_md"] == "# report"
 
 
 def test_get_analysis_task_rejects_invalid_task_id(tmp_path):
-    response = client.get("/analysis/tasks/../secret", params={"output_root": str(tmp_path)})
+    with TestClient(app) as client:
+        response = client.get("/analysis/tasks/../secret", params={"output_root": str(tmp_path)})
 
-    assert response.status_code == 404
+        assert response.status_code == 404
 
-    response = client.get("/analysis/tasks/notatask", params={"output_root": str(tmp_path)})
+        response = client.get("/analysis/tasks/notatask", params={"output_root": str(tmp_path)})
 
     assert response.status_code == 400
 
@@ -59,7 +57,8 @@ def test_get_analysis_task_rejects_invalid_task_id(tmp_path):
 def test_get_analysis_task_reports_missing_files(tmp_path):
     (tmp_path / "task_abc999").mkdir()
 
-    response = client.get("/analysis/tasks/task_abc999", params={"output_root": str(tmp_path)})
+    with TestClient(app) as client:
+        response = client.get("/analysis/tasks/task_abc999", params={"output_root": str(tmp_path)})
     assert response.status_code == 200
     assert response.json()["errors"]
 
@@ -79,16 +78,17 @@ def test_get_figure_preview_only_serves_registered_task_asset(tmp_path):
         "original_assets": [{"asset_id": "asset_123", "path": str(original), "mime_type": "image/png"}],
     }]})
 
-    response = client.get(
-        "/analysis/tasks/task_fig123/figures/fig_1234567890abcdef1234/preview",
-        params={"output_root": str(tmp_path)},
-    )
+    with TestClient(app) as client:
+        response = client.get(
+            "/analysis/tasks/task_fig123/figures/fig_1234567890abcdef1234/preview",
+            params={"output_root": str(tmp_path)},
+        )
 
-    assert response.status_code == 200
-    assert response.content == b"png-bytes"
-    asset_response = client.get(
-        "/analysis/tasks/task_fig123/figures/fig_1234567890abcdef1234/assets/asset_123",
-        params={"output_root": str(tmp_path)},
-    )
+        assert response.status_code == 200
+        assert response.content == b"png-bytes"
+        asset_response = client.get(
+            "/analysis/tasks/task_fig123/figures/fig_1234567890abcdef1234/assets/asset_123",
+            params={"output_root": str(tmp_path)},
+        )
     assert asset_response.status_code == 200
     assert asset_response.content == b"original-bytes"

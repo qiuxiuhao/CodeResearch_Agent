@@ -90,7 +90,7 @@ export function ProviderSettingsDrawer({ open, onClose }: Props) {
     setError(null);
     setStatus(null);
     try {
-      const payload = payloadFromDraft(draft, selected.revision);
+      const payload = payloadFromDraft(draft, selected.revision, selected.group);
       await saveProviderSettings(selected.id, payload);
       setDraft((current) => ({ ...current, api_key: "" }));
       setStatus("已保存");
@@ -109,7 +109,7 @@ export function ProviderSettingsDrawer({ open, onClose }: Props) {
     setError(null);
     setStatus(null);
     try {
-      const response = await validateProviderSettings(selected.id, payloadFromDraft(draft, selected.revision));
+      const response = await validateProviderSettings(selected.id, payloadFromDraft(draft, selected.revision, selected.group));
       if (!response.ok) {
         setError(response.errors.join("；") || "校验未通过");
         return;
@@ -255,7 +255,7 @@ function ProviderSettingsForm({
       </div>
 
       <div className="field-grid">
-        <Field label="API Key" source={provider.source.api_key}>
+        <Field label="API Key" source={provider.api_key_source === "None" ? undefined : provider.api_key_source}>
           <input
             autoComplete="off"
             placeholder={provider.configured ? provider.masked_key ?? "configured" : ""}
@@ -298,10 +298,6 @@ function ProviderSettingsForm({
             <Field label="Allowlist" source={provider.source.allowed_domains}>
               <input value={draft.allowed_domains} onChange={(event) => onDraftChange({ ...draft, allowed_domains: event.target.value })} />
             </Field>
-            <label className="checkbox-label compact">
-              <input checked={draft.supports_async} onChange={(event) => onDraftChange({ ...draft, supports_async: event.target.checked })} type="checkbox" />
-              Async reserved
-            </label>
           </>
         )}
         {isVision && (
@@ -407,7 +403,11 @@ function draftFromProvider(provider: ProviderPublicSettings): Draft {
   };
 }
 
-function payloadFromDraft(draft: Draft, expected_revision: number): ProviderSettingsPayload {
+function payloadFromDraft(
+  draft: Draft,
+  expected_revision: number,
+  group: ProviderPublicSettings["group"]
+): ProviderSettingsPayload {
   const payload: ProviderSettingsPayload = {
     expected_revision,
     enabled: draft.enabled,
@@ -420,7 +420,7 @@ function payloadFromDraft(draft: Draft, expected_revision: number): ProviderSett
     request_height: numberOrUndefined(draft.request_height),
     endpoint_path: draft.endpoint_path.trim() || undefined,
     workspace: draft.workspace.trim() || undefined,
-    supports_async: draft.supports_async,
+    supports_async: group === "image_generation" ? false : draft.supports_async,
     supports_json_object: draft.supports_json_object,
     disable_thinking: draft.disable_thinking,
     allow_custom_base_url: draft.allow_custom_base_url,

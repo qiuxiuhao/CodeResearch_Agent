@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 FieldSource = Literal["UI", "Environment", "Default"]
 ProviderGroup = Literal["text_llm", "vision_vlm", "image_generation"]
+ApiKeySource = Literal["UI", "Environment", "None"]
 
 
 class ProviderPublicSettings(BaseModel):
@@ -16,6 +17,7 @@ class ProviderPublicSettings(BaseModel):
     enabled: bool = True
     configured: bool = False
     masked_key: str | None = None
+    api_key_source: ApiKeySource = "None"
     revision: int = 0
     source: dict[str, FieldSource] = Field(default_factory=dict)
     fields: dict[str, Any] = Field(default_factory=dict)
@@ -65,6 +67,9 @@ class ProviderValidateRequest(BaseModel):
     request_height: int | None = None
     allowed_domains: list[str] | None = None
     endpoint_path: str | None = None
+    supports_async: bool | None = None
+    supports_json_object: bool | None = None
+    disable_thinking: bool | None = None
     allow_custom_base_url: bool = False
     allow_local_endpoint: bool = False
 

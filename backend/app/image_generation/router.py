@@ -75,57 +75,59 @@ class ImageGenerationRouter:
                 except Exception:
                     warnings.append(_warning("image_cache_error", request.diagram_id, provider=provider.name))
 
-            reservation = self.budget.try_reserve_provider_request(
-                provider.name, "teaching_image_generate", request.diagram_id,
-                fallback=provider_index > 0,
-            )
-            if not reservation.allowed:
-                warnings.append(_warning("image_provider_request_budget_exceeded", request.diagram_id, provider=provider.name))
-                return ImageRouterResult(None, None, {}, warnings)
-            try:
-                response = provider.generate_image(provider_request)
-                image_bytes = response.image_bytes
-                mime_type = response.mime_type
-                if response.remote_url:
-                    downloader = SafeImageDownloader(
-                        getattr(provider, "allowed_domains", []),
-                        timeout_seconds=self.settings.timeout_seconds,
-                        max_bytes=request.max_output_bytes,
-                    )
-                    image_bytes, mime_type = downloader.download(response.remote_url)
-                if not image_bytes:
-                    raise ImageGenerationError("image_provider_empty_response", "Image provider did not return image bytes.")
-                output_path = request.output_dir / "generated_raw.png"
-                info = write_validated_image(
-                    output_path,
-                    image_bytes,
-                    mime_type=mime_type,
-                    max_bytes=request.max_output_bytes,
-                    max_width=max(self.settings.max_width, provider_width, request.width),
-                    max_height=max(self.settings.max_height, provider_height, request.height),
+            for attempt in range(self.settings.max_retries + 1):
+                reservation = self.budget.try_reserve_provider_request(
+                    provider.name, "teaching_image_generate", request.diagram_id,
+                    retry=attempt > 0,
+                    fallback=provider_index > 0 and attempt == 0,
                 )
-                self.budget.record_request_result(reservation.reservation_id, "success")
-                metadata = {
-                    **info,
-                    "provider": provider.name,
-                    "model": provider.model,
-                    "latency_ms": response.latency_ms,
-                    "cache_hit": False,
-                }
+                if not reservation.allowed:
+                    warnings.append(_warning("image_provider_request_budget_exceeded", request.diagram_id, provider=provider.name))
+                    return ImageRouterResult(None, None, {}, warnings)
                 try:
-                    cached_metadata = self.cache.set(cache_key, output_path.read_bytes(), metadata)
-                    metadata = {**cached_metadata, "cache_hit": False, "current_task_asset": str(output_path)}
+                    response = provider.generate_image(provider_request)
+                    image_bytes = response.image_bytes
+                    mime_type = response.mime_type
+                    if response.remote_url:
+                        downloader = SafeImageDownloader(
+                            getattr(provider, "allowed_domains", []),
+                            timeout_seconds=self.settings.timeout_seconds,
+                            max_bytes=request.max_output_bytes,
+                        )
+                        image_bytes, mime_type = downloader.download(response.remote_url)
+                    if not image_bytes:
+                        raise ImageGenerationError("image_provider_empty_response", "Image provider did not return image bytes.")
+                    output_path = request.output_dir / "generated_raw.png"
+                    info = write_validated_image(
+                        output_path,
+                        image_bytes,
+                        mime_type=mime_type,
+                        max_bytes=request.max_output_bytes,
+                        max_width=max(self.settings.max_width, provider_width, request.width),
+                        max_height=max(self.settings.max_height, provider_height, request.height),
+                    )
+                    self.budget.record_request_result(reservation.reservation_id, "success")
+                    metadata = {
+                        **info,
+                        "provider": provider.name,
+                        "model": provider.model,
+                        "latency_ms": response.latency_ms,
+                        "cache_hit": False,
+                    }
+                    try:
+                        cached_metadata = self.cache.set(cache_key, output_path.read_bytes(), metadata)
+                        metadata = {**cached_metadata, "cache_hit": False, "current_task_asset": str(output_path)}
+                    except Exception:
+                        warnings.append(_warning("image_cache_error", request.diagram_id, provider=provider.name))
+                    return ImageRouterResult(output_path, info["mime_type"], metadata, warnings)
+                except ImageGenerationError as exc:
+                    self.budget.record_request_result(reservation.reservation_id, "failed")
+                    warnings.append(_warning(exc.code, request.diagram_id, provider=provider.name))
+                    if not exc.recoverable:
+                        break
                 except Exception:
-                    warnings.append(_warning("image_cache_error", request.diagram_id, provider=provider.name))
-                return ImageRouterResult(output_path, info["mime_type"], metadata, warnings)
-            except ImageGenerationError as exc:
-                self.budget.record_request_result(reservation.reservation_id, "failed")
-                warnings.append(_warning(exc.code, request.diagram_id, provider=provider.name))
-                if not exc.recoverable:
-                    break
-            except Exception:
-                self.budget.record_request_result(reservation.reservation_id, "failed")
-                warnings.append(_warning("image_provider_unknown_error", request.diagram_id, provider=provider.name))
+                    self.budget.record_request_result(reservation.reservation_id, "failed")
+                    warnings.append(_warning("image_provider_unknown_error", request.diagram_id, provider=provider.name))
         if not providers:
             warnings.append(_warning("image_provider_unconfigured", request.diagram_id))
         return ImageRouterResult(None, None, {}, warnings)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 import threading
 from pathlib import Path
@@ -31,8 +32,10 @@ class SecretStore:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except Exception as exc:
+            self._backup_corrupt_file()
             raise SecretStoreError("Secret store is unreadable or damaged.") from exc
         if not isinstance(data, dict) or data.get("schema_version") != SCHEMA_VERSION:
+            self._backup_corrupt_file()
             raise SecretStoreError("Secret store schema is invalid.")
         data.setdefault("revision", 0)
         data.setdefault("providers", {})
@@ -114,7 +117,7 @@ class SecretStore:
                 try:
                     data = self.read()
                 except SecretStoreError:
-                    data = self._empty()
+                    raise
                 if int(data.get("revision", 0)) != expected_revision:
                     raise SecretStoreConflictError("Provider settings revision conflict.")
                 mutate(data)
@@ -150,6 +153,19 @@ class SecretStore:
             except OSError:
                 pass
             raise SecretStoreError("Secret store write failed.") from exc
+
+    def _backup_corrupt_file(self) -> None:
+        if not self.path.exists():
+            return
+        backup_path = self.path.with_suffix(self.path.suffix + ".corrupt")
+        if backup_path.exists():
+            return
+        try:
+            self._ensure_parent()
+            shutil.copy2(self.path, backup_path)
+            os.chmod(backup_path, 0o600)
+        except Exception:
+            return
 
     @staticmethod
     def _empty() -> dict[str, Any]:

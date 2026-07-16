@@ -1,14 +1,22 @@
 import { FormEvent, useEffect, useState } from "react";
-import { createTaskByPathAsync, createTaskByUploadAsync, getLLMPublicConfig, getTaskProgress } from "../api/client";
-import type { LLMPublicConfig, TaskProgress, TaskSummary } from "../types/analysis";
+import {
+  createTaskByPathAsync,
+  createTaskByUploadAsync,
+  getLLMPublicConfig,
+  getProviderSettings,
+  getTaskProgress
+} from "../api/client";
+import { PROVIDER_SETTINGS_UPDATED } from "../providerSettingsEvents";
+import type { LLMPublicConfig, ProviderPublicSettings, TaskProgress, TaskSummary } from "../types/analysis";
 import { TaskProgressPanel } from "./TaskProgressPanel";
 
 type Props = {
   onTaskCreated: (summary: TaskSummary) => void | Promise<void>;
   onError: (message: string | null) => void;
+  onOpenSettings?: () => void;
 };
 
-export function TaskForm({ onTaskCreated, onError }: Props) {
+export function TaskForm({ onTaskCreated, onError, onOpenSettings }: Props) {
   const [inputMode, setInputMode] = useState<"path" | "upload">("path");
   const [textLLMEnabled, setTextLLMEnabled] = useState(false);
   const [teachingNarrativeLLMEnabled, setTeachingNarrativeLLMEnabled] = useState(false);
@@ -26,6 +34,7 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
   const [paperFile, setPaperFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [progress, setProgress] = useState<TaskProgress | null>(null);
+  const [providers, setProviders] = useState<ProviderPublicSettings[] | null>(null);
 
   useEffect(() => {
     void getLLMPublicConfig().then((config) => {
@@ -37,11 +46,65 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    async function refreshProviders() {
+      try {
+        const response = await getProviderSettings();
+        if (active) setProviders(Array.isArray(response.providers) ? response.providers : []);
+      } catch {
+        if (active) setProviders(null);
+      }
+    }
+    void refreshProviders();
+    const handleProviderUpdate = () => {
+      void refreshProviders();
+    };
+    window.addEventListener(PROVIDER_SETTINGS_UPDATED, handleProviderUpdate);
+    return () => {
+      active = false;
+      window.removeEventListener(PROVIDER_SETTINGS_UPDATED, handleProviderUpdate);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!imageGenerationEnabled) {
       setTeachingReviewVLMEnabled(false);
       setExternalTeachingReviewConsent(false);
     }
   }, [imageGenerationEnabled]);
+
+  const textProvider = providerGroupStatus(providers, "text_llm");
+  const visionProvider = providerGroupStatus(providers, "vision_vlm");
+  const imageProvider = providerGroupStatus(providers, "image_generation");
+
+  useEffect(() => {
+    if (providers === null) return;
+    if (!textProvider.configured) {
+      setTextLLMEnabled(false);
+      setTeachingNarrativeLLMEnabled(false);
+      setExternalTextConsent(false);
+    }
+    if (!visionProvider.configured) {
+      setVisionVLMEnabled(false);
+      setTeachingReviewVLMEnabled(false);
+      setExternalVisionConsent(false);
+      setExternalTeachingReviewConsent(false);
+    }
+    if (!imageProvider.configured) {
+      setImageGenerationEnabled(false);
+      setExternalImageConsent(false);
+    }
+  }, [
+    providers,
+    textProvider.configured,
+    visionProvider.configured,
+    imageProvider.configured,
+    textLLMEnabled,
+    teachingNarrativeLLMEnabled,
+    visionVLMEnabled,
+    imageGenerationEnabled,
+    teachingReviewVLMEnabled
+  ]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -52,6 +115,9 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
       if (textLLMEnabled && !externalTextConsent) {
         throw new Error("启用文本 AI 解释前必须同意将脱敏后的文本分析数据发送到外部模型服务商");
       }
+      if ((textLLMEnabled || teachingNarrativeLLMEnabled) && providers !== null && !textProvider.configured) {
+        throw new Error("文本 LLM Provider 未配置，请先进入 Provider 设置");
+      }
       if (teachingNarrativeLLMEnabled && !externalTextConsent) {
         throw new Error("启用教学文案 LLM 前必须同意将脱敏后的教学图结构发送到外部模型服务商");
       }
@@ -59,14 +125,23 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
       if (visionVLMEnabled && !hasPaper) {
         throw new Error("启用论文 Figure AI 理解前请先提供论文 PDF");
       }
+      if (visionVLMEnabled && providers !== null && !visionProvider.configured) {
+        throw new Error("视觉 VLM Provider 未配置，请先进入 Provider 设置");
+      }
       if (visionVLMEnabled && !externalVisionConsent) {
         throw new Error("启用论文 Figure AI 理解前必须单独同意论文图片外发");
       }
       if (imageGenerationEnabled && !externalImageConsent) {
         throw new Error("启用 AI 教学图视觉层前必须单独同意脱敏教学图 Spec 外发");
       }
+      if (imageGenerationEnabled && providers !== null && !imageProvider.configured) {
+        throw new Error("图片生成 Provider 未配置，请先进入 Provider 设置");
+      }
       if (teachingReviewVLMEnabled && !imageGenerationEnabled) {
         throw new Error("启用教学图 VLM 审查前必须先启用 AI 教学图视觉层");
+      }
+      if (teachingReviewVLMEnabled && providers !== null && !visionProvider.configured) {
+        throw new Error("教学图 VLM Review Provider 未配置，请先进入 Provider 设置");
       }
       if (teachingReviewVLMEnabled && !externalTeachingReviewConsent) {
         throw new Error("启用教学图 VLM 审查前必须单独同意教学图审查外发");
@@ -172,7 +247,7 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
           <legend>可选 AI 增强（默认仅规则分析）</legend>
           <div className="ai-option-list">
           <label className="checkbox-label option-toggle">
-            <input type="checkbox" checked={textLLMEnabled} onChange={(event) => {
+            <input type="checkbox" checked={textLLMEnabled} disabled={providers !== null && !textProvider.configured} onChange={(event) => {
               setTextLLMEnabled(event.target.checked);
               if (!event.target.checked && !teachingNarrativeLLMEnabled) setExternalTextConsent(false);
             }} />
@@ -181,8 +256,9 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
               <small>函数、文件、模型和论文代码对齐</small>
             </span>
           </label>
+          <ProviderStatusLine label="文本 LLM Provider" status={textProvider} onOpenSettings={onOpenSettings} />
           <label className="checkbox-label option-toggle">
-            <input type="checkbox" checked={teachingNarrativeLLMEnabled} onChange={(event) => {
+            <input type="checkbox" checked={teachingNarrativeLLMEnabled} disabled={providers !== null && !textProvider.configured} onChange={(event) => {
               setTeachingNarrativeLLMEnabled(event.target.checked);
               if (!event.target.checked && !textLLMEnabled) setExternalTextConsent(false);
             }} />
@@ -208,7 +284,7 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
             </div>
           )}
           <label className="checkbox-label option-toggle">
-            <input type="checkbox" checked={visionVLMEnabled} onChange={(event) => {
+            <input type="checkbox" checked={visionVLMEnabled} disabled={providers !== null && !visionProvider.configured} onChange={(event) => {
               setVisionVLMEnabled(event.target.checked);
               if (!event.target.checked) setExternalVisionConsent(false);
             }} />
@@ -217,6 +293,7 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
               <small>需要提供 PDF</small>
             </span>
           </label>
+          <ProviderStatusLine label="视觉 VLM Provider" status={visionProvider} onOpenSettings={onOpenSettings} />
           {visionVLMEnabled && (
             <div className="consent-panel vision-consent-panel">
               <p>{llmConfig?.vision?.external_vision_notice ?? "筛选并渲染后的论文 Figure 可能发送给第三方视觉模型服务商，并可能产生费用；不会发送整个 PDF。"}</p>
@@ -232,7 +309,7 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
             </div>
           )}
           <label className="checkbox-label option-toggle">
-            <input type="checkbox" checked={imageGenerationEnabled} onChange={(event) => {
+            <input type="checkbox" checked={imageGenerationEnabled} disabled={providers !== null && !imageProvider.configured} onChange={(event) => {
               setImageGenerationEnabled(event.target.checked);
               if (!event.target.checked) setExternalImageConsent(false);
             }} />
@@ -241,6 +318,7 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
               <small>Qwen-Image / Seedream，Blueprint 本地生成</small>
             </span>
           </label>
+          <ProviderStatusLine label="图片生成 Provider" status={imageProvider} onOpenSettings={onOpenSettings} />
           {imageGenerationEnabled && (
             <div className="consent-panel">
               <p>{llmConfig?.image_generation?.external_image_notice ?? "脱敏后的 TeachingDiagramSpec 可能发送到外部图片生成服务商，并可能产生费用。"}</p>
@@ -258,7 +336,7 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
             <input
               type="checkbox"
               checked={teachingReviewVLMEnabled}
-              disabled={!imageGenerationEnabled}
+              disabled={!imageGenerationEnabled || (providers !== null && !visionProvider.configured)}
               onChange={(event) => {
                 setTeachingReviewVLMEnabled(event.target.checked);
                 if (!event.target.checked) setExternalTeachingReviewConsent(false);
@@ -300,4 +378,45 @@ export function TaskForm({ onTaskCreated, onError }: Props) {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+type ProviderGroup = ProviderPublicSettings["group"];
+type ProviderGroupStatus = {
+  loaded: boolean;
+  configured: boolean;
+  label: string;
+};
+
+function providerGroupStatus(providers: ProviderPublicSettings[] | null, group: ProviderGroup): ProviderGroupStatus {
+  if (providers === null) {
+    return { loaded: false, configured: false, label: "读取中" };
+  }
+  const enabled = providers.filter((provider) => provider.group === group && provider.enabled);
+  const configured = enabled.find((provider) => provider.configured);
+  if (configured) {
+    const model = typeof configured.fields.model === "string" ? configured.fields.model : "";
+    return { loaded: true, configured: true, label: `${configured.display_name}${model ? ` / ${model}` : ""}` };
+  }
+  return { loaded: true, configured: false, label: "未配置" };
+}
+
+function ProviderStatusLine({
+  label,
+  status,
+  onOpenSettings
+}: {
+  label: string;
+  status: ProviderGroupStatus;
+  onOpenSettings?: () => void;
+}) {
+  return (
+    <p className={`provider-status-line ${status.loaded && !status.configured ? "missing" : "ready"}`}>
+      <span>{label}：{status.label}</span>
+      {status.loaded && !status.configured && onOpenSettings && (
+        <button className="inline-link-button" onClick={onOpenSettings} type="button">
+          进入设置
+        </button>
+      )}
+    </p>
+  );
 }
