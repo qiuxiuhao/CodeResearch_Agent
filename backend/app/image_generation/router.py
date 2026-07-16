@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from shutil import copyfile
+from dataclasses import replace
 from typing import Iterable
 
 from backend.app.image_generation.cache import ImageGenerationCache
@@ -38,6 +39,14 @@ class ImageGenerationRouter:
             wanted = set(provider_names)
             providers = [item for item in providers if item.name in wanted]
         for provider_index, provider in enumerate(providers):
+            try:
+                provider_width, provider_height = getattr(provider, "request_size")()
+            except AttributeError:
+                provider_width, provider_height = request.width, request.height
+            except Exception:
+                warnings.append(_warning("image_provider_invalid_request_size", request.diagram_id, provider=provider.name))
+                continue
+            provider_request = replace(request, width=provider_width, height=provider_height)
             cache_key = {
                 "provider": provider.name,
                 "model": provider.model,
@@ -45,8 +54,8 @@ class ImageGenerationRouter:
                 "schema_version": request.schema_version,
                 "public_spec_hash": request.public_spec.get("public_spec_hash"),
                 "diagram_spec_hash": request.public_spec.get("public_spec_hash"),
-                "width": request.width,
-                "height": request.height,
+                "width": provider_width,
+                "height": provider_height,
             }
             try:
                 cached = self.cache.get(cache_key)
@@ -56,7 +65,7 @@ class ImageGenerationRouter:
             if cached and cached.get("cached_asset_path"):
                 try:
                     path = Path(cached["cached_asset_path"])
-                    info = _validate_cached(path, cached, request)
+                    info = _validate_cached(path, cached, provider_request, self.settings)
                     output_path = request.output_dir / "generated_raw.png"
                     output_path.parent.mkdir(parents=True, exist_ok=True)
                     _copy_or_link(path, output_path)
@@ -74,7 +83,7 @@ class ImageGenerationRouter:
                 warnings.append(_warning("image_provider_request_budget_exceeded", request.diagram_id, provider=provider.name))
                 return ImageRouterResult(None, None, {}, warnings)
             try:
-                response = provider.generate_image(request)
+                response = provider.generate_image(provider_request)
                 image_bytes = response.image_bytes
                 mime_type = response.mime_type
                 if response.remote_url:
@@ -92,8 +101,8 @@ class ImageGenerationRouter:
                     image_bytes,
                     mime_type=mime_type,
                     max_bytes=request.max_output_bytes,
-                    max_width=self.settings.max_width,
-                    max_height=self.settings.max_height,
+                    max_width=max(self.settings.max_width, provider_width, request.width),
+                    max_height=max(self.settings.max_height, provider_height, request.height),
                 )
                 self.budget.record_request_result(reservation.reservation_id, "success")
                 metadata = {
@@ -133,7 +142,7 @@ def _warning(code: str, diagram_id: str, *, provider: str | None = None) -> dict
     }
 
 
-def _validate_cached(path: Path, cached: dict, request: ImageGenerationRequest) -> dict:
+def _validate_cached(path: Path, cached: dict, request: ImageGenerationRequest, settings: ImageGenerationSettings) -> dict:
     if not path.is_file():
         raise ValueError("missing cached image")
     data = path.read_bytes()
@@ -146,8 +155,8 @@ def _validate_cached(path: Path, cached: dict, request: ImageGenerationRequest) 
         path,
         expected_mime="image/png",
         max_bytes=request.max_output_bytes,
-        max_width=request.width,
-        max_height=request.height,
+        max_width=max(settings.max_width, request.width),
+        max_height=max(settings.max_height, request.height),
     )
     return {**info, "sha256": sha256}
 

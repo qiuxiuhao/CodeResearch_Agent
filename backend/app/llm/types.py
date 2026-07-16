@@ -6,7 +6,13 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 
-LLMTaskType = Literal["function_explain", "file_explain", "model_explain", "paper_code_align"]
+LLMTaskType = Literal[
+    "function_explain",
+    "file_explain",
+    "model_explain",
+    "paper_code_align",
+    "teaching_diagram_narrative",
+]
 
 
 class ProviderCapabilities(BaseModel):

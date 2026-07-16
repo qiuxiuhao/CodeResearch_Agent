@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import sqlite3
 
 import pytest
 
@@ -9,14 +11,18 @@ from backend.app.image_generation.exceptions import ImageGenerationError
 from backend.app.image_generation.providers.mock_provider import MockImageProvider
 from backend.app.image_generation.router import ImageGenerationRouter
 from backend.app.image_generation.config import ImageGenerationSettings
-from backend.app.image_generation.cache import ImageGenerationCache
+from backend.app.image_generation.cache import ImageGenerationCache, TeachingDiagramReviewCache, _key_hash
 from backend.app.image_generation.runtime import create_image_generation_runtime
 from backend.app.image_generation.providers.qwen_image_provider import QwenImageProvider
 from backend.app.image_generation.types import ImageGenerationRequest
 from backend.app.llm.budget import BudgetManager
-from backend.app.schemas.teaching_diagram import TeachingDiagramNarrative, TeachingDiagramSpec
+from backend.app.llm.config import LLMSettings
+from backend.app.llm.exceptions import ProviderError
+from backend.app.llm.providers.mock_provider import MockProvider
+from backend.app.llm.runtime import create_llm_runtime
+from backend.app.schemas.teaching_diagram import TeachingDiagramManifest, TeachingDiagramManifestItem, TeachingDiagramNarrative, TeachingDiagramSpec
 from backend.app.services.analysis_service import run_analysis
-from backend.app.teaching_diagrams.blueprint_renderer import BlueprintRenderer, CARD_H, CARD_W, layout_modules
+from backend.app.teaching_diagrams.blueprint_renderer import BlueprintRenderer, CARD_H, CARD_W, _arrowhead_points, _route_points, layout_modules
 from backend.app.teaching_diagrams.compositor import TeachingDiagramCompositor
 from backend.app.teaching_diagrams.narrative import build_local_narrative
 from backend.app.teaching_diagrams.skeleton_builder import build_teaching_diagram_skeletons
@@ -24,12 +30,16 @@ from backend.app.teaching_diagrams.spec_assembler import assemble_teaching_diagr
 from backend.app.vision.config import VisionSettings
 from backend.app.vision.providers.mock_provider import MockVisionProvider
 from backend.app.vision.runtime import create_vision_runtime
+from backend.app.vision.cache import VisionCache
+from backend.app.vision.router import VisionModelRouter
 
 import fitz
 import httpx
 from fastapi.testclient import TestClient
 
 from backend.app.main import app
+from backend.app.agents.nodes.teaching_diagram_review_vlm_node import _review_cache_key, _review_once
+from backend.app.teaching_diagrams.spec_assembler import public_spec_for_provider
 
 
 def test_skeleton_builder_uses_mermaid_mapping_and_rule_evidence():
@@ -164,6 +174,20 @@ def test_blueprint_layout_for_ten_modules_has_no_duplicate_or_overlapping_coords
             assert first[2] <= second[0] or second[2] <= first[0] or first[3] <= second[1] or second[3] <= first[1]
 
 
+def test_png_arrowhead_uses_last_segment_direction_for_cross_row_edges():
+    right = _arrowhead_points((10, 20), (60, 20))
+    left = _arrowhead_points((60, 20), (10, 20))
+    down = _arrowhead_points((20, 10), (20, 60))
+    up = _arrowhead_points((20, 60), (20, 10))
+    route = _route_points((900, 170), (52, 360))
+
+    assert right[1][0] < right[0][0] and right[2][0] < right[0][0]
+    assert left[1][0] > left[0][0] and left[2][0] > left[0][0]
+    assert down[1][1] < down[0][1] and down[2][1] < down[0][1]
+    assert up[1][1] > up[0][1] and up[2][1] > up[0][1]
+    assert route[-1] == (52 + CARD_W, 360 + CARD_H // 2)
+
+
 def test_blueprint_renderer_escapes_svg_and_handles_long_chinese_text(tmp_path: Path):
     skeleton = build_teaching_diagram_skeletons(
         repo_index={},
@@ -251,7 +275,7 @@ def test_image_router_unknown_provider_exception_counts_failed_request(tmp_path:
         diagram_id="td_test",
         public_spec={"public_spec_hash": "a" * 64},
         prompt_version="test",
-        schema_version="1.3.1",
+        schema_version="1.3.2",
         width=320,
         height=180,
         mime_type="image/png",
@@ -279,6 +303,64 @@ def test_workflow_generates_blueprint_without_external_requests(tmp_path: Path):
     assert state["teaching_image_budget"]["sent_provider_requests"] == 0
     for item in manifest["diagrams"]:
         assert (Path(state["output_dir"]) / item["blueprint_png"]["path"]).is_file()
+
+
+def test_teaching_narrative_llm_success_counts_budget_without_changing_skeleton(tmp_path: Path):
+    def narrative(request):
+        return {
+            "skeleton_id": request.input_payload["skeleton_id"],
+            "skeleton_hash": request.input_payload["skeleton_hash"],
+            "one_sentence_summary": "LLM 只改写教学摘要，不改变结构。",
+            "teaching_steps": ["先看输入", "再看计算", "最后看输出"],
+            "learning_tips": ["关注箭头方向"],
+            "section_titles": {},
+            "plain_language_explanations": {},
+            "layout_suggestions": ["grid"],
+            "color_suggestions": ["blue"],
+        }
+
+    runtime = create_llm_runtime(
+        LLMSettings.from_env(text_llm_enabled=True).model_copy(update={"cache_enabled": False}),
+        [MockProvider("deepseek", responses={"teaching_diagram_narrative": narrative})],
+    )
+    state = run_analysis(
+        "examples/small_pytorch_project.zip",
+        output_root=tmp_path,
+        text_llm_enabled=True,
+        external_text_consent=True,
+        vision_vlm_enabled=False,
+        image_generation_enabled=False,
+        llm_runtime=runtime,
+    )
+
+    spec = state["teaching_diagram_specs"][0]
+    skeleton = state["teaching_diagram_skeletons"][0]
+    assert spec["one_sentence_summary"] == "LLM 只改写教学摘要，不改变结构。"
+    assert [item["id"] for item in spec["modules"]] == [item["id"] for item in skeleton["modules"]]
+    assert state["teaching_plan_budget"]["sent_provider_requests"] >= 1
+
+
+def test_teaching_narrative_llm_failure_falls_back_local(tmp_path: Path):
+    runtime = create_llm_runtime(
+        LLMSettings.from_env(text_llm_enabled=True).model_copy(update={"cache_enabled": False}),
+        [MockProvider("deepseek", error=ProviderError("llm_timeout", "timeout"))],
+    )
+    state = run_analysis(
+        "examples/small_pytorch_project.zip",
+        output_root=tmp_path,
+        text_llm_enabled=True,
+        external_text_consent=True,
+        vision_vlm_enabled=False,
+        image_generation_enabled=False,
+        llm_runtime=runtime,
+    )
+
+    assert state["teaching_diagram_specs"]
+    assert state["teaching_plan_budget"]["sent_provider_requests"] >= 1
+    assert any(
+        "teaching_narrative_llm_unavailable_local_fallback" in warning
+        for warning in state["teaching_diagram_specs"][0]["warnings"]
+    )
 
 
 def test_review_skips_without_ai_images(tmp_path: Path):
@@ -340,6 +422,74 @@ def test_teaching_review_uses_mock_vision_and_cache_hit(tmp_path: Path, monkeypa
     assert second_provider.calls == []
 
 
+@pytest.mark.parametrize("cached_review", [
+    {"diagram_id": "td_demo"},
+    {
+        "diagram_id": "wrong_id",
+        "passed": True,
+        "overall_score": 90,
+        "accuracy_score": 5,
+        "spec_coverage_score": 5,
+        "label_readability_score": 5,
+        "beginner_clarity_score": 5,
+        "safety_score": 5,
+        "recommendation": "pass",
+    },
+])
+def test_invalid_review_cache_entries_do_not_count_hit_and_call_provider(tmp_path: Path, cached_review: dict):
+    context = _prepared_review_context(tmp_path)
+    cache = TeachingDiagramReviewCache(str(tmp_path / "review.sqlite3"))
+    cache.set(context["cache_key"], cached_review)
+
+    review = _review_once(**context["kwargs"], cache=cache)
+
+    assert review is not None and review.metadata["cache_hit"] is False
+    assert context["provider"].calls
+    assert any(warning["code"] == "review_cache_error" for warning in context["manifest"].warnings)
+
+
+def test_damaged_review_cache_json_and_directory_path_fallback_to_provider(tmp_path: Path):
+    context = _prepared_review_context(tmp_path / "json")
+    db_path = tmp_path / "bad_json.sqlite3"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "CREATE TABLE teaching_diagram_review_cache(cache_key TEXT PRIMARY KEY, review_json TEXT NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO teaching_diagram_review_cache(cache_key, review_json) VALUES (?, ?)",
+            (_key_hash(context["cache_key"]), "{bad json"),
+        )
+    review = _review_once(**context["kwargs"], cache=TeachingDiagramReviewCache(str(db_path)))
+
+    assert review is not None
+    assert context["provider"].calls
+    assert any(warning["code"] == "review_cache_error" for warning in context["manifest"].warnings)
+
+    dir_context = _prepared_review_context(tmp_path / "dir")
+    review = _review_once(**dir_context["kwargs"], cache=TeachingDiagramReviewCache(str(tmp_path)))
+    assert review is not None
+    assert dir_context["provider"].calls
+
+
+@pytest.mark.parametrize("response_patch", [
+    {"overall_score": 10},
+    {"missing_required_items": ["fc1"]},
+    {"unreadable_labels": ["公式文字不可读"]},
+])
+def test_strict_review_policy_rejects_low_score_missing_items_and_unreadable_labels(tmp_path: Path, response_patch: dict):
+    def response(request):
+        payload = _review_response(request, passed=True)
+        payload.update(response_patch)
+        return payload
+
+    context = _prepared_review_context(tmp_path, response=response)
+    review = _review_once(**context["kwargs"], cache=TeachingDiagramReviewCache(str(tmp_path / "review.sqlite3"), enabled=False))
+
+    assert review is not None
+    assert review.passed is False
+    assert review.recommendation == "fallback_blueprint"
+
+
 def test_review_failure_triggers_seedream_regeneration(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("TEACHING_REVIEW_CACHE_PATH", str(tmp_path / "review_retry.sqlite3"))
     qwen = MockImageProvider("qwen_image", image_bytes=lambda _request: _solid_png((0.1, 0.1, 0.8)))
@@ -392,6 +542,7 @@ def test_qwen_image_provider_uses_dashscope_message_mapping():
     settings = ImageGenerationSettings.from_env(False).qwen_image.model_copy(update={
         "api_key": "test-key",
         "base_url": "https://dashscope.aliyuncs.com",
+        "model": "qwen-image",
         "endpoint_path": "/api/v1/services/aigc/multimodal-generation/generation",
         "workspace": "ws-1",
     })
@@ -400,7 +551,7 @@ def test_qwen_image_provider_uses_dashscope_message_mapping():
         diagram_id="td_test",
         public_spec={"public_spec_hash": "a" * 64, "modules": []},
         prompt_version="test",
-        schema_version="1.3.1",
+        schema_version="1.3.2",
         width=1280,
         height=720,
         mime_type="image/png",
@@ -413,6 +564,52 @@ def test_qwen_image_provider_uses_dashscope_message_mapping():
     assert captured["json"]["input"]["messages"][0]["content"][0]["text"]
     assert captured["json"]["parameters"]["size"] == "1280*720"
     assert response.remote_url == "https://dashscope.aliyuncs.com/result.png"
+
+
+def test_qwen_oss_style_result_url_can_be_downloaded_with_allowlist(monkeypatch):
+    png = _solid_png((0.1, 0.2, 0.3))
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=png, headers={"content-type": "image/png"})
+
+    monkeypatch.setattr("socket.getaddrinfo", lambda *args, **kwargs: [(None, None, None, None, ("93.184.216.34", 443))])
+    downloader = SafeImageDownloader(
+        ["oss-cn-hangzhou.aliyuncs.com"],
+        timeout_seconds=1,
+        max_bytes=1024 * 1024,
+        transport=httpx.MockTransport(handler),
+    )
+    data, mime = downloader.download("https://dashscope-result.oss-cn-hangzhou.aliyuncs.com/path/result.png?Signature=secret")
+
+    assert data.startswith(b"\x89PNG")
+    assert mime == "image/png"
+
+
+def test_provider_specific_request_size_is_used(tmp_path: Path):
+    provider = MockImageProvider("qwen_image")
+    provider.request_size = lambda: (1024, 1024)  # type: ignore[attr-defined]
+    settings = ImageGenerationSettings.from_env(False).model_copy(update={"cache_enabled": False})
+    budget = BudgetManager(4, 1)
+    result = ImageGenerationRouter(
+        settings,
+        [provider],
+        budget,
+        ImageGenerationCache(str(tmp_path / "cache.sqlite3"), str(tmp_path / "cache"), enabled=False),
+    ).generate(ImageGenerationRequest(
+        diagram_id="td_test",
+        public_spec={"public_spec_hash": "a" * 64},
+        prompt_version="test",
+        schema_version="1.3.2",
+        width=1280,
+        height=720,
+        mime_type="image/png",
+        max_output_bytes=1024 * 1024,
+        output_dir=tmp_path,
+    ))
+
+    assert result.image_path is not None
+    assert provider.calls[0].width == 1024
+    assert provider.calls[0].height == 1024
 
 
 def test_image_cache_hit_copies_raw_to_current_task_and_api_returns_200(tmp_path: Path):
@@ -506,6 +703,65 @@ def _review_response(request, passed: bool = True) -> dict:
         "beginner_clarity_score": 4,
         "safety_score": 5,
         "recommendation": "pass" if passed else "fallback_blueprint",
+    }
+
+
+def _prepared_review_context(tmp_path: Path, response=None) -> dict:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    skeleton = build_teaching_diagram_skeletons(
+        repo_index={},
+        file_analysis=[],
+        function_analysis=[],
+        library_calls=[],
+        model_analysis=[_model_analysis()],
+        paper_analysis={},
+        paper_code_alignment={},
+        diagrams=[],
+    ).skeletons[0]
+    spec = assemble_teaching_diagram_spec(skeleton, build_local_narrative(skeleton))
+    blueprint = BlueprintRenderer().render(spec, tmp_path, task_root=tmp_path)
+    raw = tmp_path / "raw.png"
+    raw.write_bytes(_solid_png((0.3, 0.5, 0.7)))
+    composite = TeachingDiagramCompositor().compose(
+        spec=spec,
+        blueprint_png=tmp_path / blueprint["png"].path,
+        ai_dir=tmp_path / "teaching_diagrams" / "ai" / spec.diagram_id,
+        generated_raw=raw,
+        task_root=tmp_path,
+    )
+    item = TeachingDiagramManifestItem(
+        diagram_id=spec.diagram_id,
+        title=spec.source_entity.title,
+        source_entity=spec.source_entity,
+        spec_path=f"teaching_diagrams/specs/{spec.diagram_id}.json",
+        blueprint_svg=blueprint["svg"],
+        blueprint_png=blueprint["png"],
+        generated_raw=None,
+        styled_composite=composite["styled_composite"],
+        display_asset=blueprint["png"],
+    )
+    manifest = TeachingDiagramManifest(diagrams=[item])
+    provider = MockVisionProvider("qwen_vl", response=response or _review_response)
+    budget = BudgetManager(4, 4)
+    router = VisionModelRouter(
+        VisionSettings.from_env(False),
+        [provider],
+        budget,
+        VisionCache(str(tmp_path / "vision.sqlite3"), enabled=False),
+    )
+    image_hash = _sha256(tmp_path / item.styled_composite.path)
+    return {
+        "provider": provider,
+        "manifest": manifest,
+        "cache_key": _review_cache_key("qwen_vl", provider.model, image_hash, public_spec_for_provider(spec)["public_spec_hash"]),
+        "kwargs": {
+            "item": item,
+            "spec": spec,
+            "task_root": tmp_path,
+            "router": router,
+            "review_budget": budget,
+            "manifest": manifest,
+        },
     }
 
 

@@ -14,10 +14,25 @@ class ImageProviderSettings(BaseModel):
     endpoint_path: str = ""
     workspace: str = ""
     supports_async: bool = False
+    request_width: int = Field(default=1280, ge=64, le=4096)
+    request_height: int = Field(default=720, ge=64, le=4096)
+    min_request_width: int = Field(default=64, ge=1, le=4096)
+    max_request_width: int = Field(default=2048, ge=64, le=8192)
+    min_request_height: int = Field(default=64, ge=1, le=4096)
+    max_request_height: int = Field(default=2048, ge=64, le=8192)
 
     @property
     def configured(self) -> bool:
-        return bool(self.api_key.strip())
+        return bool(self.api_key.strip() and self.model.strip() and self.base_url.strip())
+
+    def validate_request_size(self) -> tuple[int, int]:
+        width = self.request_width
+        height = self.request_height
+        if not (self.min_request_width <= width <= self.max_request_width):
+            raise ValueError(f"{self.name} request width is outside supported bounds.")
+        if not (self.min_request_height <= height <= self.max_request_height):
+            raise ValueError(f"{self.name} request height is outside supported bounds.")
+        return width, height
 
 
 class ImageGenerationSettings(BaseModel):
@@ -35,8 +50,8 @@ class ImageGenerationSettings(BaseModel):
     cache_enabled: bool = True
     cache_path: str = "data/image_generation_cache.sqlite3"
     cache_asset_root: str = "data/image_generation_cache"
-    prompt_version: str = "1.3.1"
-    schema_version: str = "1.3.1"
+    prompt_version: str = "1.3.2"
+    schema_version: str = "1.3.2"
     task_max_poll_seconds: float = Field(default=90, ge=1, le=3600)
     task_poll_interval_seconds: float = Field(default=2, ge=0.1, le=120)
     task_max_poll_attempts: int = Field(default=45, ge=1, le=1000)
@@ -59,20 +74,35 @@ class ImageGenerationSettings(BaseModel):
                 name="qwen_image",
                 api_key=os.getenv("QWEN_IMAGE_API_KEY", ""),
                 base_url=os.getenv("QWEN_IMAGE_BASE_URL", "https://dashscope.aliyuncs.com"),
-                model=os.getenv("QWEN_IMAGE_MODEL", "qwen-image"),
-                allowed_domains=_csv_env("QWEN_IMAGE_ALLOWED_DOMAINS", "dashscope.aliyuncs.com"),
+                model=os.getenv("QWEN_IMAGE_MODEL", ""),
+                allowed_domains=_csv_env(
+                    "QWEN_IMAGE_ALLOWED_DOMAINS",
+                    "dashscope.aliyuncs.com,aliyuncs.com,oss-cn-hangzhou.aliyuncs.com,oss-cn-beijing.aliyuncs.com,oss-cn-shanghai.aliyuncs.com,oss-cn-shenzhen.aliyuncs.com",
+                ),
                 endpoint_path=os.getenv("QWEN_IMAGE_ENDPOINT_PATH", "/api/v1/services/aigc/multimodal-generation/generation"),
                 workspace=os.getenv("QWEN_IMAGE_WORKSPACE", ""),
                 supports_async=_bool_env("QWEN_IMAGE_SUPPORTS_ASYNC", False),
+                request_width=_int_env("QWEN_IMAGE_REQUEST_WIDTH", 1280),
+                request_height=_int_env("QWEN_IMAGE_REQUEST_HEIGHT", 720),
+                min_request_width=256,
+                min_request_height=256,
+                max_request_width=2048,
+                max_request_height=2048,
             ),
             seedream=ImageProviderSettings(
                 name="seedream",
                 api_key=os.getenv("SEEDREAM_API_KEY", ""),
                 base_url=os.getenv("SEEDREAM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
-                model=os.getenv("SEEDREAM_MODEL", "seedream"),
+                model=os.getenv("SEEDREAM_MODEL", ""),
                 allowed_domains=_csv_env("SEEDREAM_ALLOWED_DOMAINS", "ark.cn-beijing.volces.com"),
                 endpoint_path=os.getenv("SEEDREAM_ENDPOINT_PATH", "/images/generations"),
                 supports_async=_bool_env("SEEDREAM_SUPPORTS_ASYNC", False),
+                request_width=_int_env("SEEDREAM_REQUEST_WIDTH", 1280),
+                request_height=_int_env("SEEDREAM_REQUEST_HEIGHT", 720),
+                min_request_width=256,
+                min_request_height=256,
+                max_request_width=4096,
+                max_request_height=4096,
             ),
             timeout_seconds=_float_env("IMAGE_GENERATION_TIMEOUT_SECONDS", 60),
             max_provider_requests=_int_env("TEACHING_IMAGE_MAX_PROVIDER_REQUESTS", _int_env("IMAGE_GENERATION_MAX_PROVIDER_REQUESTS", 8)),
@@ -83,8 +113,8 @@ class ImageGenerationSettings(BaseModel):
             cache_enabled=_bool_env("IMAGE_GENERATION_CACHE_ENABLED", True),
             cache_path=os.getenv("IMAGE_GENERATION_CACHE_PATH", "data/image_generation_cache.sqlite3"),
             cache_asset_root=os.getenv("IMAGE_GENERATION_CACHE_ASSET_ROOT", "data/image_generation_cache"),
-            prompt_version=os.getenv("IMAGE_GENERATION_PROMPT_VERSION", "1.3.1"),
-            schema_version=os.getenv("IMAGE_GENERATION_SCHEMA_VERSION", "1.3.1"),
+            prompt_version=os.getenv("IMAGE_GENERATION_PROMPT_VERSION", "1.3.2"),
+            schema_version=os.getenv("IMAGE_GENERATION_SCHEMA_VERSION", "1.3.2"),
             task_max_poll_seconds=_float_env("IMAGE_TASK_MAX_POLL_SECONDS", 90),
             task_poll_interval_seconds=_float_env("IMAGE_TASK_POLL_INTERVAL_SECONDS", 2),
             task_max_poll_attempts=_int_env("IMAGE_TASK_MAX_POLL_ATTEMPTS", 45),

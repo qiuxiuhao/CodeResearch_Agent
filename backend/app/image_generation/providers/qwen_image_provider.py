@@ -34,6 +34,9 @@ class QwenImageProvider(BaseImageProvider):
         self.workspace = settings.workspace
         self.allowed_domains = settings.allowed_domains
         self.supports_async = settings.supports_async
+        self.request_width = settings.request_width
+        self.request_height = settings.request_height
+        self._settings = settings
         self.timeout_seconds = timeout_seconds
         self._transport = transport
         self.capabilities = ImageProviderCapabilities(
@@ -44,7 +47,10 @@ class QwenImageProvider(BaseImageProvider):
 
     @property
     def configured(self) -> bool:
-        return bool(self.api_key.strip())
+        return bool(self.api_key.strip() and self.model.strip() and self.base_url.strip())
+
+    def request_size(self) -> tuple[int, int]:
+        return self._settings.validate_request_size()
 
     def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         if not self.configured:

@@ -16,7 +16,7 @@ def assemble_teaching_diagram_spec(
     skeleton: TeachingDiagramSkeleton,
     narrative: TeachingDiagramNarrative,
 ) -> TeachingDiagramSpec:
-    warnings = list(skeleton.warnings)
+    warnings = [*skeleton.warnings, *narrative.warnings]
     if narrative.skeleton_id != skeleton.skeleton_id or narrative.skeleton_hash != skeleton.skeleton_hash:
         warnings.append("LLM Narrative 与 Skeleton 身份不匹配，已使用本地模板文案。")
         from backend.app.teaching_diagrams.narrative import build_local_narrative

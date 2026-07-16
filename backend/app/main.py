@@ -23,7 +23,7 @@ from backend.app.vision.config import VisionSettings
 from backend.app.config.pdf_safety import PDFSafetySettings, zip_max_file_bytes
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.3.1")
+app = FastAPI(title="CodeResearch Agent", version="1.3.2")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

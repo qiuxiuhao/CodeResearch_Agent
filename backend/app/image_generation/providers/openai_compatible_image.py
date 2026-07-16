@@ -21,13 +21,19 @@ class OpenAICompatibleImageProvider(BaseImageProvider):
         self.base_url = settings.base_url.rstrip("/")
         self.endpoint_path = settings.endpoint_path or "/images/generations"
         self.allowed_domains = settings.allowed_domains
+        self._settings = settings
+        self.request_width = settings.request_width
+        self.request_height = settings.request_height
         self.timeout_seconds = timeout_seconds
         self._transport = transport
         self.capabilities = ImageProviderCapabilities(supports_json_prompt=True)
 
     @property
     def configured(self) -> bool:
-        return bool(self.api_key.strip())
+        return bool(self.api_key.strip() and self.model.strip() and self.base_url.strip())
+
+    def request_size(self) -> tuple[int, int]:
+        return self._settings.validate_request_size()
 
     def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         if not self.configured:

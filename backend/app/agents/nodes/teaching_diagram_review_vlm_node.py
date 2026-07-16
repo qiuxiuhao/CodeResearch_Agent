@@ -25,8 +25,8 @@ from backend.app.vision.router import VisionModelRouter
 from backend.app.vision.runtime import VisionRuntime
 
 
-REVIEW_PROMPT_VERSION = os.getenv("TEACHING_REVIEW_PROMPT_VERSION", "1.3.1")
-REVIEW_SCHEMA_VERSION = os.getenv("TEACHING_REVIEW_SCHEMA_VERSION", "1.3.1")
+REVIEW_PROMPT_VERSION = os.getenv("TEACHING_REVIEW_PROMPT_VERSION", "1.3.2")
+REVIEW_SCHEMA_VERSION = os.getenv("TEACHING_REVIEW_SCHEMA_VERSION", "1.3.2")
 
 
 def teaching_diagram_review_vlm_node(
@@ -144,10 +144,11 @@ def _review_once(
             cached = None
             manifest.warnings.append(_warning("review_cache_error", item.diagram_id))
         if cached:
-            review = TeachingDiagramReview.model_validate(cached)
-            review.metadata["cache_hit"] = True
-            review_budget.record_cache_hit()
-            return _enforce_review_policy(review)
+            review = _validated_cached_review(cached, item.diagram_id, manifest)
+            if review is not None:
+                review.metadata["cache_hit"] = True
+                review_budget.record_cache_hit()
+                return review
     result = router.analyze_structured_image(
         context_id=item.diagram_id,
         system_prompt=_review_prompt(),
@@ -259,19 +260,32 @@ def _review_passed(review: TeachingDiagramReview) -> bool:
 def _enforce_review_policy(review: TeachingDiagramReview) -> TeachingDiagramReview:
     passed = (
         review.passed
-        and review.recommendation == "pass"
+        and review.overall_score >= 80
         and review.accuracy_score >= 4
         and review.spec_coverage_score >= 4
-        and review.label_readability_score >= 3
+        and review.label_readability_score >= 4
+        and review.beginner_clarity_score >= 4
         and review.safety_score == 5
+        and not review.missing_required_items
         and not review.hallucinated_items
         and not review.incorrect_shapes
         and not review.incorrect_formulas
+        and not review.unreadable_labels
     )
     return review.model_copy(update={
         "passed": passed,
         "recommendation": "pass" if passed else "fallback_blueprint",
     })
+
+
+def _validated_cached_review(cached: dict, diagram_id: str, manifest: TeachingDiagramManifest) -> TeachingDiagramReview | None:
+    try:
+        review = TeachingDiagramReview.model_validate(cached)
+        _validate_review(review, diagram_id)
+        return _enforce_review_policy(review)
+    except Exception:
+        manifest.warnings.append(_warning("review_cache_error", diagram_id))
+        return None
 
 
 def _validate_review(value, diagram_id: str) -> None:

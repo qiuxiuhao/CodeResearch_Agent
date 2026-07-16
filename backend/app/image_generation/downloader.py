@@ -23,14 +23,22 @@ BLOCKED_NETWORKS = [
 
 
 class SafeImageDownloader:
-    def __init__(self, allowed_domains: list[str], *, timeout_seconds: float, max_bytes: int) -> None:
+    def __init__(
+        self,
+        allowed_domains: list[str],
+        *,
+        timeout_seconds: float,
+        max_bytes: int,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
         self.allowed_domains = {item.lower() for item in allowed_domains}
         self.timeout_seconds = timeout_seconds
         self.max_bytes = max_bytes
+        self._transport = transport
 
     def download(self, url: str) -> tuple[bytes, str]:
         current = url
-        with httpx.Client(timeout=self.timeout_seconds, follow_redirects=False) as client:
+        with httpx.Client(timeout=self.timeout_seconds, follow_redirects=False, transport=self._transport) as client:
             for _ in range(5):
                 self._validate_url(current)
                 response = client.get(current)
@@ -55,11 +63,11 @@ class SafeImageDownloader:
             raise ImageGenerationError("image_download_scheme_blocked", "Only HTTPS image URLs are allowed.")
         host = (parsed.hostname or "").lower()
         if not host or not _domain_allowed(host, self.allowed_domains):
-            raise ImageGenerationError("image_download_domain_blocked", "Image URL host is not in the allowlist.")
+            raise ImageGenerationError("image_download_domain_blocked", f"Image URL host is not in the allowlist: {host or 'unknown'}.")
         for info in socket.getaddrinfo(host, parsed.port or 443, proto=socket.IPPROTO_TCP):
             address = ipaddress.ip_address(info[4][0])
             if address.is_private or address.is_loopback or address.is_link_local or any(address in net for net in BLOCKED_NETWORKS):
-                raise ImageGenerationError("image_download_ssrf_blocked", "Image URL resolved to a blocked network.")
+                raise ImageGenerationError("image_download_ssrf_blocked", f"Image URL host resolved to a blocked network: {host}.")
 
 
 def _domain_allowed(host: str, allowed_domains: set[str]) -> bool:

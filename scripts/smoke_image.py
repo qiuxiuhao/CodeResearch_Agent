@@ -31,7 +31,15 @@ def main() -> None:
         else SeedreamProvider(settings.seedream)
     )
     if not provider.configured:
-        raise SystemExit(f"{args.provider} API key is not configured.")
+        raise SystemExit(f"{args.provider} is not fully configured (api key, model, and base URL are required).")
+    request_width, request_height = provider.request_size()
+    print(json.dumps({
+        "about_to_send_paid_request": True,
+        "provider": provider.name,
+        "model": provider.model,
+        "request_size": {"width": request_width, "height": request_height},
+        "allowed_result_domains": getattr(provider, "allowed_domains", []),
+    }, ensure_ascii=False, indent=2))
     output_dir = Path(args.output_root) / "task_smoke_image"
     state = _synthetic_state(output_dir)
     state = teaching_diagram_plan_node(state)

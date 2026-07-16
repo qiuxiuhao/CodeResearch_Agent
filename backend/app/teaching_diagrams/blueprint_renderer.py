@@ -178,20 +178,50 @@ def _draw_arrow(page, start_xy: tuple[int, int], end_xy: tuple[int, int]) -> Non
     points = _route_points(start_xy, end_xy)
     for first, second in zip(points, points[1:]):
         page.draw_line(fitz.Point(*first), fitz.Point(*second), color=(0.20, 0.25, 0.33), width=1.4)
-    end = fitz.Point(*points[-1])
-    page.draw_line(end, fitz.Point(end.x - 9, end.y - 5), color=(0.20, 0.25, 0.33), width=1.4)
-    page.draw_line(end, fitz.Point(end.x - 9, end.y + 5), color=(0.20, 0.25, 0.33), width=1.4)
+    end, left, right = _arrowhead_points(points[-2], points[-1])
+    page.draw_line(fitz.Point(*end), fitz.Point(*left), color=(0.20, 0.25, 0.33), width=1.4)
+    page.draw_line(fitz.Point(*end), fitz.Point(*right), color=(0.20, 0.25, 0.33), width=1.4)
 
 
 def _route_points(start_xy: tuple[int, int], end_xy: tuple[int, int]) -> list[tuple[int, int]]:
     x1, y1 = start_xy
     x2, y2 = end_xy
-    start = (x1 + CARD_W, y1 + CARD_H // 2)
-    end = (x2, y2 + CARD_H // 2)
-    if abs(y1 - y2) < CARD_H:
+    cx1, cy1 = x1 + CARD_W // 2, y1 + CARD_H // 2
+    cx2, cy2 = x2 + CARD_W // 2, y2 + CARD_H // 2
+    dx, dy = cx2 - cx1, cy2 - cy1
+    if abs(dx) >= abs(dy):
+        if dx >= 0:
+            start = (x1 + CARD_W, cy1)
+            end = (x2, cy2)
+        else:
+            start = (x1, cy1)
+            end = (x2 + CARD_W, cy2)
+    elif dy >= 0:
+        start = (cx1, y1 + CARD_H)
+        end = (cx2, y2)
+    else:
+        start = (cx1, y1)
+        end = (cx2, y2 + CARD_H)
+    if start[0] == end[0] or start[1] == end[1]:
         return [start, end]
-    mid_x = max(start[0] + 26, min(WIDTH - MARGIN, (start[0] + end[0]) // 2))
-    return [start, (mid_x, start[1]), (mid_x, end[1]), end]
+    if abs(dx) >= abs(dy):
+        mid_x = (start[0] + end[0]) // 2
+        return [start, (mid_x, start[1]), (mid_x, end[1]), end]
+    mid_y = (start[1] + end[1]) // 2
+    return [start, (start[0], mid_y), (end[0], mid_y), end]
+
+
+def _arrowhead_points(previous: tuple[int, int], end: tuple[int, int]) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
+    vx = end[0] - previous[0]
+    vy = end[1] - previous[1]
+    length = math.hypot(vx, vy) or 1.0
+    ux, uy = vx / length, vy / length
+    px, py = -uy, ux
+    size = 11
+    spread = 6
+    left = (round(end[0] - ux * size + px * spread), round(end[1] - uy * size + py * spread))
+    right = (round(end[0] - ux * size - px * spread), round(end[1] - uy * size - py * spread))
+    return end, left, right
 
 
 def _svg_arrow(start_xy: tuple[int, int], end_xy: tuple[int, int], label: str, family: str) -> str:
