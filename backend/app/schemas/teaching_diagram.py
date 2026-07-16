@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 SCHEMA_VERSION = "1.3.3"
+NARRATIVE_PROMPT_VERSION = "1.3.5"
+NARRATIVE_SCHEMA_VERSION = "1.3.5"
+NARRATIVE_CACHE_VERSION = "1.3.5"
 Confidence = Literal["high", "medium", "low"]
 
 
@@ -117,17 +120,14 @@ class TeachingDiagramSkeleton(StrictTeachingModel):
 
 
 class TeachingDiagramNarrative(StrictTeachingModel):
+    schema_version: Literal["1.3.5"] = NARRATIVE_SCHEMA_VERSION
     skeleton_id: str
     skeleton_hash: str = Field(min_length=64, max_length=64)
     section_titles: dict[str, str] = Field(default_factory=dict)
-    plain_language_explanations: dict[str, str] = Field(default_factory=dict)
     teaching_steps: list[str] = Field(default_factory=list)
     one_sentence_summary: str
     learning_tips: list[str] = Field(default_factory=list)
-    layout_suggestions: list[str] = Field(default_factory=list)
-    color_suggestions: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
-    metadata: Any = Field(default_factory=dict)
 
 
 class TeachingDiagramStyleHints(StrictTeachingModel):

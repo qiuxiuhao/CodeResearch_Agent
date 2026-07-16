@@ -4,7 +4,14 @@ from backend.app.llm.budget import BudgetManager
 from backend.app.llm.router import ModelRouter
 from backend.app.llm.runtime import LLMRuntime
 from backend.app.schemas.state import AgentState
-from backend.app.schemas.teaching_diagram import TeachingDiagramManifest, TeachingDiagramNarrative, TeachingDiagramSkeleton
+from backend.app.schemas.teaching_diagram import (
+    NARRATIVE_CACHE_VERSION,
+    NARRATIVE_PROMPT_VERSION,
+    NARRATIVE_SCHEMA_VERSION,
+    TeachingDiagramManifest,
+    TeachingDiagramNarrative,
+    TeachingDiagramSkeleton,
+)
 from backend.app.teaching_diagrams.narrative import build_local_narrative
 from backend.app.teaching_diagrams.skeleton_builder import build_teaching_diagram_skeletons
 from backend.app.teaching_diagrams.spec_assembler import assemble_teaching_diagram_spec
@@ -96,36 +103,14 @@ def _build_narrative(
         task_type="teaching_diagram_narrative",
         context_id=skeleton.skeleton_id,
         system_prompt=(
-            "你是教学图文案规划器。只能生成通俗解释、分区标题、教学步骤、一句话总结、学习提示、"
-            "布局和配色建议。不得新增、删除、重命名或修改 modules、connections、shapes、formulas、"
+            "你是教学图文案规划器。只能生成分区标题、教学步骤、一句话总结、学习提示和警告。"
+            "不得新增、删除、重命名或修改 modules、connections、shapes、formulas、"
             "source entity、related Mermaid IDs。返回严格 JSON。"
         ),
-        input_payload={
-            "skeleton_id": skeleton.skeleton_id,
-            "skeleton_hash": skeleton.skeleton_hash,
-            "source_entity": skeleton.source_entity.model_dump(mode="json"),
-            "sections": [item.model_dump(mode="json") for item in skeleton.sections],
-            "modules": [item.model_dump(mode="json") for item in skeleton.modules],
-            "connections": [item.model_dump(mode="json") for item in skeleton.connections],
-            "shapes": [item.model_dump(mode="json") for item in skeleton.shapes],
-            "formulas": [item.model_dump(mode="json") for item in skeleton.formulas],
-            "related_mermaid_diagram_ids": skeleton.related_mermaid_diagram_ids,
-            "allowed_output_fields": [
-                "skeleton_id",
-                "skeleton_hash",
-                "section_titles",
-                "plain_language_explanations",
-                "teaching_steps",
-                "one_sentence_summary",
-                "learning_tips",
-                "layout_suggestions",
-                "color_suggestions",
-                "warnings",
-            ],
-        },
+        input_payload=_narrative_input_payload(skeleton),
         response_model=TeachingDiagramNarrative,
         evidence_catalog=[],
-        prompt_version="1.3.3",
+        prompt_version=NARRATIVE_PROMPT_VERSION,
         identity_validator=lambda value: (
             isinstance(value, TeachingDiagramNarrative)
             and value.skeleton_id == skeleton.skeleton_id
@@ -136,3 +121,23 @@ def _build_narrative(
     if result.value is None:
         return local.model_copy(update={"warnings": [*local.warnings, "teaching_narrative_llm_unavailable_local_fallback"]})
     return TeachingDiagramNarrative.model_validate(result.value.model_dump(mode="json"))
+
+
+def _narrative_input_payload(skeleton: TeachingDiagramSkeleton) -> dict:
+    return {
+        "narrative_schema_version": NARRATIVE_SCHEMA_VERSION,
+        "narrative_cache_version": NARRATIVE_CACHE_VERSION,
+        "skeleton_id": skeleton.skeleton_id,
+        "skeleton_hash": skeleton.skeleton_hash,
+        "source_entity": skeleton.source_entity.model_dump(mode="json"),
+        "sections": [item.model_dump(mode="json") for item in skeleton.sections],
+        "modules": [item.model_dump(mode="json") for item in skeleton.modules],
+        "connections": [item.model_dump(mode="json") for item in skeleton.connections],
+        "shapes": [item.model_dump(mode="json") for item in skeleton.shapes],
+        "formulas": [item.model_dump(mode="json") for item in skeleton.formulas],
+        "related_mermaid_diagram_ids": skeleton.related_mermaid_diagram_ids,
+        "allowed_output_fields": [
+            "schema_version", "skeleton_id", "skeleton_hash", "section_titles",
+            "teaching_steps", "one_sentence_summary", "learning_tips", "warnings",
+        ],
+    }

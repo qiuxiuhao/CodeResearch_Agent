@@ -19,7 +19,16 @@ from backend.app.llm.config import LLMSettings
 from backend.app.llm.exceptions import ProviderError
 from backend.app.llm.providers.mock_provider import MockProvider
 from backend.app.llm.runtime import create_llm_runtime
-from backend.app.schemas.teaching_diagram import TeachingDiagramManifest, TeachingDiagramManifestItem, TeachingDiagramNarrative, TeachingDiagramSpec
+from backend.app.schemas.teaching_diagram import (
+    NARRATIVE_CACHE_VERSION,
+    NARRATIVE_PROMPT_VERSION,
+    NARRATIVE_SCHEMA_VERSION,
+    TeachingDiagramManifest,
+    TeachingDiagramManifestItem,
+    TeachingDiagramNarrative,
+    TeachingDiagramSpec,
+)
+from backend.app.agents.nodes.teaching_diagram_plan_node import _build_narrative, _narrative_input_payload
 from backend.app.services.analysis_service import run_analysis
 from backend.app.teaching_diagrams.blueprint_renderer import BlueprintRenderer, CARD_H, CARD_W, _arrowhead_points, _route_points, layout_modules
 from backend.app.teaching_diagrams.compositor import TeachingDiagramCompositor
@@ -112,6 +121,61 @@ def test_narrative_cannot_change_skeleton_identity():
     assert [module.id for module in spec.modules] == [module.id for module in skeleton.modules]
     assert [edge.id for edge in spec.connections] == [edge.id for edge in skeleton.connections]
     assert any("身份不匹配" in warning for warning in spec.warnings)
+
+
+def test_narrative_schema_versions_are_isolated_from_diagram_spec_schema():
+    narrative = TeachingDiagramNarrative(
+        skeleton_id="skeleton",
+        skeleton_hash="a" * 64,
+        one_sentence_summary="summary",
+    )
+    assert narrative.schema_version == NARRATIVE_SCHEMA_VERSION == "1.3.5"
+    assert NARRATIVE_PROMPT_VERSION == NARRATIVE_CACHE_VERSION == "1.3.5"
+    assert TeachingDiagramSpec.model_fields["schema_version"].default == "1.3.3"
+    with pytest.raises(Exception):
+        TeachingDiagramNarrative(
+            skeleton_id="skeleton",
+            skeleton_hash="a" * 64,
+            one_sentence_summary="summary",
+            metadata={"old": True},
+        )
+
+
+def test_old_narrative_cache_version_misses_and_writes_new_entry(tmp_path: Path):
+    skeleton = build_teaching_diagram_skeletons(
+        repo_index={}, file_analysis=[], function_analysis=[], library_calls=[],
+        model_analysis=[_model_analysis()], paper_analysis={}, paper_code_alignment={}, diagrams=[],
+    ).skeletons[0]
+
+    def response(request):
+        return {
+            "schema_version": NARRATIVE_SCHEMA_VERSION,
+            "skeleton_id": request.input_payload["skeleton_id"],
+            "skeleton_hash": request.input_payload["skeleton_hash"],
+            "one_sentence_summary": "fresh narrative",
+        }
+
+    provider = MockProvider("deepseek", responses={"teaching_diagram_narrative": response})
+    runtime = create_llm_runtime(
+        LLMSettings.from_env(text_llm_enabled=True).model_copy(update={"cache_path": str(tmp_path / "cache.sqlite3")}),
+        [provider],
+    )
+    runtime.router.generate_structured(
+        task_type="teaching_diagram_narrative",
+        context_id=skeleton.skeleton_id,
+        system_prompt="old",
+        input_payload=_narrative_input_payload(skeleton),
+        response_model=TeachingDiagramNarrative,
+        evidence_catalog=[],
+        prompt_version="1.3.3",
+    )
+    assert len(provider.calls) == 1
+
+    value = _build_narrative(skeleton, runtime.router, [])
+
+    assert value.schema_version == "1.3.5"
+    assert value.one_sentence_summary == "fresh narrative"
+    assert len(provider.calls) == 2
 
 
 def test_unknown_shapes_are_omitted_with_warning():
@@ -352,9 +416,6 @@ def test_teaching_narrative_llm_success_counts_budget_without_changing_skeleton(
             "teaching_steps": ["先看输入", "再看计算", "最后看输出"],
             "learning_tips": ["关注箭头方向"],
             "section_titles": {},
-            "plain_language_explanations": {},
-            "layout_suggestions": ["grid"],
-            "color_suggestions": ["blue"],
         }
 
     runtime = create_llm_runtime(

@@ -18,18 +18,12 @@ def build_local_narrative(skeleton: TeachingDiagramSkeleton) -> TeachingDiagramN
         skeleton_id=skeleton.skeleton_id,
         skeleton_hash=skeleton.skeleton_hash,
         section_titles={section.id: section.title for section in skeleton.sections},
-        plain_language_explanations={
-            module.id: f"{module.label} 是这个教学图中的一个规则确认模块。"
-            for module in skeleton.modules
-        },
         teaching_steps=steps,
         one_sentence_summary=summary,
         learning_tips=[
             "先沿箭头看数据如何流动，再回头看每个模块的作用。",
             "Tensor Shape 和公式只展示规则证据支持的内容。",
         ],
-        layout_suggestions=["left_to_right"],
-        color_suggestions=["input: blue", "compute: green", "output: amber"],
     )
 
 
