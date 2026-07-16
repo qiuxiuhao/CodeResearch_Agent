@@ -4,6 +4,8 @@ import os
 
 from pydantic import BaseModel, Field
 
+from backend.app.settings.provider_registry import resolve_provider_values
+
 
 class ImageProviderSettings(BaseModel):
     name: str
@@ -70,10 +72,6 @@ class ImageGenerationSettings(BaseModel):
     ) -> "ImageGenerationSettings":
         qwen_values, _ = _runtime_provider_bundle("qwen_image")
         seedream_values, _ = _runtime_provider_bundle("seedream")
-        qwen_timeout = _provider_float(qwen_values, "timeout_seconds", "IMAGE_GENERATION_TIMEOUT_SECONDS", 60)
-        seedream_timeout = _provider_float(seedream_values, "timeout_seconds", "IMAGE_GENERATION_TIMEOUT_SECONDS", 60)
-        qwen_retries = _provider_int(qwen_values, "retry", "IMAGE_GENERATION_MAX_RETRIES", 0)
-        seedream_retries = _provider_int(seedream_values, "retry", "IMAGE_GENERATION_MAX_RETRIES", 0)
         return cls(
             enabled=_bool_env("IMAGE_GENERATION_ENABLED", False) if enabled is None else enabled,
             external_image_consent=external_image_consent,
@@ -81,20 +79,17 @@ class ImageGenerationSettings(BaseModel):
             if teaching_review_vlm_enabled is None else teaching_review_vlm_enabled,
             qwen_image=ImageProviderSettings(
                 name="qwen_image",
-                api_key=qwen_values.get("api_key", os.getenv("QWEN_IMAGE_API_KEY", "")),
-                base_url=qwen_values.get("base_url", os.getenv("QWEN_IMAGE_BASE_URL", "https://dashscope.aliyuncs.com")),
-                model=qwen_values.get("model", os.getenv("QWEN_IMAGE_MODEL", "")),
-                timeout_seconds=qwen_timeout,
-                max_retries=qwen_retries,
-                allowed_domains=_list_value(qwen_values.get("allowed_domains"), _csv_env(
-                    "QWEN_IMAGE_ALLOWED_DOMAINS",
-                    "dashscope.aliyuncs.com,aliyuncs.com,oss-cn-hangzhou.aliyuncs.com,oss-cn-beijing.aliyuncs.com,oss-cn-shanghai.aliyuncs.com,oss-cn-shenzhen.aliyuncs.com",
-                )),
-                endpoint_path=qwen_values.get("endpoint_path", os.getenv("QWEN_IMAGE_ENDPOINT_PATH", "/api/v1/services/aigc/multimodal-generation/generation")),
-                workspace=qwen_values.get("workspace", os.getenv("QWEN_IMAGE_WORKSPACE", "")),
+                api_key=str(qwen_values["api_key"]),
+                base_url=str(qwen_values["base_url"]),
+                model=str(qwen_values["model"]),
+                timeout_seconds=float(qwen_values["timeout_seconds"]),
+                max_retries=int(qwen_values["retry"]),
+                allowed_domains=list(qwen_values["allowed_domains"]),
+                endpoint_path=str(qwen_values["endpoint_path"]),
+                workspace=str(qwen_values["workspace"]),
                 supports_async=False,
-                request_width=_int_value(qwen_values.get("request_width"), _int_env("QWEN_IMAGE_REQUEST_WIDTH", 1280)),
-                request_height=_int_value(qwen_values.get("request_height"), _int_env("QWEN_IMAGE_REQUEST_HEIGHT", 720)),
+                request_width=int(qwen_values["request_width"]),
+                request_height=int(qwen_values["request_height"]),
                 min_request_width=256,
                 min_request_height=256,
                 max_request_width=2048,
@@ -102,16 +97,16 @@ class ImageGenerationSettings(BaseModel):
             ),
             seedream=ImageProviderSettings(
                 name="seedream",
-                api_key=seedream_values.get("api_key", os.getenv("SEEDREAM_API_KEY", "")),
-                base_url=seedream_values.get("base_url", os.getenv("SEEDREAM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")),
-                model=seedream_values.get("model", os.getenv("SEEDREAM_MODEL", "")),
-                timeout_seconds=seedream_timeout,
-                max_retries=seedream_retries,
-                allowed_domains=_list_value(seedream_values.get("allowed_domains"), _csv_env("SEEDREAM_ALLOWED_DOMAINS", "ark.cn-beijing.volces.com")),
-                endpoint_path=seedream_values.get("endpoint_path", os.getenv("SEEDREAM_ENDPOINT_PATH", "/images/generations")),
+                api_key=str(seedream_values["api_key"]),
+                base_url=str(seedream_values["base_url"]),
+                model=str(seedream_values["model"]),
+                timeout_seconds=float(seedream_values["timeout_seconds"]),
+                max_retries=int(seedream_values["retry"]),
+                allowed_domains=list(seedream_values["allowed_domains"]),
+                endpoint_path=str(seedream_values["endpoint_path"]),
                 supports_async=False,
-                request_width=_int_value(seedream_values.get("request_width"), _int_env("SEEDREAM_REQUEST_WIDTH", 1280)),
-                request_height=_int_value(seedream_values.get("request_height"), _int_env("SEEDREAM_REQUEST_HEIGHT", 720)),
+                request_width=int(seedream_values["request_width"]),
+                request_height=int(seedream_values["request_height"]),
                 min_request_width=256,
                 min_request_height=256,
                 max_request_width=4096,
@@ -174,47 +169,5 @@ def _bool_env(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _csv_env(name: str, default: str) -> list[str]:
-    value = os.getenv(name, default)
-    return [item.strip().lower() for item in value.split(",") if item.strip()]
-
-
-def _int_value(value: object, default: int) -> int:
-    return int(value) if value not in (None, "") else default
-
-
-def _bool_value(value: object, default: bool) -> bool:
-    if value in (None, ""):
-        return default
-    if isinstance(value, bool):
-        return value
-    return str(value).strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _list_value(value: object, default: list[str]) -> list[str]:
-    if value in (None, ""):
-        return default
-    if isinstance(value, list):
-        return [str(item).strip().lower() for item in value if str(item).strip()]
-    return [item.strip().lower() for item in str(value).split(",") if item.strip()]
-
-
-def _provider_float(values: dict[str, object], field: str, env_name: str, default: float) -> float:
-    if values.get(field) not in (None, ""):
-        return float(values[field])
-    return _float_env(env_name, default)
-
-
-def _provider_int(values: dict[str, object], field: str, env_name: str, default: int) -> int:
-    if values.get(field) not in (None, ""):
-        return int(values[field])
-    return _int_env(env_name, default)
-
-
 def _runtime_provider_bundle(provider_id: str) -> tuple[dict[str, object], dict[str, str]]:
-    try:
-        from backend.app.settings.provider_settings import ProviderSettingsService
-
-        return ProviderSettingsService().runtime_provider_bundle(provider_id)
-    except Exception:
-        return {}, {}
+    return resolve_provider_values(provider_id)

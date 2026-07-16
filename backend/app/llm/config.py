@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from backend.app.settings.provider_registry import resolve_provider_values
+
 
 AnalysisMode = Literal["rule", "hybrid"]
 
@@ -67,33 +69,27 @@ class LLMSettings(BaseModel):
         resolved_mode = "hybrid" if enabled else "rule"
         deepseek_values, _ = _runtime_provider_bundle("deepseek")
         qwen_values, _ = _runtime_provider_bundle("qwen")
-        deepseek_timeout = _provider_float(deepseek_values, "timeout_seconds", "LLM_TIMEOUT_SECONDS", 45)
-        qwen_timeout = _provider_float(qwen_values, "timeout_seconds", "LLM_TIMEOUT_SECONDS", 45)
-        deepseek_retries = _provider_int(deepseek_values, "retry", "LLM_MAX_RETRIES", 1)
-        qwen_retries = _provider_int(qwen_values, "retry", "LLM_MAX_RETRIES", 1)
-        deepseek_tokens = _provider_int(deepseek_values, "max_output_tokens", "LLM_MAX_OUTPUT_TOKENS", 1200)
-        qwen_tokens = _provider_int(qwen_values, "max_output_tokens", "LLM_MAX_OUTPUT_TOKENS", 1200)
         return cls(
             analysis_mode=resolved_mode,
             text_llm_enabled=enabled,
             teaching_narrative_llm_enabled=narrative_enabled,
             deepseek=ProviderSettings(
                 name="deepseek",
-                api_key=deepseek_values.get("api_key", os.getenv("DEEPSEEK_API_KEY", "")),
-                base_url=deepseek_values.get("base_url", os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")),
-                model=deepseek_values.get("model", os.getenv("DEEPSEEK_MODEL", "deepseek-chat")),
-                timeout_seconds=deepseek_timeout,
-                max_retries=deepseek_retries,
-                max_output_tokens=deepseek_tokens,
+                api_key=str(deepseek_values["api_key"]),
+                base_url=str(deepseek_values["base_url"]),
+                model=str(deepseek_values["model"]),
+                timeout_seconds=float(deepseek_values["timeout_seconds"]),
+                max_retries=int(deepseek_values["retry"]),
+                max_output_tokens=int(deepseek_values["max_output_tokens"]),
             ),
             qwen=ProviderSettings(
                 name="qwen",
-                api_key=qwen_values.get("api_key", os.getenv("QWEN_API_KEY", "")),
-                base_url=qwen_values.get("base_url", os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")),
-                model=qwen_values.get("model", os.getenv("QWEN_MODEL", "qwen-plus")),
-                timeout_seconds=qwen_timeout,
-                max_retries=qwen_retries,
-                max_output_tokens=qwen_tokens,
+                api_key=str(qwen_values["api_key"]),
+                base_url=str(qwen_values["base_url"]),
+                model=str(qwen_values["model"]),
+                timeout_seconds=float(qwen_values["timeout_seconds"]),
+                max_retries=int(qwen_values["retry"]),
+                max_output_tokens=int(qwen_values["max_output_tokens"]),
             ),
             timeout_seconds=_float_env("LLM_TIMEOUT_SECONDS", 45),
             max_retries=_int_env("LLM_MAX_RETRIES", 1),
@@ -150,22 +146,5 @@ def _bool_env(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _provider_float(values: dict[str, object], field: str, env_name: str, default: float) -> float:
-    if values.get(field) not in (None, ""):
-        return float(values[field])
-    return _float_env(env_name, default)
-
-
-def _provider_int(values: dict[str, object], field: str, env_name: str, default: int) -> int:
-    if values.get(field) not in (None, ""):
-        return int(values[field])
-    return _int_env(env_name, default)
-
-
 def _runtime_provider_bundle(provider_id: str) -> tuple[dict[str, object], dict[str, str]]:
-    try:
-        from backend.app.settings.provider_settings import ProviderSettingsService
-
-        return ProviderSettingsService().runtime_provider_bundle(provider_id)
-    except Exception:
-        return {}, {}
+    return resolve_provider_values(provider_id)

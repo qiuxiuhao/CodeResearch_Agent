@@ -5,6 +5,7 @@ import os
 from pydantic import BaseModel, Field
 
 from backend.app.config.pdf_safety import PDFSafetySettings
+from backend.app.settings.provider_registry import resolve_provider_values
 
 
 class VisionProviderSettings(BaseModel):
@@ -57,33 +58,25 @@ class VisionSettings(BaseModel):
         pdf_safety = PDFSafetySettings.from_env()
         qwen_values, _ = _runtime_provider_bundle("qwen_vl")
         glm_values, _ = _runtime_provider_bundle("glm_v")
-        qwen_timeout = _provider_float(qwen_values, "timeout_seconds", "VLM_TIMEOUT_SECONDS", 45)
-        glm_timeout = _provider_float(glm_values, "timeout_seconds", "VLM_TIMEOUT_SECONDS", 45)
-        qwen_retries = _provider_int(qwen_values, "retry", "VLM_MAX_RETRIES", 1)
-        glm_retries = _provider_int(glm_values, "retry", "VLM_MAX_RETRIES", 1)
-        qwen_tokens = _provider_int(qwen_values, "max_output_tokens", "VLM_MAX_OUTPUT_TOKENS", 1200)
-        glm_tokens = _provider_int(glm_values, "max_output_tokens", "VLM_MAX_OUTPUT_TOKENS", 1200)
         return cls(
             enabled=_bool_env("VISION_VLM_ENABLED", False) if enabled is None else enabled,
             qwen_vl=VisionProviderSettings(
-                name="qwen_vl", api_key=qwen_values.get("api_key", os.getenv("QWEN_VL_API_KEY", "")),
-                base_url=qwen_values.get("base_url", os.getenv("QWEN_VL_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")),
-                model=qwen_values.get("model", os.getenv("QWEN_VL_MODEL", "qwen-vl-plus")),
-                timeout_seconds=qwen_timeout,
-                max_retries=qwen_retries,
-                max_output_tokens=qwen_tokens,
-                supports_json_object=_bool_value(qwen_values.get("supports_json_object"), _bool_env("QWEN_VL_SUPPORTS_JSON_OBJECT", False)),
-                disable_thinking=_bool_value(qwen_values.get("disable_thinking"), _bool_env("QWEN_VL_DISABLE_THINKING", False)),
+                name="qwen_vl", api_key=str(qwen_values["api_key"]),
+                base_url=str(qwen_values["base_url"]), model=str(qwen_values["model"]),
+                timeout_seconds=float(qwen_values["timeout_seconds"]),
+                max_retries=int(qwen_values["retry"]),
+                max_output_tokens=int(qwen_values["max_output_tokens"]),
+                supports_json_object=bool(qwen_values["supports_json_object"]),
+                disable_thinking=bool(qwen_values["disable_thinking"]),
             ),
             glm_v=VisionProviderSettings(
-                name="glm_v", api_key=glm_values.get("api_key", os.getenv("GLM_V_API_KEY", "")),
-                base_url=glm_values.get("base_url", os.getenv("GLM_V_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")),
-                model=glm_values.get("model", os.getenv("GLM_V_MODEL", "glm-4.5v")),
-                timeout_seconds=glm_timeout,
-                max_retries=glm_retries,
-                max_output_tokens=glm_tokens,
-                supports_json_object=_bool_value(glm_values.get("supports_json_object"), _bool_env("GLM_V_SUPPORTS_JSON_OBJECT", False)),
-                disable_thinking=_bool_value(glm_values.get("disable_thinking"), _bool_env("GLM_V_DISABLE_THINKING", False)),
+                name="glm_v", api_key=str(glm_values["api_key"]),
+                base_url=str(glm_values["base_url"]), model=str(glm_values["model"]),
+                timeout_seconds=float(glm_values["timeout_seconds"]),
+                max_retries=int(glm_values["retry"]),
+                max_output_tokens=int(glm_values["max_output_tokens"]),
+                supports_json_object=bool(glm_values["supports_json_object"]),
+                disable_thinking=bool(glm_values["disable_thinking"]),
             ),
             timeout_seconds=_float_env("VLM_TIMEOUT_SECONDS", 45),
             max_retries=_int_env("VLM_MAX_RETRIES", 1),
@@ -145,30 +138,5 @@ def _bool_env(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _bool_value(value: object, default: bool) -> bool:
-    if value in (None, ""):
-        return default
-    if isinstance(value, bool):
-        return value
-    return str(value).strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _provider_float(values: dict[str, object], field: str, env_name: str, default: float) -> float:
-    if values.get(field) not in (None, ""):
-        return float(values[field])
-    return _float_env(env_name, default)
-
-
-def _provider_int(values: dict[str, object], field: str, env_name: str, default: int) -> int:
-    if values.get(field) not in (None, ""):
-        return int(values[field])
-    return _int_env(env_name, default)
-
-
 def _runtime_provider_bundle(provider_id: str) -> tuple[dict[str, object], dict[str, str]]:
-    try:
-        from backend.app.settings.provider_settings import ProviderSettingsService
-
-        return ProviderSettingsService().runtime_provider_bundle(provider_id)
-    except Exception:
-        return {}, {}
+    return resolve_provider_values(provider_id)
