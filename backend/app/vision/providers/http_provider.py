@@ -11,6 +11,7 @@ from backend.app.vision.config import VisionProviderSettings
 from backend.app.vision.exceptions import VisionProviderError
 from backend.app.vision.providers.base_provider import BaseVisionProvider
 from backend.app.vision.types import VisionProviderCapabilities, VisionRequest, VisionResponse
+from backend.app.utils.provider_response import optional_usage_int, parse_json_object
 
 
 class HTTPVisionProvider(BaseVisionProvider):
@@ -68,16 +69,16 @@ class HTTPVisionProvider(BaseVisionProvider):
         try:
             body = response.json()
             content = self._response_content(body)
-            data = _parse_json_object(content)
+            data = parse_json_object(content, allow_embedded=True)
         except (ValueError, KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
             raise VisionProviderError("vlm_invalid_json", f"{self.name} returned invalid structured content.") from exc
         usage = body.get("usage", {}) if isinstance(body, dict) else {}
         return VisionResponse(
             data=data,
             latency_ms=latency_ms,
-            input_tokens=_optional_int(usage.get("prompt_tokens")),
-            output_tokens=_optional_int(usage.get("completion_tokens")),
-            total_tokens=_optional_int(usage.get("total_tokens")),
+            input_tokens=optional_usage_int(usage.get("prompt_tokens")),
+            output_tokens=optional_usage_int(usage.get("completion_tokens")),
+            total_tokens=optional_usage_int(usage.get("total_tokens")),
         )
 
     def _endpoint(self) -> str:
@@ -111,26 +112,3 @@ class HTTPVisionProvider(BaseVisionProvider):
     @staticmethod
     def _response_content(body: dict[str, Any]) -> Any:
         return body["choices"][0]["message"]["content"]
-
-
-def _parse_json_object(content: Any) -> dict:
-    if isinstance(content, dict):
-        return content
-    if not isinstance(content, str):
-        raise ValueError("response content is not text")
-    stripped = content.strip()
-    if stripped.startswith("```"):
-        lines = stripped.splitlines()
-        stripped = "\n".join(lines[1:-1]).strip()
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start < 0 or end < start:
-        raise ValueError("response does not contain a JSON object")
-    value = json.loads(stripped[start : end + 1])
-    if not isinstance(value, dict):
-        raise ValueError("structured result is not an object")
-    return value
-
-
-def _optional_int(value: Any) -> int | None:
-    return int(value) if isinstance(value, (int, float)) else None

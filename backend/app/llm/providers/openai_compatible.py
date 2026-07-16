@@ -9,6 +9,7 @@ import httpx
 from backend.app.llm.exceptions import ProviderError
 from backend.app.llm.types import ProviderCapabilities, ProviderRequest, ProviderResponse
 from backend.app.llm.providers.base_provider import BaseLLMProvider
+from backend.app.utils.provider_response import optional_usage_int, parse_json_object
 
 
 class OpenAICompatibleProvider(BaseLLMProvider):
@@ -100,33 +101,14 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         try:
             body = response.json()
             content = body["choices"][0]["message"]["content"]
-            data = _parse_json_content(content)
+            data = parse_json_object(content)
         except (ValueError, KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
             raise ProviderError("llm_invalid_json", f"{self.name} returned invalid structured content.") from exc
         usage = body.get("usage", {})
         return ProviderResponse(
             data=data,
             latency_ms=latency_ms,
-            input_tokens=_optional_int(usage.get("prompt_tokens")),
-            output_tokens=_optional_int(usage.get("completion_tokens")),
-            total_tokens=_optional_int(usage.get("total_tokens")),
+            input_tokens=optional_usage_int(usage.get("prompt_tokens")),
+            output_tokens=optional_usage_int(usage.get("completion_tokens")),
+            total_tokens=optional_usage_int(usage.get("total_tokens")),
         )
-
-
-def _parse_json_content(content: Any) -> dict:
-    if isinstance(content, dict):
-        return content
-    if not isinstance(content, str):
-        raise ValueError("content is not text")
-    stripped = content.strip()
-    if stripped.startswith("```"):
-        lines = stripped.splitlines()
-        stripped = "\n".join(lines[1:-1])
-    value = json.loads(stripped)
-    if not isinstance(value, dict):
-        raise ValueError("structured result is not an object")
-    return value
-
-
-def _optional_int(value: Any) -> int | None:
-    return int(value) if isinstance(value, (int, float)) else None
