@@ -488,10 +488,6 @@ def _library_service(library_db_path: str | None) -> LibraryFunctionService:
     return LibraryFunctionService(library_db_path)
 
 
-def _validate_external_model_consent(analysis_mode: str | None, consent: bool) -> None:
-    _validate_external_ai_consents(analysis_mode, consent, None, False, None, False)
-
-
 def _validate_external_ai_consents(
     analysis_mode: str | None, legacy_consent: bool, text_enabled: bool | None,
     vision_enabled: bool | None, text_consent: bool | None, vision_consent: bool,

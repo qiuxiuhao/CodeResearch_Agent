@@ -55,8 +55,8 @@ class VisionSettings(BaseModel):
     @classmethod
     def from_env(cls, enabled: bool | None = None) -> "VisionSettings":
         pdf_safety = PDFSafetySettings.from_env()
-        qwen_values, qwen_source = _runtime_provider_bundle("qwen_vl")
-        glm_values, glm_source = _runtime_provider_bundle("glm_v")
+        qwen_values, _ = _runtime_provider_bundle("qwen_vl")
+        glm_values, _ = _runtime_provider_bundle("glm_v")
         qwen_timeout = _provider_float(qwen_values, "timeout_seconds", "VLM_TIMEOUT_SECONDS", 45)
         glm_timeout = _provider_float(glm_values, "timeout_seconds", "VLM_TIMEOUT_SECONDS", 45)
         qwen_retries = _provider_int(qwen_values, "retry", "VLM_MAX_RETRIES", 1)

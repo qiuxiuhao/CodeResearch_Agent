@@ -65,8 +65,8 @@ class LLMSettings(BaseModel):
         else:
             narrative_enabled = teaching_narrative_llm_enabled
         resolved_mode = "hybrid" if enabled else "rule"
-        deepseek_values, deepseek_source = _runtime_provider_bundle("deepseek")
-        qwen_values, qwen_source = _runtime_provider_bundle("qwen")
+        deepseek_values, _ = _runtime_provider_bundle("deepseek")
+        qwen_values, _ = _runtime_provider_bundle("qwen")
         deepseek_timeout = _provider_float(deepseek_values, "timeout_seconds", "LLM_TIMEOUT_SECONDS", 45)
         qwen_timeout = _provider_float(qwen_values, "timeout_seconds", "LLM_TIMEOUT_SECONDS", 45)
         deepseek_retries = _provider_int(deepseek_values, "retry", "LLM_MAX_RETRIES", 1)

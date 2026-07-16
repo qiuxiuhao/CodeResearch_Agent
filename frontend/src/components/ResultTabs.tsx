@@ -6,7 +6,7 @@ import { GlobalLibraryPanel } from "./GlobalLibraryPanel";
 import { LibraryDocsPanel } from "./LibraryDocsPanel";
 import { ModelAnalysisPanel } from "./ModelAnalysisPanel";
 import { PaperAnalysisPanel } from "./PaperAnalysisPanel";
-import { SummaryCards } from "./SummaryCards";
+import { DashboardOverview } from "./DashboardOverview";
 import { EmptyState } from "./EmptyState";
 
 const TABS: Array<[ResultTab, string]> = [
@@ -47,7 +47,7 @@ export function ResultTabs({ activeTab, mode, result, onTabChange, onLibraryCall
           <EmptyState message="也可以直接打开“全局函数库”查看已沉淀的库函数知识。" />
         </section>
       )}
-      {result && activeTab === "overview" && <SummaryCards result={result} />}
+      {result && activeTab === "overview" && <DashboardOverview result={result} />}
       {result && activeTab === "files" && <FileAnalysisPanel result={result} mode={mode} />}
       {result && activeTab === "functions" && <FunctionAnalysisPanel mode={mode} result={result} onLibraryCallClick={onLibraryCallClick} />}
       {result && activeTab === "libraries" && <LibraryDocsPanel result={result} />}

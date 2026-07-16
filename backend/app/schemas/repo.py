@@ -3,13 +3,6 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
-class FileTreeNode(BaseModel):
-    name: str
-    path: str
-    type: str
-    children: list["FileTreeNode"] = Field(default_factory=list)
-
-
 class RepoIndex(BaseModel):
     task_id: str | None = None
     repo_path: str
@@ -32,4 +25,3 @@ class UnzipResult(BaseModel):
     extracted_file_count: int = 0
     skipped_files: list[dict] = Field(default_factory=list)
     errors: list[dict] = Field(default_factory=list)
-

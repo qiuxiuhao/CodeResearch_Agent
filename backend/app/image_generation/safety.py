@@ -68,39 +68,6 @@ def write_validated_image(
         raise
 
 
-def normalize_image_bytes_to_png(
-    image_bytes: bytes,
-    *,
-    mime_type: str,
-    max_bytes: int,
-    max_width: int,
-    max_height: int,
-) -> tuple[bytes, dict]:
-    input_mime = _detect_mime(image_bytes)
-    if mime_type in ALLOWED_IMAGE_MIME and input_mime != mime_type:
-        raise ValueError("image mime mismatch")
-    png_bytes = _normalize_to_png(image_bytes, max_width=max_width, max_height=max_height)
-    if len(png_bytes) > max_bytes:
-        raise ValueError("image byte limit exceeded")
-    info = {
-        "mime_type": "image/png",
-        "width": 0,
-        "height": 0,
-        "byte_size": len(png_bytes),
-    }
-    doc = fitz.open(stream=png_bytes, filetype="png")
-    try:
-        pixmap = doc[0].get_pixmap(alpha=False)
-        try:
-            info["width"] = pixmap.width
-            info["height"] = pixmap.height
-        finally:
-            pixmap = None  # type: ignore[assignment]
-    finally:
-        doc.close()
-    return png_bytes, info
-
-
 def _detect_mime(data: bytes) -> str:
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"

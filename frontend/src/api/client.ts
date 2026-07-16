@@ -53,26 +53,11 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export function createTaskByPath(payload: CreateTaskPayload): Promise<TaskSummary> {
-  return requestJson<TaskSummary>("/analysis/tasks", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-}
-
 export function createTaskByPathAsync(payload: CreateTaskPayload): Promise<TaskProgress> {
   return requestJson<TaskProgress>("/analysis/tasks/async", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
-  });
-}
-
-export function createTaskByUpload(formData: FormData): Promise<TaskSummary> {
-  return requestJson<TaskSummary>("/analysis/tasks/upload", {
-    method: "POST",
-    body: formData
   });
 }
 
@@ -93,10 +78,6 @@ export function getTaskResult(taskId: string): Promise<AnalysisResult> {
 
 export function getTaskProgress(taskId: string): Promise<TaskProgress> {
   return requestJson<TaskProgress>(`/analysis/tasks/${encodeURIComponent(taskId)}/progress`);
-}
-
-export function getTaskReport(taskId: string): Promise<{ task_id: string; report_md: string }> {
-  return requestJson<{ task_id: string; report_md: string }>(`/analysis/tasks/${encodeURIComponent(taskId)}/report`);
 }
 
 export function getLLMPublicConfig(): Promise<LLMPublicConfig> {

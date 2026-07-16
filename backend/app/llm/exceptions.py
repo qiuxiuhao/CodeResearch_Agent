@@ -7,7 +7,3 @@ class ProviderError(LLMError):
         super().__init__(message)
         self.code = code
         self.recoverable = recoverable
-
-
-class EvidenceValidationError(LLMError):
-    pass

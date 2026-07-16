@@ -68,8 +68,8 @@ class ImageGenerationSettings(BaseModel):
         external_image_consent: bool = False,
         teaching_review_vlm_enabled: bool | None = None,
     ) -> "ImageGenerationSettings":
-        qwen_values, qwen_source = _runtime_provider_bundle("qwen_image")
-        seedream_values, seedream_source = _runtime_provider_bundle("seedream")
+        qwen_values, _ = _runtime_provider_bundle("qwen_image")
+        seedream_values, _ = _runtime_provider_bundle("seedream")
         qwen_timeout = _provider_float(qwen_values, "timeout_seconds", "IMAGE_GENERATION_TIMEOUT_SECONDS", 60)
         seedream_timeout = _provider_float(seedream_values, "timeout_seconds", "IMAGE_GENERATION_TIMEOUT_SECONDS", 60)
         qwen_retries = _provider_int(qwen_values, "retry", "IMAGE_GENERATION_MAX_RETRIES", 0)
