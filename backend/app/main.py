@@ -62,7 +62,7 @@ async def lifespan(_app: FastAPI):
         _shutdown_analysis_executor()
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.3.4", lifespan=lifespan)
+app = FastAPI(title="CodeResearch Agent", version="1.3.5", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

@@ -1,5 +1,6 @@
 # 计划索引
 
+- 当前版本：`1.3.5`
 - 当前实施计划：[`plan_stage13_v1.3.5_cleanup.md`](plan_stage13_v1.3.5_cleanup.md)
 - 历史计划：[`archive/`](archive/)
 
