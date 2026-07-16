@@ -23,6 +23,7 @@ class ProviderSettings(BaseModel):
 class LLMSettings(BaseModel):
     analysis_mode: AnalysisMode = "rule"
     text_llm_enabled: bool = False
+    teaching_narrative_llm_enabled: bool = False
     deepseek: ProviderSettings
     qwen: ProviderSettings
     timeout_seconds: float = Field(default=45, ge=1, le=300)
@@ -45,27 +46,39 @@ class LLMSettings(BaseModel):
         return str(value).strip().lower() if value is not None else value
 
     @classmethod
-    def from_env(cls, analysis_mode: str | None = None, text_llm_enabled: bool | None = None) -> "LLMSettings":
+    def from_env(
+        cls,
+        analysis_mode: str | None = None,
+        text_llm_enabled: bool | None = None,
+        teaching_narrative_llm_enabled: bool | None = None,
+    ) -> "LLMSettings":
         legacy_mode = analysis_mode if analysis_mode is not None else os.getenv("ANALYSIS_MODE", "rule")
         if text_llm_enabled is None:
             enabled = _bool_env("TEXT_LLM_ENABLED", str(legacy_mode).strip().lower() == "hybrid")
         else:
             enabled = text_llm_enabled
+        if teaching_narrative_llm_enabled is None:
+            narrative_enabled = _bool_env("TEACHING_NARRATIVE_LLM_ENABLED", enabled)
+        else:
+            narrative_enabled = teaching_narrative_llm_enabled
         resolved_mode = "hybrid" if enabled else "rule"
+        deepseek_values = _runtime_provider_values("deepseek")
+        qwen_values = _runtime_provider_values("qwen")
         return cls(
             analysis_mode=resolved_mode,
             text_llm_enabled=enabled,
+            teaching_narrative_llm_enabled=narrative_enabled,
             deepseek=ProviderSettings(
                 name="deepseek",
-                api_key=os.getenv("DEEPSEEK_API_KEY", ""),
-                base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-                model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+                api_key=deepseek_values.get("api_key", os.getenv("DEEPSEEK_API_KEY", "")),
+                base_url=deepseek_values.get("base_url", os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")),
+                model=deepseek_values.get("model", os.getenv("DEEPSEEK_MODEL", "deepseek-chat")),
             ),
             qwen=ProviderSettings(
                 name="qwen",
-                api_key=os.getenv("QWEN_API_KEY", ""),
-                base_url=os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-                model=os.getenv("QWEN_MODEL", "qwen-plus"),
+                api_key=qwen_values.get("api_key", os.getenv("QWEN_API_KEY", "")),
+                base_url=qwen_values.get("base_url", os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")),
+                model=qwen_values.get("model", os.getenv("QWEN_MODEL", "qwen-plus")),
             ),
             timeout_seconds=_float_env("LLM_TIMEOUT_SECONDS", 45),
             max_retries=_int_env("LLM_MAX_RETRIES", 1),
@@ -86,6 +99,7 @@ class LLMSettings(BaseModel):
         return {
             "default_analysis_mode": self.analysis_mode,
             "default_text_llm_enabled": self.text_llm_enabled,
+            "default_teaching_narrative_llm_enabled": self.teaching_narrative_llm_enabled,
             "max_function_explanations": self.max_function_explanations,
             "max_file_explanations": self.max_file_explanations,
             "max_model_explanations": self.max_model_explanations,
@@ -119,3 +133,12 @@ def _bool_env(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _runtime_provider_values(provider_id: str) -> dict[str, str]:
+    try:
+        from backend.app.settings.provider_settings import ProviderSettingsService
+
+        return ProviderSettingsService().runtime_provider_values(provider_id)
+    except Exception:
+        return {}

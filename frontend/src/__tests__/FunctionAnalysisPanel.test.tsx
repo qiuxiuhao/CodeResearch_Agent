@@ -25,10 +25,12 @@ test("same-named functions in different files can be selected independently", ()
   const bButton = screen.getByText("b.py").closest("button");
   expect(aButton).toHaveClass("active");
   expect(bButton).not.toHaveClass("active");
+  fireEvent.click(screen.getByRole("button", { name: "AI 解释" }));
   expect(screen.getByText("A 文件解释")).toBeInTheDocument();
 
   fireEvent.click(bButton!);
   expect(aButton).not.toHaveClass("active");
   expect(bButton).toHaveClass("active");
+  fireEvent.click(screen.getByRole("button", { name: "AI 解释" }));
   expect(screen.getByText("B 文件解释")).toBeInTheDocument();
 });

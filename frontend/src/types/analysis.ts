@@ -33,6 +33,7 @@ export type TaskSummary = {
   llm_warning_count?: number;
   llm_budget?: LLMBudget;
   text_llm_enabled?: boolean;
+  teaching_narrative_llm_enabled?: boolean;
   vision_vlm_enabled?: boolean;
   external_text_consent?: boolean;
   external_vision_consent?: boolean;
@@ -43,10 +44,35 @@ export type TaskSummary = {
   image_generation_enabled?: boolean;
   teaching_review_vlm_enabled?: boolean;
   external_image_consent?: boolean;
+  external_teaching_review_consent?: boolean;
   teaching_diagram_status?: string;
   teaching_diagram_count?: number;
   teaching_image_budget?: LLMBudget;
   teaching_review_budget?: LLMBudget;
+  ai_usage?: AIUsage;
+};
+
+export type TaskProgressStep = {
+  id: string;
+  label: string;
+  status: "pending" | "running" | "done" | "failed";
+};
+
+export type TaskProgress = {
+  task_id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  current_node?: string | null;
+  current_label?: string | null;
+  completed_nodes: number;
+  total_nodes: number;
+  percent: number;
+  error?: string | null;
+  summary?: TaskSummary | null;
+  steps: TaskProgressStep[];
+  created_at?: string | null;
+  started_at?: string | null;
+  updated_at?: string | null;
+  finished_at?: string | null;
 };
 
 export type LibraryCall = {
@@ -180,6 +206,29 @@ export type LLMBudget = {
   fallbacks?: number;
 };
 
+export type AIUsageGroup = {
+  enabled?: boolean;
+  consent?: boolean;
+  provider?: string | null;
+  model?: string | null;
+  configured?: boolean | null;
+  request_count?: number;
+  budget_limit?: number;
+  selected_entities?: number;
+  cache_hits?: number;
+  fallbacks?: number;
+  failures?: number;
+  warnings?: string[];
+};
+
+export type AIUsage = {
+  text_analysis?: AIUsageGroup;
+  teaching_narrative?: AIUsageGroup;
+  paper_vision?: AIUsageGroup;
+  image_generation?: AIUsageGroup;
+  teaching_review?: AIUsageGroup;
+};
+
 export type LLMExplanations = {
   analysis_mode?: AnalysisMode;
   external_model_consent?: boolean;
@@ -207,6 +256,7 @@ export type LLMPublicConfig = {
   providers: Record<string, { configured: boolean; model: string }>;
   external_model_notice: string;
   default_text_llm_enabled?: boolean;
+  default_teaching_narrative_llm_enabled?: boolean;
   vision?: VisionPublicConfig;
   image_generation?: ImageGenerationPublicConfig;
 };
@@ -227,6 +277,8 @@ export type ImageGenerationPublicConfig = {
   max_concurrency: number;
   providers: Record<string, { configured: boolean; model: string }>;
   external_image_notice: string;
+  async_supported?: boolean;
+  async_notice?: string;
 };
 
 export type FigureAnalysis = {
@@ -324,12 +376,75 @@ export type TeachingDiagramManifest = {
   version?: string;
   status?: string;
   teaching_diagrams_enabled?: boolean;
+  teaching_narrative_llm_enabled?: boolean;
   image_generation_enabled?: boolean;
   teaching_review_vlm_enabled?: boolean;
   external_image_consent?: boolean;
   external_vision_consent?: boolean;
+  external_teaching_review_consent?: boolean;
+  budget?: {
+    teaching_plan?: LLMBudget;
+    teaching_image?: LLMBudget;
+    teaching_review?: LLMBudget;
+  };
   diagrams?: TeachingDiagramItem[];
   warnings?: Array<Record<string, unknown> | string>;
+};
+
+export type ProviderFieldSource = "UI" | "Environment" | "Default";
+
+export type ProviderPublicSettings = {
+  id: string;
+  display_name: string;
+  group: "text_llm" | "vision_vlm" | "image_generation";
+  enabled: boolean;
+  configured: boolean;
+  masked_key?: string | null;
+  revision: number;
+  source: Record<string, ProviderFieldSource>;
+  fields: Record<string, unknown>;
+  warnings?: string[];
+};
+
+export type ProviderSettingsResponse = {
+  revision: number;
+  providers: ProviderPublicSettings[];
+  warnings?: string[];
+};
+
+export type ProviderSettingsPayload = {
+  expected_revision: number;
+  enabled?: boolean;
+  api_key?: string;
+  base_url?: string;
+  model?: string;
+  timeout_seconds?: number;
+  retry?: number;
+  max_output_tokens?: number;
+  request_width?: number;
+  request_height?: number;
+  allowed_domains?: string[];
+  endpoint_path?: string;
+  workspace?: string;
+  supports_async?: boolean;
+  supports_json_object?: boolean;
+  disable_thinking?: boolean;
+  allow_custom_base_url?: boolean;
+  allow_local_endpoint?: boolean;
+};
+
+export type ProviderValidateResponse = {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+};
+
+export type ProviderTestResponse = {
+  success: boolean;
+  provider: string;
+  model?: string | null;
+  latency_ms?: number | null;
+  warning?: string | null;
 };
 
 export type AnalysisResult = {
@@ -352,6 +467,7 @@ export type AnalysisResult = {
   library_function_docs?: { library_function_docs?: LibraryFunctionDoc[] };
   llm_explanations?: LLMExplanations;
   paper_figure_analysis?: PaperFigureAnalysis;
+  ai_usage?: AIUsage;
   report_md?: string;
   errors?: Array<Record<string, unknown>>;
 };

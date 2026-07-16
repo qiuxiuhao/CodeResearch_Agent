@@ -41,7 +41,7 @@ def teaching_diagram_plan_node(state: AgentState, llm_runtime: LLMRuntime | None
     )
     narrative_router = None
     if (
-        state.get("text_llm_enabled", False)
+        state.get("teaching_narrative_llm_enabled", state.get("text_llm_enabled", False))
         and state.get("external_text_consent", False)
         and llm_runtime is not None
     ):
@@ -61,10 +61,12 @@ def teaching_diagram_plan_node(state: AgentState, llm_runtime: LLMRuntime | None
     manifest = TeachingDiagramManifest(
         status="blueprint_only" if specs else "failed",
         teaching_diagrams_enabled=True,
+        teaching_narrative_llm_enabled=state.get("teaching_narrative_llm_enabled", False),
         image_generation_enabled=state.get("image_generation_enabled", False),
         teaching_review_vlm_enabled=state.get("teaching_review_vlm_enabled", False),
         external_image_consent=state.get("external_image_consent", False),
         external_vision_consent=state.get("external_vision_consent", False),
+        external_teaching_review_consent=state.get("external_teaching_review_consent", False),
         diagram_evidence_catalog=result.evidence_catalog,
         warnings=warnings,
         budget={
@@ -123,7 +125,7 @@ def _build_narrative(
         },
         response_model=TeachingDiagramNarrative,
         evidence_catalog=[],
-        prompt_version="1.3.2",
+        prompt_version="1.3.3",
         identity_validator=lambda value: (
             isinstance(value, TeachingDiagramNarrative)
             and value.skeleton_id == skeleton.skeleton_id

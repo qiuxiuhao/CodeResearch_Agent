@@ -18,10 +18,10 @@ from backend.app.teaching_diagrams.assets import asset_from_file
 WIDTH = 1280
 HEIGHT = 720
 MARGIN = 52
-CARD_W = 220
-CARD_H = 88
-MODULE_TOP = 170
-MODULE_BOTTOM = 475
+CARD_W = 224
+CARD_H = 96
+MODULE_TOP = 160
+MODULE_BOTTOM = 455
 
 
 @dataclass(frozen=True)
@@ -56,6 +56,8 @@ def layout_modules(spec: TeachingDiagramSpec) -> dict[str, tuple[int, int]]:
     count = len(spec.modules)
     if count == 0:
         return {}
+    if _style_direction(spec) == "left_to_right" and count <= 5:
+        return _layout_horizontal(spec)
     columns = min(4, max(1, math.ceil(math.sqrt(count * 1.35))))
     rows = math.ceil(count / columns)
     available_w = WIDTH - MARGIN * 2
@@ -69,6 +71,26 @@ def layout_modules(spec: TeachingDiagramSpec) -> dict[str, tuple[int, int]]:
         y = MODULE_TOP + row * (CARD_H + y_gap)
         layout[module.id] = (int(x), int(y))
     return layout
+
+
+def _style_direction(spec: TeachingDiagramSpec) -> str:
+    hints = spec.style_hints
+    if isinstance(hints, dict):
+        return str(hints.get("direction") or "")
+    return str(getattr(hints, "direction", "") or "")
+
+
+def _layout_horizontal(spec: TeachingDiagramSpec) -> dict[str, tuple[int, int]]:
+    count = len(spec.modules)
+    available_w = WIDTH - MARGIN * 2
+    x_gap = 0 if count == 1 else max(10, (available_w - count * CARD_W) // (count - 1))
+    y = MODULE_TOP + 30
+    if count == 1:
+        return {spec.modules[0].id: ((WIDTH - CARD_W) // 2, y)}
+    return {
+        module.id: (int(MARGIN + index * (CARD_W + x_gap)), int(y))
+        for index, module in enumerate(spec.modules)
+    }
 
 
 def resolve_font(spec: TeachingDiagramSpec | None = None) -> FontChoice:
@@ -96,8 +118,8 @@ def render_svg(spec: TeachingDiagramSpec, layout: dict[str, tuple[int, int]], fo
         '<path d="M0,0 L0,6 L9,3 z" fill="#334155"/></marker>',
         "</defs>",
         '<rect width="100%" height="100%" fill="#f8fafc"/>',
-        f'<text x="{MARGIN}" y="52" font-size="27" font-family="{family}" fill="#0f172a">{_esc(_clip(spec.source_entity.title, 48))}</text>',
-        f'<text x="{MARGIN}" y="86" font-size="16" font-family="{family}" fill="#475569">{_esc(_clip(spec.one_sentence_summary, 92))}</text>',
+        f'<text x="{MARGIN}" y="54" font-size="32" font-family="{family}" fill="#0f172a">{_esc(_clip(spec.source_entity.title, 42))}</text>',
+        f'<text x="{MARGIN}" y="92" font-size="18" font-family="{family}" fill="#475569">{_esc(_clip(spec.one_sentence_summary, 82))}</text>',
     ]
     _append_sections_svg(parts, spec, family)
     for connection in spec.connections:
@@ -108,11 +130,11 @@ def render_svg(spec: TeachingDiagramSpec, layout: dict[str, tuple[int, int]], fo
         x, y = layout[module.id]
         fill = _fill(module.kind)
         parts.append(f'<rect x="{x}" y="{y}" width="{CARD_W}" height="{CARD_H}" rx="8" fill="{fill}" stroke="#334155" stroke-width="1.5"/>')
-        for line_index, line in enumerate(_wrap(module.label, 18)[:3]):
-            parts.append(f'<text x="{x + 14}" y="{y + 28 + line_index * 18}" font-size="15" font-family="{family}" fill="#0f172a">{_esc(line)}</text>')
+        for line_index, line in enumerate(_wrap(module.label, 16)[:3]):
+            parts.append(f'<text x="{x + 14}" y="{y + 31 + line_index * 22}" font-size="18" font-family="{family}" fill="#0f172a">{_esc(line)}</text>')
         shape = next((item for item in spec.shapes if item.module_id == module.id), None)
         if shape:
-            parts.append(f'<text x="{x + 14}" y="{y + 76}" font-size="12" font-family="{family}" fill="#475569">{_esc(_clip(shape.label, 28))}</text>')
+            parts.append(f'<text x="{x + 14}" y="{y + 84}" font-size="13" font-family="{family}" fill="#475569">{_esc(_clip(shape.label, 26))}</text>')
     _append_text_block_svg(parts, "教学步骤", spec.steps, 70, 515, family, 5)
     _append_text_block_svg(parts, "公式", [item.text for item in spec.formulas], 500, 515, family, 3)
     _append_text_block_svg(parts, "学习提示", spec.learning_tips, 500, 625, family, 2)
@@ -123,11 +145,13 @@ def render_svg(spec: TeachingDiagramSpec, layout: dict[str, tuple[int, int]], fo
 
 def render_png(spec: TeachingDiagramSpec, layout: dict[str, tuple[int, int]], path: Path, font: FontChoice) -> None:
     document = fitz.open()
-    page = document.new_page(width=WIDTH, height=HEIGHT)
-    draw_deterministic_overlay(page, spec, layout, font, draw_background=True)
-    pixmap = page.get_pixmap(alpha=False)
-    pixmap.save(str(path))
-    document.close()
+    try:
+        page = document.new_page(width=WIDTH, height=HEIGHT)
+        draw_deterministic_overlay(page, spec, layout, font, draw_background=True)
+        pixmap = page.get_pixmap(alpha=False)
+        pixmap.save(str(path))
+    finally:
+        document.close()
 
 
 def draw_deterministic_overlay(
@@ -142,9 +166,9 @@ def draw_deterministic_overlay(
         page.draw_rect(fitz.Rect(0, 0, WIDTH, HEIGHT), fill=(0.972, 0.98, 0.988), color=None)
     else:
         page.draw_rect(fitz.Rect(34, 24, WIDTH - 34, HEIGHT - 24), fill=(1, 1, 1), color=(0.82, 0.86, 0.91), fill_opacity=0.88, width=0.6)
-    _insert_text(page, fitz.Rect(MARGIN, 26, WIDTH - MARGIN, 64), _clip(spec.source_entity.title, 54), 23, (0.06, 0.09, 0.16), font)
-    _insert_text(page, fitz.Rect(MARGIN, 70, WIDTH - MARGIN, 105), _clip(spec.one_sentence_summary, 110), 12, (0.28, 0.33, 0.41), font)
-    _insert_text(page, fitz.Rect(MARGIN, 112, 760, 148), " / ".join(_clip(item.title, 20) for item in spec.sections[:3]), 10, (0.39, 0.45, 0.55), font)
+    _insert_text(page, fitz.Rect(MARGIN, 22, WIDTH - MARGIN, 66), _clip(spec.source_entity.title, 48), 28, (0.06, 0.09, 0.16), font)
+    _insert_text(page, fitz.Rect(MARGIN, 72, WIDTH - MARGIN, 112), _clip(spec.one_sentence_summary, 96), 15, (0.28, 0.33, 0.41), font)
+    _insert_text(page, fitz.Rect(MARGIN, 118, 760, 150), " / ".join(_clip(item.title, 18) for item in spec.sections[:3]), 12, (0.39, 0.45, 0.55), font)
     for connection in spec.connections:
         if connection.source_module_id not in layout or connection.target_module_id not in layout:
             continue
@@ -153,15 +177,15 @@ def draw_deterministic_overlay(
         x, y = layout[module.id]
         fill = _fill_rgb(module.kind)
         page.draw_rect(fitz.Rect(x, y, x + CARD_W, y + CARD_H), fill=fill, color=(0.20, 0.25, 0.33), width=1)
-        _insert_text(page, fitz.Rect(x + 12, y + 12, x + CARD_W - 12, y + 64), "\n".join(_wrap(module.label, 17)[:3]), 11, (0.06, 0.09, 0.16), font)
+        _insert_text(page, fitz.Rect(x + 12, y + 12, x + CARD_W - 12, y + 72), "\n".join(_wrap(module.label, 16)[:3]), 15, (0.06, 0.09, 0.16), font)
         shape = next((item for item in spec.shapes if item.module_id == module.id), None)
         if shape:
-            _insert_text(page, fitz.Rect(x + 12, y + 66, x + CARD_W - 12, y + 86), _clip(shape.label, 28), 8, (0.28, 0.33, 0.41), font)
-    _insert_text(page, fitz.Rect(70, 498, 440, 676), "教学步骤\n" + "\n".join(_clip(item, 44) for item in spec.steps[:5]), 10, (0.20, 0.25, 0.33), font)
+            _insert_text(page, fitz.Rect(x + 12, y + 74, x + CARD_W - 12, y + 94), _clip(shape.label, 26), 10, (0.28, 0.33, 0.41), font)
+    _insert_text(page, fitz.Rect(70, 488, 450, 684), "教学步骤\n" + "\n".join(_clip(item, 34) for item in spec.steps[:5]), 16, (0.10, 0.14, 0.21), font)
     formula_lines = [item.text for item in spec.formulas[:3]] or ["无已确认公式"]
-    _insert_text(page, fitz.Rect(500, 498, 780, 595), "公式\n" + "\n".join(_clip(item, 36) for item in formula_lines), 10, (0.20, 0.25, 0.33), font)
-    _insert_text(page, fitz.Rect(500, 610, 780, 676), "学习提示\n" + "\n".join(_clip(item, 34) for item in spec.learning_tips[:2]), 10, (0.20, 0.25, 0.33), font)
-    _insert_text(page, fitz.Rect(850, 498, 1180, 676), "图例\n" + "\n".join(f"{item.label}: {_clip(item.meaning, 24)}" for item in spec.legend[:4]), 10, (0.20, 0.25, 0.33), font)
+    _insert_text(page, fitz.Rect(500, 488, 810, 595), "公式\n" + "\n".join(_clip(item, 28) for item in formula_lines), 16, (0.10, 0.14, 0.21), font)
+    _insert_text(page, fitz.Rect(500, 606, 820, 684), "学习提示\n" + "\n".join(_clip(item, 26) for item in spec.learning_tips[:2]), 15, (0.10, 0.14, 0.21), font)
+    _insert_text(page, fitz.Rect(850, 488, 1200, 684), "图例\n" + "\n".join(f"{item.label}: {_clip(item.meaning, 18)}" for item in spec.legend[:4]), 15, (0.10, 0.14, 0.21), font)
 
 
 def _insert_text(page, rect, text, size, color, font: FontChoice):
@@ -230,28 +254,28 @@ def _svg_arrow(start_xy: tuple[int, int], end_xy: tuple[int, int], label: str, f
     mid_x, mid_y = points[len(points) // 2]
     return (
         f'<polyline points="{attr}" fill="none" stroke="#334155" stroke-width="2" marker-end="url(#arrow)"/>'
-        f'<text x="{mid_x + 4}" y="{mid_y - 8}" font-size="12" font-family="{family}" fill="#475569">{_esc(_clip(label, 18))}</text>'
+        f'<text x="{mid_x + 4}" y="{mid_y - 8}" font-size="14" font-family="{family}" fill="#475569">{_esc(_clip(label, 16))}</text>'
     )
 
 
 def _append_sections_svg(parts: list[str], spec: TeachingDiagramSpec, family: str) -> None:
     for index, section in enumerate(spec.sections[:3]):
-        parts.append(f'<text x="{MARGIN + index * 230}" y="132" font-size="13" font-family="{family}" fill="#64748b">{_esc(_clip(section.title, 22))}</text>')
+        parts.append(f'<text x="{MARGIN + index * 230}" y="136" font-size="15" font-family="{family}" fill="#64748b">{_esc(_clip(section.title, 20))}</text>')
 
 
 def _append_text_block_svg(parts: list[str], title: str, lines: list[str], x: int, y: int, family: str, max_lines: int) -> None:
-    parts.append(f'<text x="{x}" y="{y}" font-size="17" font-family="{family}" fill="#0f172a">{_esc(title)}</text>')
+    parts.append(f'<text x="{x}" y="{y}" font-size="22" font-family="{family}" fill="#0f172a">{_esc(title)}</text>')
     for index, line in enumerate(lines[:max_lines], start=1):
-        parts.append(f'<text x="{x}" y="{y + 24 + index * 20}" font-size="13" font-family="{family}" fill="#334155">{_esc(_clip(line, 54))}</text>')
+        parts.append(f'<text x="{x}" y="{y + 28 + index * 24}" font-size="17" font-family="{family}" fill="#1f2937">{_esc(_clip(line, 38))}</text>')
 
 
 def _append_legend_svg(parts: list[str], spec: TeachingDiagramSpec, family: str) -> None:
     x, y = 850, 515
-    parts.append(f'<text x="{x}" y="{y}" font-size="17" font-family="{family}" fill="#0f172a">图例</text>')
+    parts.append(f'<text x="{x}" y="{y}" font-size="22" font-family="{family}" fill="#0f172a">图例</text>')
     for index, item in enumerate(spec.legend[:4]):
         yy = y + 30 + index * 30
         parts.append(f'<rect x="{x}" y="{yy - 14}" width="18" height="18" fill="{_esc(item.color)}" stroke="#334155"/>')
-        parts.append(f'<text x="{x + 30}" y="{yy}" font-size="13" font-family="{family}" fill="#334155">{_esc(item.label)}：{_esc(_clip(item.meaning, 28))}</text>')
+        parts.append(f'<text x="{x + 30}" y="{yy}" font-size="17" font-family="{family}" fill="#1f2937">{_esc(item.label)}：{_esc(_clip(item.meaning, 20))}</text>')
 
 
 def _candidate_font_paths() -> list[Path]:

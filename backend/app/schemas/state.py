@@ -34,6 +34,7 @@ class AgentState(TypedDict, total=False):
     analysis_mode: str
     external_model_consent: bool
     text_llm_enabled: bool
+    teaching_narrative_llm_enabled: bool
     vision_vlm_enabled: bool
     external_text_consent: bool
     external_vision_consent: bool
@@ -51,6 +52,7 @@ class AgentState(TypedDict, total=False):
     image_generation_enabled: bool
     teaching_review_vlm_enabled: bool
     external_image_consent: bool
+    external_teaching_review_consent: bool
     teaching_diagram_specs: list[dict]
     teaching_diagram_skeletons: list[dict]
     teaching_diagram_manifest: dict
@@ -59,6 +61,8 @@ class AgentState(TypedDict, total=False):
     teaching_plan_budget: dict
     teaching_image_budget: dict
     teaching_review_budget: dict
+    ai_provider_config: dict
+    ai_usage: dict
 
     report_md: str
     errors: list[dict]

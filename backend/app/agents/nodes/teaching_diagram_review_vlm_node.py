@@ -25,8 +25,8 @@ from backend.app.vision.router import VisionModelRouter
 from backend.app.vision.runtime import VisionRuntime
 
 
-REVIEW_PROMPT_VERSION = os.getenv("TEACHING_REVIEW_PROMPT_VERSION", "1.3.2")
-REVIEW_SCHEMA_VERSION = os.getenv("TEACHING_REVIEW_SCHEMA_VERSION", "1.3.2")
+REVIEW_PROMPT_VERSION = os.getenv("TEACHING_REVIEW_PROMPT_VERSION", "1.3.3")
+REVIEW_SCHEMA_VERSION = os.getenv("TEACHING_REVIEW_SCHEMA_VERSION", "1.3.3")
 
 
 def teaching_diagram_review_vlm_node(
@@ -52,9 +52,9 @@ def teaching_diagram_review_vlm_node(
         if not state.get("teaching_review_vlm_enabled", False):
             _fallback(item, "teaching_review_disabled")
             continue
-        if not state.get("external_vision_consent", False):
-            _fallback(item, "external_vision_consent_missing")
-            item.warnings.append("external_vision_consent_missing")
+        if not state.get("external_teaching_review_consent", False):
+            _fallback(item, "external_teaching_review_consent_missing")
+            item.warnings.append("external_teaching_review_consent_missing")
             continue
         if review_router is None or not review_router.has_available_provider:
             _fallback(item, "vision_provider_unavailable")

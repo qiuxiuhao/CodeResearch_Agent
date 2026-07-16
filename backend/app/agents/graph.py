@@ -29,11 +29,38 @@ from backend.app.schemas.state import AgentState
 from backend.app.llm.runtime import LLMRuntime
 from backend.app.vision.runtime import VisionRuntime
 
+ProgressCallback = Callable[[str, str, str, int, int, AgentState | None, BaseException | None], None]
+
+ANALYSIS_GRAPH_STEPS: list[dict[str, str]] = [
+    {"id": "unzip", "label": "解压项目"},
+    {"id": "repo_scan", "label": "扫描仓库"},
+    {"id": "code_parse", "label": "解析 Python AST"},
+    {"id": "file_analyze", "label": "文件级分析"},
+    {"id": "library_call_extract", "label": "提取库函数调用"},
+    {"id": "function_analyze", "label": "函数级分析"},
+    {"id": "model_analyze", "label": "模型结构分析"},
+    {"id": "paper_analyze", "label": "论文解析"},
+    {"id": "paper_figure_extract", "label": "提取论文 Figure"},
+    {"id": "paper_code_align", "label": "论文代码对齐"},
+    {"id": "file_explain_llm", "label": "文件 AI 解释"},
+    {"id": "function_explain_llm", "label": "函数 AI 解释"},
+    {"id": "model_explain_llm", "label": "模型 AI 解释"},
+    {"id": "paper_figure_analyze_vlm", "label": "Figure VLM 理解"},
+    {"id": "paper_code_align_llm", "label": "论文对齐 AI 解释"},
+    {"id": "diagram_generate", "label": "生成 Mermaid 图示"},
+    {"id": "teaching_diagram_plan", "label": "教学图规划"},
+    {"id": "teaching_diagram_generate", "label": "生成教学图"},
+    {"id": "teaching_diagram_review_vlm", "label": "教学图 VLM 审查"},
+    {"id": "library_function_doc", "label": "生成库函数说明"},
+    {"id": "report_generate", "label": "生成报告"},
+]
+
 
 def build_analysis_graph(
     llm_runtime: LLMRuntime | None = None,
     vision_runtime: VisionRuntime | None = None,
     image_runtime: ImageGenerationRuntime | None = None,
+    progress_callback: ProgressCallback | None = None,
 ):
     file_llm = partial(file_explain_llm_node, llm_runtime=llm_runtime)
     function_llm = partial(function_explain_llm_node, llm_runtime=llm_runtime)
@@ -51,52 +78,56 @@ def build_analysis_graph(
     try:
         from langgraph.graph import END, START, StateGraph
     except ImportError:
-        return _SequentialGraph([
-            unzip_node,
-            repo_scan_node,
-            code_parse_node,
-            file_analyze_node,
-            library_call_extract_node,
-            function_analyze_node,
-            model_analyze_node,
-            paper_analyze_node,
-            figure_extract,
-            paper_code_align_node,
-            file_llm,
-            function_llm,
-            model_llm,
-            figure_vlm,
-            paper_llm,
-            diagram_generate_node,
-            teaching_plan,
-            teaching_generate,
-            teaching_review,
-            library_function_doc_node,
-            report_generate_node,
-        ])
+        return _SequentialGraph(_instrumented_nodes({
+            "unzip": unzip_node,
+            "repo_scan": repo_scan_node,
+            "code_parse": code_parse_node,
+            "file_analyze": file_analyze_node,
+            "library_call_extract": library_call_extract_node,
+            "function_analyze": function_analyze_node,
+            "model_analyze": model_analyze_node,
+            "paper_analyze": paper_analyze_node,
+            "paper_figure_extract": figure_extract,
+            "paper_code_align": paper_code_align_node,
+            "file_explain_llm": file_llm,
+            "function_explain_llm": function_llm,
+            "model_explain_llm": model_llm,
+            "paper_figure_analyze_vlm": figure_vlm,
+            "paper_code_align_llm": paper_llm,
+            "diagram_generate": diagram_generate_node,
+            "teaching_diagram_plan": teaching_plan,
+            "teaching_diagram_generate": teaching_generate,
+            "teaching_diagram_review_vlm": teaching_review,
+            "library_function_doc": library_function_doc_node,
+            "report_generate": report_generate_node,
+        }, progress_callback))
 
     workflow = StateGraph(AgentState)
-    workflow.add_node("unzip", unzip_node)
-    workflow.add_node("repo_scan", repo_scan_node)
-    workflow.add_node("code_parse", code_parse_node)
-    workflow.add_node("file_analyze", file_analyze_node)
-    workflow.add_node("library_call_extract", library_call_extract_node)
-    workflow.add_node("function_analyze", function_analyze_node)
-    workflow.add_node("model_analyze", model_analyze_node)
-    workflow.add_node("paper_analyze", paper_analyze_node)
-    workflow.add_node("paper_figure_extract", figure_extract)
-    workflow.add_node("paper_code_align", paper_code_align_node)
-    workflow.add_node("file_explain_llm", file_llm)
-    workflow.add_node("function_explain_llm", function_llm)
-    workflow.add_node("model_explain_llm", model_llm)
-    workflow.add_node("paper_figure_analyze_vlm", figure_vlm)
-    workflow.add_node("paper_code_align_llm", paper_llm)
-    workflow.add_node("diagram_generate", diagram_generate_node)
-    workflow.add_node("teaching_diagram_plan", teaching_plan)
-    workflow.add_node("teaching_diagram_generate", teaching_generate)
-    workflow.add_node("teaching_diagram_review_vlm", teaching_review)
-    workflow.add_node("library_function_doc", library_function_doc_node)
-    workflow.add_node("report_generate", report_generate_node)
+    nodes = _instrumented_node_map({
+        "unzip": unzip_node,
+        "repo_scan": repo_scan_node,
+        "code_parse": code_parse_node,
+        "file_analyze": file_analyze_node,
+        "library_call_extract": library_call_extract_node,
+        "function_analyze": function_analyze_node,
+        "model_analyze": model_analyze_node,
+        "paper_analyze": paper_analyze_node,
+        "paper_figure_extract": figure_extract,
+        "paper_code_align": paper_code_align_node,
+        "file_explain_llm": file_llm,
+        "function_explain_llm": function_llm,
+        "model_explain_llm": model_llm,
+        "paper_figure_analyze_vlm": figure_vlm,
+        "paper_code_align_llm": paper_llm,
+        "diagram_generate": diagram_generate_node,
+        "teaching_diagram_plan": teaching_plan,
+        "teaching_diagram_generate": teaching_generate,
+        "teaching_diagram_review_vlm": teaching_review,
+        "library_function_doc": library_function_doc_node,
+        "report_generate": report_generate_node,
+    }, progress_callback)
+    for name, node in nodes.items():
+        workflow.add_node(name, node)
 
     workflow.add_edge(START, "unzip")
     workflow.add_edge("unzip", "repo_scan")
@@ -132,3 +163,63 @@ class _SequentialGraph:
         for node in self._nodes:
             current = node(current)
         return current
+
+
+def _instrumented_node_map(
+    nodes: dict[str, Callable[..., AgentState]],
+    callback: ProgressCallback | None,
+) -> dict[str, Callable[[AgentState], AgentState]]:
+    total = len(ANALYSIS_GRAPH_STEPS)
+    order = {step["id"]: index for index, step in enumerate(ANALYSIS_GRAPH_STEPS, start=1)}
+    labels = {step["id"]: step["label"] for step in ANALYSIS_GRAPH_STEPS}
+    return {
+        node_id: _wrap_progress_node(node_id, labels[node_id], order[node_id], total, node, callback)
+        for node_id, node in nodes.items()
+    }
+
+
+def _instrumented_nodes(
+    nodes: dict[str, Callable[..., AgentState]],
+    callback: ProgressCallback | None,
+) -> list[Callable[[AgentState], AgentState]]:
+    wrapped = _instrumented_node_map(nodes, callback)
+    return [wrapped[step["id"]] for step in ANALYSIS_GRAPH_STEPS]
+
+
+def _wrap_progress_node(
+    node_id: str,
+    label: str,
+    index: int,
+    total: int,
+    node: Callable[..., AgentState],
+    callback: ProgressCallback | None,
+) -> Callable[[AgentState], AgentState]:
+    def wrapped(state: AgentState) -> AgentState:
+        _notify_progress(callback, "start", node_id, label, index, total, state, None)
+        try:
+            next_state = node(state)
+        except BaseException as exc:
+            _notify_progress(callback, "error", node_id, label, index, total, state, exc)
+            raise
+        _notify_progress(callback, "finish", node_id, label, index, total, next_state, None)
+        return next_state
+
+    return wrapped
+
+
+def _notify_progress(
+    callback: ProgressCallback | None,
+    event: str,
+    node_id: str,
+    label: str,
+    index: int,
+    total: int,
+    state: AgentState | None,
+    exc: BaseException | None,
+) -> None:
+    if callback is None:
+        return
+    try:
+        callback(event, node_id, label, index, total, state, exc)
+    except Exception:
+        pass

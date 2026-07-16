@@ -7,12 +7,13 @@ import re
 from pathlib import Path
 from typing import Any
 
-from backend.app.agents.graph import build_analysis_graph
+from backend.app.agents.graph import ProgressCallback, build_analysis_graph
 from backend.app.image_generation.config import ImageGenerationSettings
 from backend.app.image_generation.runtime import ImageGenerationRuntime, create_image_generation_runtime
 from backend.app.llm.config import LLMSettings
 from backend.app.llm.runtime import LLMRuntime, create_llm_runtime
 from backend.app.schemas.state import AgentState
+from backend.app.services.ai_usage import build_ai_usage, build_ai_usage_from_outputs
 from backend.app.services.storage_service import ensure_output_root
 from backend.app.vision.config import VisionSettings
 from backend.app.vision.runtime import VisionRuntime, create_vision_runtime
@@ -31,6 +32,7 @@ TASK_RESULT_FILES = {
     "diagrams": "diagrams.json",
     "library_function_docs": "library_function_docs.json",
     "llm_explanations": "llm_explanations.json",
+    "ai_usage": "ai_usage.json",
     "paper_figure_analysis": "paper_figure_analysis.json",
     "teaching_diagrams": "teaching_diagrams/manifest.json",
 }
@@ -46,6 +48,7 @@ def run_analysis(
     llm_runtime: LLMRuntime | None = None,
     *,
     text_llm_enabled: bool | None = None,
+    teaching_narrative_llm_enabled: bool | None = None,
     vision_vlm_enabled: bool | None = None,
     external_text_consent: bool | None = None,
     external_vision_consent: bool = False,
@@ -54,31 +57,49 @@ def run_analysis(
     image_generation_enabled: bool | None = None,
     external_image_consent: bool = False,
     teaching_review_vlm_enabled: bool | None = None,
+    external_teaching_review_consent: bool = False,
     image_runtime: ImageGenerationRuntime | None = None,
+    task_id: str | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> AgentState:
     ensure_output_root(output_root)
-    settings = llm_runtime.settings if llm_runtime else LLMSettings.from_env(analysis_mode, text_llm_enabled)
+    settings = llm_runtime.settings if llm_runtime else LLMSettings.from_env(
+        analysis_mode, text_llm_enabled, teaching_narrative_llm_enabled
+    )
     resolved_text_consent = external_model_consent if external_text_consent is None else external_text_consent
     if settings.text_llm_enabled and not resolved_text_consent:
         raise ValueError(
             "text_llm_enabled=true requires external_text_consent=true "
             "(legacy external_model_consent=true) before code is sent to external model providers."
         )
+    if settings.teaching_narrative_llm_enabled and not resolved_text_consent:
+        raise ValueError(
+            "teaching_narrative_llm_enabled=true requires external_text_consent=true "
+            "before teaching narrative data is sent to external model providers."
+        )
     vision_settings = vision_runtime.settings if vision_runtime else VisionSettings.from_env(vision_vlm_enabled)
     if vision_settings.enabled and not external_vision_consent:
         raise ValueError("vision_vlm_enabled=true requires external_vision_consent=true before paper figures are sent to external model providers.")
+    resolved_review_enabled = _resolve_teaching_review_enabled(
+        teaching_review_vlm_enabled,
+        external_teaching_review_consent,
+    )
     image_settings = image_runtime.settings if image_runtime else ImageGenerationSettings.from_env(
-        image_generation_enabled, external_image_consent, teaching_review_vlm_enabled
+        image_generation_enabled, external_image_consent, resolved_review_enabled
     )
     if image_settings.enabled and not external_image_consent:
         raise ValueError("image_generation_enabled=true requires external_image_consent=true before teaching diagram specs are sent to image providers.")
-    if image_settings.teaching_review_vlm_enabled and not external_vision_consent:
-        raise ValueError("teaching_review_vlm_enabled=true requires external_vision_consent=true before teaching diagram images are sent to VLM providers.")
+    _validate_teaching_review_runtime(
+        image_settings.enabled,
+        image_settings.teaching_review_vlm_enabled,
+        external_image_consent,
+        external_teaching_review_consent,
+    )
     runtime = llm_runtime or create_llm_runtime(settings)
     resolved_vision_runtime = vision_runtime or create_vision_runtime(vision_settings)
     resolved_image_runtime = image_runtime or create_image_generation_runtime(image_settings)
     resolved_library_db_path = str(library_db_path or os.getenv("LIBRARY_DB_PATH") or "data/python_function_library.sqlite3")
-    graph = build_analysis_graph(runtime, resolved_vision_runtime, resolved_image_runtime)
+    graph = build_analysis_graph(runtime, resolved_vision_runtime, resolved_image_runtime, progress_callback)
     initial_state: AgentState = {
         "zip_path": str(zip_path),
         "output_dir": str(output_root),
@@ -87,6 +108,7 @@ def run_analysis(
         "analysis_mode": settings.analysis_mode,
         "external_model_consent": resolved_text_consent,
         "text_llm_enabled": settings.text_llm_enabled,
+        "teaching_narrative_llm_enabled": settings.teaching_narrative_llm_enabled,
         "vision_vlm_enabled": vision_settings.enabled,
         "external_text_consent": resolved_text_consent,
         "external_vision_consent": external_vision_consent,
@@ -94,6 +116,7 @@ def run_analysis(
         "image_generation_enabled": image_settings.enabled,
         "teaching_review_vlm_enabled": image_settings.teaching_review_vlm_enabled,
         "external_image_consent": external_image_consent,
+        "external_teaching_review_consent": external_teaching_review_consent,
         "file_llm_explanations": [],
         "function_llm_explanations": [],
         "model_llm_explanations": [],
@@ -118,7 +141,11 @@ def run_analysis(
             "max_provider_requests": image_settings.teaching_review_max_provider_requests,
             "sent_provider_requests": 0,
         },
+        "ai_provider_config": _ai_provider_config(settings, vision_settings, image_settings),
+        "ai_usage": {},
     }
+    if task_id:
+        initial_state["task_id"] = task_id
     if paper_pdf_path:
         initial_state["paper_pdf_path"] = str(paper_pdf_path)
     return graph.invoke(initial_state)
@@ -158,6 +185,8 @@ def load_task_result(task_id: str, output_root: str | Path = "outputs") -> dict[
     for key, filename in TASK_RESULT_FILES.items():
         if key == "llm_explanations" and not (task_dir / filename).exists():
             result[key] = {"analysis_mode": "rule", "status": "disabled", "warnings": []}
+        elif key == "ai_usage" and not (task_dir / filename).exists():
+            result[key] = {}
         elif key == "paper_figure_analysis" and not (task_dir / filename).exists():
             result[key] = {
                 "version": "1.2", "extraction_status": "not_applicable", "vision_status": "disabled",
@@ -165,7 +194,7 @@ def load_task_result(task_id: str, output_root: str | Path = "outputs") -> dict[
             }
         elif key == "teaching_diagrams" and not (task_dir / filename).exists():
             result[key] = {
-                "version": "1.3.2", "status": "disabled", "diagrams": [], "warnings": [],
+                "version": "1.3.3", "status": "disabled", "diagrams": [], "warnings": [],
             }
         else:
             result[key] = _read_json(task_dir / filename, key, errors)
@@ -182,6 +211,8 @@ def load_task_report(task_id: str, output_root: str | Path = "outputs") -> dict[
 
 def summarize_state(state: AgentState) -> dict[str, Any]:
     output_dir = state.get("output_dir", "")
+    ai_usage = build_ai_usage(state)
+    state["ai_usage"] = ai_usage
     return {
         "task_id": state.get("task_id"),
         "output_dir": output_dir,
@@ -223,6 +254,7 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
         "analysis_mode": state.get("analysis_mode", "rule"),
         "external_model_consent": state.get("external_model_consent", False),
         "text_llm_enabled": state.get("text_llm_enabled", False),
+        "teaching_narrative_llm_enabled": state.get("teaching_narrative_llm_enabled", False),
         "vision_vlm_enabled": state.get("vision_vlm_enabled", False),
         "external_text_consent": state.get("external_text_consent", False),
         "external_vision_consent": state.get("external_vision_consent", False),
@@ -230,6 +262,7 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
         "image_generation_enabled": state.get("image_generation_enabled", False),
         "teaching_review_vlm_enabled": state.get("teaching_review_vlm_enabled", False),
         "external_image_consent": state.get("external_image_consent", False),
+        "external_teaching_review_consent": state.get("external_teaching_review_consent", False),
         "llm_status": _llm_status(state),
         "llm_explanation_count": _llm_count(state),
         "llm_warning_count": len(state.get("llm_warnings", [])),
@@ -241,6 +274,7 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
         "teaching_diagram_count": len(state.get("teaching_diagram_manifest", {}).get("diagrams", [])),
         "teaching_image_budget": state.get("teaching_image_budget", {}),
         "teaching_review_budget": state.get("teaching_review_budget", {}),
+        "ai_usage": ai_usage,
     }
 
 
@@ -253,6 +287,7 @@ def main() -> None:
     parser.add_argument("--analysis-mode", choices=["rule", "hybrid"], default=None)
     parser.add_argument("--external-model-consent", action="store_true")
     parser.add_argument("--text-llm-enabled", action="store_true", default=None)
+    parser.add_argument("--teaching-narrative-llm-enabled", action="store_true", default=None)
     parser.add_argument("--vision-vlm-enabled", action="store_true", default=None)
     parser.add_argument("--external-text-consent", action="store_true")
     parser.add_argument("--external-vision-consent", action="store_true")
@@ -260,12 +295,14 @@ def main() -> None:
     parser.add_argument("--image-generation-enabled", action="store_true", default=None)
     parser.add_argument("--external-image-consent", action="store_true")
     parser.add_argument("--teaching-review-vlm-enabled", action="store_true", default=None)
+    parser.add_argument("--external-teaching-review-consent", action="store_true")
     args = parser.parse_args()
 
     state = run_analysis(
         args.zip_path, args.output_root, args.library_db_path, args.paper_pdf_path,
         args.analysis_mode, args.external_model_consent,
         text_llm_enabled=args.text_llm_enabled,
+        teaching_narrative_llm_enabled=args.teaching_narrative_llm_enabled,
         vision_vlm_enabled=args.vision_vlm_enabled,
         external_text_consent=args.external_text_consent or None,
         external_vision_consent=args.external_vision_consent,
@@ -273,6 +310,7 @@ def main() -> None:
         image_generation_enabled=args.image_generation_enabled,
         external_image_consent=args.external_image_consent,
         teaching_review_vlm_enabled=args.teaching_review_vlm_enabled,
+        external_teaching_review_consent=args.external_teaching_review_consent,
     )
     print(json.dumps(summarize_state(state), ensure_ascii=False, indent=2))
 
@@ -318,6 +356,7 @@ def _summarize_output_dir(task_id: str, task_dir: Path) -> dict[str, Any]:
     llm = _safe_json(task_dir / "llm_explanations.json")
     figures = _safe_json(task_dir / "paper_figure_analysis.json")
     teaching = _safe_json(task_dir / "teaching_diagrams" / "manifest.json")
+    ai_usage = _safe_json(task_dir / "ai_usage.json")
     return {
         "task_id": task_id,
         "output_dir": str(task_dir),
@@ -337,6 +376,7 @@ def _summarize_output_dir(task_id: str, task_dir: Path) -> dict[str, Any]:
         "llm_warning_count": len(llm.get("warnings", [])),
         "llm_budget": llm.get("budget", {}),
         "text_llm_enabled": llm.get("text_llm_enabled", llm.get("analysis_mode") == "hybrid"),
+        "teaching_narrative_llm_enabled": teaching.get("teaching_narrative_llm_enabled", False),
         "vision_vlm_enabled": figures.get("vision_vlm_enabled", False),
         "vision_status": figures.get("vision_status", "disabled"),
         "figure_count": len(figures.get("figures", [])),
@@ -345,10 +385,12 @@ def _summarize_output_dir(task_id: str, task_dir: Path) -> dict[str, Any]:
         "image_generation_enabled": teaching.get("image_generation_enabled", False),
         "teaching_review_vlm_enabled": teaching.get("teaching_review_vlm_enabled", False),
         "external_image_consent": teaching.get("external_image_consent", False),
+        "external_teaching_review_consent": teaching.get("external_teaching_review_consent", False),
         "teaching_diagram_status": teaching.get("status", "disabled"),
         "teaching_diagram_count": len(teaching.get("diagrams", [])),
         "teaching_image_budget": (teaching.get("budget", {}) or {}).get("teaching_image", {}),
         "teaching_review_budget": (teaching.get("budget", {}) or {}).get("teaching_review", {}),
+        "ai_usage": ai_usage or build_ai_usage_from_outputs(llm, figures, teaching),
     }
 
 
@@ -381,6 +423,59 @@ def _llm_status(state: AgentState) -> str:
     if any(item.get("code") == "llm_provider_unconfigured" for item in warnings):
         return "skipped"
     return "failed" if warnings else "skipped"
+
+
+def _resolve_teaching_review_enabled(
+    teaching_review_vlm_enabled: bool | None,
+    external_teaching_review_consent: bool,
+) -> bool | None:
+    if teaching_review_vlm_enabled is not None:
+        return teaching_review_vlm_enabled
+    if not external_teaching_review_consent:
+        return False
+    return None
+
+
+def _validate_teaching_review_runtime(
+    image_generation_enabled: bool,
+    teaching_review_vlm_enabled: bool,
+    external_image_consent: bool,
+    external_teaching_review_consent: bool,
+) -> None:
+    if not teaching_review_vlm_enabled:
+        return
+    if not image_generation_enabled:
+        raise ValueError("teaching_review_vlm_enabled=true requires image_generation_enabled=true.")
+    if not external_image_consent:
+        raise ValueError("teaching_review_vlm_enabled=true requires external_image_consent=true.")
+    if not external_teaching_review_consent:
+        raise ValueError("teaching_review_vlm_enabled=true requires external_teaching_review_consent=true.")
+
+
+def _ai_provider_config(
+    settings: LLMSettings,
+    vision_settings: VisionSettings,
+    image_settings: ImageGenerationSettings,
+) -> dict[str, dict[str, str | bool]]:
+    return {
+        "text_analysis": _configured_provider(settings.deepseek, settings.qwen),
+        "teaching_narrative": _configured_provider(settings.deepseek, settings.qwen),
+        "paper_vision": _configured_provider(vision_settings.qwen_vl, vision_settings.glm_v),
+        "teaching_review": _configured_provider(vision_settings.qwen_vl, vision_settings.glm_v),
+        "image_generation": _configured_provider(image_settings.qwen_image, image_settings.seedream),
+    }
+
+
+def _configured_provider(*providers) -> dict[str, str | bool]:
+    for provider in providers:
+        if provider.configured:
+            return {"provider": provider.name, "model": provider.model, "configured": True}
+    first = providers[0] if providers else None
+    return {
+        "provider": getattr(first, "name", "unknown"),
+        "model": getattr(first, "model", ""),
+        "configured": False,
+    }
 
 
 if __name__ == "__main__":

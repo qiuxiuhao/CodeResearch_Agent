@@ -41,10 +41,11 @@ class MockImageProvider(BaseImageProvider):
 
 def _synthetic_png(width: int, height: int) -> bytes:
     document = fitz.open()
-    page = document.new_page(width=min(width, 512), height=min(height, 320))
-    page.draw_rect(fitz.Rect(0, 0, page.rect.width, page.rect.height), fill=(0.93, 0.95, 0.98), color=None)
-    page.draw_rect(fitz.Rect(40, 70, page.rect.width - 40, page.rect.height - 70), color=(0.20, 0.25, 0.33), width=2)
-    page.insert_text((64, 130), "Mock visual layer", fontsize=18, color=(0.10, 0.12, 0.18))
-    data = page.get_pixmap(alpha=False).tobytes("png")
-    document.close()
-    return data
+    try:
+        page = document.new_page(width=min(width, 512), height=min(height, 320))
+        page.draw_rect(fitz.Rect(0, 0, page.rect.width, page.rect.height), fill=(0.93, 0.95, 0.98), color=None)
+        page.draw_rect(fitz.Rect(40, 70, page.rect.width - 40, page.rect.height - 70), color=(0.20, 0.25, 0.33), width=2)
+        page.insert_text((64, 130), "Mock visual layer", fontsize=18, color=(0.10, 0.12, 0.18))
+        return page.get_pixmap(alpha=False).tobytes("png")
+    finally:
+        document.close()

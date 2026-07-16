@@ -1,7 +1,19 @@
 import mermaid from "mermaid";
 import { useEffect, useId, useState } from "react";
 
-mermaid.initialize({ startOnLoad: false, securityLevel: "strict" });
+mermaid.initialize({
+  startOnLoad: false,
+  securityLevel: "strict",
+  theme: "base",
+  themeVariables: {
+    fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+    fontSize: "18px",
+    primaryTextColor: "#111827",
+    lineColor: "#334155",
+    primaryBorderColor: "#8b5cf6",
+    primaryColor: "#eef2ff"
+  }
+});
 
 export function MermaidBlock({ code }: { code: string }) {
   const id = useId().replace(/:/g, "_");

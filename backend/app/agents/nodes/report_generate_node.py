@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from backend.app.schemas.state import AgentState
+from backend.app.services.ai_usage import build_ai_usage
 from backend.app.tools.report_tool import generate_report
 from backend.app.utils.json_utils import save_json
 
@@ -30,6 +31,7 @@ def report_generate_node(state: AgentState) -> AgentState:
         "analysis_mode": state.get("analysis_mode", "rule"),
         "external_model_consent": state.get("external_model_consent", False),
         "text_llm_enabled": state.get("text_llm_enabled", False),
+        "teaching_narrative_llm_enabled": state.get("teaching_narrative_llm_enabled", False),
         "external_text_consent": state.get("external_text_consent", False),
         "status": _llm_status(state),
         "budget": state.get("llm_budget", {}),
@@ -43,6 +45,7 @@ def report_generate_node(state: AgentState) -> AgentState:
         "paper_code_alignment_explanations": state.get("paper_code_align_llm_explanations", []),
         "warnings": state.get("llm_warnings", []),
     }
+    ai_usage = build_ai_usage(state)
 
     save_json(output_dir / "repo_index.json", repo_index)
     save_json(
@@ -58,6 +61,7 @@ def report_generate_node(state: AgentState) -> AgentState:
     figure_payload = state.get("paper_figure_analysis", {})
     save_json(output_dir / "paper_figure_analysis.json", figure_payload)
     teaching_payload = state.get("teaching_diagram_manifest", {})
+    save_json(output_dir / "ai_usage.json", ai_usage)
     save_json(output_dir / "file_analysis.json", {"file_analysis": file_analysis, "errors": errors})
     save_json(
         output_dir / "library_calls.json",
@@ -230,7 +234,7 @@ def _teaching_diagram_report_section(payload: dict) -> str:
         f"- AI 图片生成开启：{payload.get('image_generation_enabled', False)}",
         f"- 图片外发授权：{payload.get('external_image_consent', False)}",
         f"- 教学图审查开启：{payload.get('teaching_review_vlm_enabled', False)}",
-        f"- 视觉审查授权：{payload.get('external_vision_consent', False)}",
+        f"- 教学图审查授权：{payload.get('external_teaching_review_consent', False)}",
     ]
     budget = payload.get("budget", {})
     if budget:

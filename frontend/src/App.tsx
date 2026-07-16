@@ -5,6 +5,7 @@ import { LibraryFunctionModal } from "./components/LibraryFunctionModal";
 import { LoadingState } from "./components/LoadingState";
 import { ResultTabs } from "./components/ResultTabs";
 import { TaskForm } from "./components/TaskForm";
+import { ProviderSettingsDrawer } from "./components/ProviderSettingsDrawer";
 import { getTaskResult, listTasks } from "./api/client";
 import type { AnalysisResult, LibraryCall, Mode, ResultTab, TaskSummary } from "./types/analysis";
 
@@ -16,6 +17,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedLibraryCall, setSelectedLibraryCall] = useState<LibraryCall | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     void refreshTasks();
@@ -57,7 +59,7 @@ export default function App() {
   }
 
   return (
-    <AppShell mode={mode} onModeChange={setMode}>
+    <AppShell mode={mode} onModeChange={setMode} onOpenSettings={() => setSettingsOpen(true)}>
       <aside className="sidebar">
         <TaskForm onTaskCreated={handleTaskCreated} onError={setError} />
         <section className="panel">
@@ -96,6 +98,7 @@ export default function App() {
           onClose={() => setSelectedLibraryCall(null)}
         />
       )}
+      <ProviderSettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </AppShell>
   );
 }

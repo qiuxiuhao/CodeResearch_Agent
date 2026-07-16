@@ -65,6 +65,8 @@ class ImageGenerationSettings(BaseModel):
         external_image_consent: bool = False,
         teaching_review_vlm_enabled: bool | None = None,
     ) -> "ImageGenerationSettings":
+        qwen_values = _runtime_provider_values("qwen_image")
+        seedream_values = _runtime_provider_values("seedream")
         return cls(
             enabled=_bool_env("IMAGE_GENERATION_ENABLED", False) if enabled is None else enabled,
             external_image_consent=external_image_consent,
@@ -72,18 +74,18 @@ class ImageGenerationSettings(BaseModel):
             if teaching_review_vlm_enabled is None else teaching_review_vlm_enabled,
             qwen_image=ImageProviderSettings(
                 name="qwen_image",
-                api_key=os.getenv("QWEN_IMAGE_API_KEY", ""),
-                base_url=os.getenv("QWEN_IMAGE_BASE_URL", "https://dashscope.aliyuncs.com"),
-                model=os.getenv("QWEN_IMAGE_MODEL", ""),
-                allowed_domains=_csv_env(
+                api_key=qwen_values.get("api_key", os.getenv("QWEN_IMAGE_API_KEY", "")),
+                base_url=qwen_values.get("base_url", os.getenv("QWEN_IMAGE_BASE_URL", "https://dashscope.aliyuncs.com")),
+                model=qwen_values.get("model", os.getenv("QWEN_IMAGE_MODEL", "")),
+                allowed_domains=_list_value(qwen_values.get("allowed_domains"), _csv_env(
                     "QWEN_IMAGE_ALLOWED_DOMAINS",
                     "dashscope.aliyuncs.com,aliyuncs.com,oss-cn-hangzhou.aliyuncs.com,oss-cn-beijing.aliyuncs.com,oss-cn-shanghai.aliyuncs.com,oss-cn-shenzhen.aliyuncs.com",
-                ),
-                endpoint_path=os.getenv("QWEN_IMAGE_ENDPOINT_PATH", "/api/v1/services/aigc/multimodal-generation/generation"),
-                workspace=os.getenv("QWEN_IMAGE_WORKSPACE", ""),
-                supports_async=_bool_env("QWEN_IMAGE_SUPPORTS_ASYNC", False),
-                request_width=_int_env("QWEN_IMAGE_REQUEST_WIDTH", 1280),
-                request_height=_int_env("QWEN_IMAGE_REQUEST_HEIGHT", 720),
+                )),
+                endpoint_path=qwen_values.get("endpoint_path", os.getenv("QWEN_IMAGE_ENDPOINT_PATH", "/api/v1/services/aigc/multimodal-generation/generation")),
+                workspace=qwen_values.get("workspace", os.getenv("QWEN_IMAGE_WORKSPACE", "")),
+                supports_async=_bool_value(qwen_values.get("supports_async"), _bool_env("QWEN_IMAGE_SUPPORTS_ASYNC", False)),
+                request_width=_int_value(qwen_values.get("request_width"), _int_env("QWEN_IMAGE_REQUEST_WIDTH", 1280)),
+                request_height=_int_value(qwen_values.get("request_height"), _int_env("QWEN_IMAGE_REQUEST_HEIGHT", 720)),
                 min_request_width=256,
                 min_request_height=256,
                 max_request_width=2048,
@@ -91,14 +93,14 @@ class ImageGenerationSettings(BaseModel):
             ),
             seedream=ImageProviderSettings(
                 name="seedream",
-                api_key=os.getenv("SEEDREAM_API_KEY", ""),
-                base_url=os.getenv("SEEDREAM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
-                model=os.getenv("SEEDREAM_MODEL", ""),
-                allowed_domains=_csv_env("SEEDREAM_ALLOWED_DOMAINS", "ark.cn-beijing.volces.com"),
-                endpoint_path=os.getenv("SEEDREAM_ENDPOINT_PATH", "/images/generations"),
-                supports_async=_bool_env("SEEDREAM_SUPPORTS_ASYNC", False),
-                request_width=_int_env("SEEDREAM_REQUEST_WIDTH", 1280),
-                request_height=_int_env("SEEDREAM_REQUEST_HEIGHT", 720),
+                api_key=seedream_values.get("api_key", os.getenv("SEEDREAM_API_KEY", "")),
+                base_url=seedream_values.get("base_url", os.getenv("SEEDREAM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")),
+                model=seedream_values.get("model", os.getenv("SEEDREAM_MODEL", "")),
+                allowed_domains=_list_value(seedream_values.get("allowed_domains"), _csv_env("SEEDREAM_ALLOWED_DOMAINS", "ark.cn-beijing.volces.com")),
+                endpoint_path=seedream_values.get("endpoint_path", os.getenv("SEEDREAM_ENDPOINT_PATH", "/images/generations")),
+                supports_async=_bool_value(seedream_values.get("supports_async"), _bool_env("SEEDREAM_SUPPORTS_ASYNC", False)),
+                request_width=_int_value(seedream_values.get("request_width"), _int_env("SEEDREAM_REQUEST_WIDTH", 1280)),
+                request_height=_int_value(seedream_values.get("request_height"), _int_env("SEEDREAM_REQUEST_HEIGHT", 720)),
                 min_request_width=256,
                 min_request_height=256,
                 max_request_width=4096,
@@ -136,6 +138,8 @@ class ImageGenerationSettings(BaseModel):
                 "启用 AI 教学图视觉层后，脱敏后的 TeachingDiagramSpec 可能发送到外部图片生成服务商，"
                 "并可能产生费用；不会发送完整源码、完整仓库或完整论文。"
             ),
+            "async_supported": False,
+            "async_notice": "v1.3.3 仅启用同步生图；IMAGE_TASK_* 配置为预留项。",
         }
 
 
@@ -159,3 +163,32 @@ def _bool_env(name: str, default: bool) -> bool:
 def _csv_env(name: str, default: str) -> list[str]:
     value = os.getenv(name, default)
     return [item.strip().lower() for item in value.split(",") if item.strip()]
+
+
+def _int_value(value: object, default: int) -> int:
+    return int(value) if value not in (None, "") else default
+
+
+def _bool_value(value: object, default: bool) -> bool:
+    if value in (None, ""):
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _list_value(value: object, default: list[str]) -> list[str]:
+    if value in (None, ""):
+        return default
+    if isinstance(value, list):
+        return [str(item).strip().lower() for item in value if str(item).strip()]
+    return [item.strip().lower() for item in str(value).split(",") if item.strip()]
+
+
+def _runtime_provider_values(provider_id: str) -> dict[str, object]:
+    try:
+        from backend.app.settings.provider_settings import ProviderSettingsService
+
+        return ProviderSettingsService().runtime_provider_values(provider_id)
+    except Exception:
+        return {}

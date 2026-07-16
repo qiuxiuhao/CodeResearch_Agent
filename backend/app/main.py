@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -16,14 +17,25 @@ from backend.app.services.analysis_service import (
     run_analysis,
     summarize_state,
 )
+from backend.app.agents.graph import ANALYSIS_GRAPH_STEPS, ProgressCallback
 from backend.app.services.library_function_service import LibraryFunctionService
+from backend.app.services.task_progress import new_task_id, progress_store
 from backend.app.image_generation.config import ImageGenerationSettings
 from backend.app.llm.config import LLMSettings
 from backend.app.vision.config import VisionSettings
 from backend.app.config.pdf_safety import PDFSafetySettings, zip_max_file_bytes
+from backend.app.schemas.provider_settings import (
+    ProviderApiKeyDeleteRequest,
+    ProviderSettingsUpdateRequest,
+    ProviderTestRequest,
+    ProviderValidateRequest,
+)
+from backend.app.settings.provider_settings import ProviderSettingsService
+from backend.app.settings.secret_store import SecretStoreConflictError
+from backend.app.settings.security import require_settings_write_access
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.3.2")
+app = FastAPI(title="CodeResearch Agent", version="1.3.3")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -31,6 +43,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_analysis_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="analysis-task")
 
 
 class AnalysisTaskRequest(BaseModel):
@@ -41,6 +55,7 @@ class AnalysisTaskRequest(BaseModel):
     analysis_mode: Literal["rule", "hybrid"] | None = None
     external_model_consent: bool = False
     text_llm_enabled: bool | None = None
+    teaching_narrative_llm_enabled: bool | None = None
     vision_vlm_enabled: bool | None = None
     external_text_consent: bool | None = None
     external_vision_consent: bool = False
@@ -48,6 +63,7 @@ class AnalysisTaskRequest(BaseModel):
     image_generation_enabled: bool | None = None
     external_image_consent: bool = False
     teaching_review_vlm_enabled: bool | None = None
+    external_teaching_review_consent: bool = False
 
 
 @app.get("/health")
@@ -66,14 +82,48 @@ def create_analysis_task(request: AnalysisTaskRequest) -> dict:
         state = _run_analysis_with_llm_options(
             request.zip_path, request.output_root, request.library_db_path, request.paper_pdf_path,
             request.analysis_mode, request.external_model_consent,
-            request.text_llm_enabled, request.vision_vlm_enabled,
+            request.text_llm_enabled, request.teaching_narrative_llm_enabled, request.vision_vlm_enabled,
             request.external_text_consent, request.external_vision_consent,
             request.teaching_diagrams_enabled, request.image_generation_enabled,
             request.external_image_consent, request.teaching_review_vlm_enabled,
+            request.external_teaching_review_consent,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return summarize_state(state)
+
+
+@app.post("/analysis/tasks/async")
+def create_analysis_task_async(request: AnalysisTaskRequest) -> dict:
+    _validate_external_ai_consents(
+        request.analysis_mode, request.external_model_consent, request.text_llm_enabled, request.vision_vlm_enabled,
+        request.external_text_consent, request.external_vision_consent, request.image_generation_enabled,
+        request.external_image_consent, request.teaching_review_vlm_enabled,
+        request.teaching_narrative_llm_enabled, request.external_teaching_review_consent,
+    )
+    task_id = new_task_id()
+    progress = progress_store.create(task_id=task_id, output_root=request.output_root)
+    _analysis_executor.submit(
+        _run_background_analysis,
+        task_id,
+        request.zip_path,
+        request.output_root,
+        request.library_db_path,
+        request.paper_pdf_path,
+        request.analysis_mode,
+        request.external_model_consent,
+        request.text_llm_enabled,
+        request.teaching_narrative_llm_enabled,
+        request.vision_vlm_enabled,
+        request.external_text_consent,
+        request.external_vision_consent,
+        request.teaching_diagrams_enabled,
+        request.image_generation_enabled,
+        request.external_image_consent,
+        request.teaching_review_vlm_enabled,
+        request.external_teaching_review_consent,
+    )
+    return progress
 
 
 @app.post("/analysis/tasks/upload")
@@ -85,6 +135,7 @@ async def create_analysis_task_from_upload(
     analysis_mode: Literal["rule", "hybrid"] | None = Form(None),
     external_model_consent: bool = Form(False),
     text_llm_enabled: bool | None = Form(None),
+    teaching_narrative_llm_enabled: bool | None = Form(None),
     vision_vlm_enabled: bool | None = Form(None),
     external_text_consent: bool | None = Form(None),
     external_vision_consent: bool = Form(False),
@@ -92,6 +143,7 @@ async def create_analysis_task_from_upload(
     image_generation_enabled: bool | None = Form(None),
     external_image_consent: bool = Form(False),
     teaching_review_vlm_enabled: bool | None = Form(None),
+    external_teaching_review_consent: bool = Form(False),
 ) -> dict:
     if not zip_file.filename or not zip_file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="zip_file must be a .zip file.")
@@ -101,6 +153,7 @@ async def create_analysis_task_from_upload(
         analysis_mode, external_model_consent, text_llm_enabled, vision_vlm_enabled,
         external_text_consent, external_vision_consent, image_generation_enabled,
         external_image_consent, teaching_review_vlm_enabled,
+        teaching_narrative_llm_enabled, external_teaching_review_consent,
     )
 
     upload_dir = Path(output_root) / "_uploads" / uuid4().hex
@@ -117,10 +170,79 @@ async def create_analysis_task_from_upload(
 
     state = _run_analysis_with_llm_options(
         zip_path, output_root, library_db_path, paper_pdf_path, analysis_mode, external_model_consent,
-        text_llm_enabled, vision_vlm_enabled, external_text_consent, external_vision_consent,
+        text_llm_enabled, teaching_narrative_llm_enabled, vision_vlm_enabled,
+        external_text_consent, external_vision_consent,
         teaching_diagrams_enabled, image_generation_enabled, external_image_consent, teaching_review_vlm_enabled,
+        external_teaching_review_consent,
     )
     return summarize_state(state)
+
+
+@app.post("/analysis/tasks/upload/async")
+async def create_analysis_task_from_upload_async(
+    zip_file: UploadFile = File(...),
+    paper_pdf: UploadFile | None = File(None),
+    output_root: str = Form("outputs"),
+    library_db_path: str | None = Form(None),
+    analysis_mode: Literal["rule", "hybrid"] | None = Form(None),
+    external_model_consent: bool = Form(False),
+    text_llm_enabled: bool | None = Form(None),
+    teaching_narrative_llm_enabled: bool | None = Form(None),
+    vision_vlm_enabled: bool | None = Form(None),
+    external_text_consent: bool | None = Form(None),
+    external_vision_consent: bool = Form(False),
+    teaching_diagrams_enabled: bool = Form(True),
+    image_generation_enabled: bool | None = Form(None),
+    external_image_consent: bool = Form(False),
+    teaching_review_vlm_enabled: bool | None = Form(None),
+    external_teaching_review_consent: bool = Form(False),
+) -> dict:
+    if not zip_file.filename or not zip_file.filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="zip_file must be a .zip file.")
+    if paper_pdf and paper_pdf.filename and not paper_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="paper_pdf must be a .pdf file.")
+    _validate_external_ai_consents(
+        analysis_mode, external_model_consent, text_llm_enabled, vision_vlm_enabled,
+        external_text_consent, external_vision_consent, image_generation_enabled,
+        external_image_consent, teaching_review_vlm_enabled,
+        teaching_narrative_llm_enabled, external_teaching_review_consent,
+    )
+
+    upload_dir = Path(output_root) / "_uploads" / uuid4().hex
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = upload_dir / Path(zip_file.filename).name
+    await _save_upload_limited(zip_file, zip_path, zip_max_file_bytes(), "ZIP")
+
+    paper_pdf_path: Path | None = None
+    if paper_pdf and paper_pdf.filename:
+        paper_pdf_path = upload_dir / Path(paper_pdf.filename).name
+        await _save_upload_limited(
+            paper_pdf, paper_pdf_path, PDFSafetySettings.from_env().max_file_bytes, "PDF"
+        )
+
+    task_id = new_task_id()
+    progress = progress_store.create(task_id=task_id, output_root=output_root)
+    _analysis_executor.submit(
+        _run_background_analysis,
+        task_id,
+        zip_path,
+        output_root,
+        library_db_path,
+        paper_pdf_path,
+        analysis_mode,
+        external_model_consent,
+        text_llm_enabled,
+        teaching_narrative_llm_enabled,
+        vision_vlm_enabled,
+        external_text_consent,
+        external_vision_consent,
+        teaching_diagrams_enabled,
+        image_generation_enabled,
+        external_image_consent,
+        teaching_review_vlm_enabled,
+        external_teaching_review_consent,
+    )
+    return progress
 
 
 @app.get("/llm/public-config")
@@ -142,12 +264,84 @@ def get_image_generation_public_config() -> dict:
     return ImageGenerationSettings.from_env().public_config()
 
 
+@app.get("/settings/providers")
+def get_provider_settings() -> dict:
+    return ProviderSettingsService().list_public_settings().model_dump(mode="json")
+
+
+@app.put("/settings/providers/{provider_id}")
+def put_provider_settings(provider_id: str, payload: ProviderSettingsUpdateRequest, request: Request) -> dict:
+    require_settings_write_access(request)
+    try:
+        return ProviderSettingsService().save(provider_id, payload).model_dump(mode="json")
+    except SecretStoreConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/settings/providers/{provider_id}/api-key")
+def delete_provider_api_key(provider_id: str, payload: ProviderApiKeyDeleteRequest, request: Request) -> dict:
+    require_settings_write_access(request)
+    try:
+        return ProviderSettingsService().delete_api_key(provider_id, payload).model_dump(mode="json")
+    except SecretStoreConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/settings/providers/{provider_id}/validate")
+def validate_provider_settings(provider_id: str, payload: ProviderValidateRequest, request: Request) -> dict:
+    require_settings_write_access(request)
+    try:
+        return ProviderSettingsService().validate(provider_id, payload, require_configured_key=True).model_dump(mode="json")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/settings/providers/{provider_id}/test")
+def test_provider_settings(provider_id: str, payload: ProviderTestRequest, request: Request) -> dict:
+    require_settings_write_access(request)
+    try:
+        return ProviderSettingsService().test_provider(provider_id, confirm_cost=payload.confirm_cost).model_dump(mode="json")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @app.get("/analysis/tasks/{task_id}")
 def get_analysis_task_result(task_id: str, output_root: str = "outputs") -> dict:
     try:
         return load_task_result(task_id, output_root)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/analysis/tasks/{task_id}/progress")
+def get_analysis_task_progress(task_id: str, output_root: str = "outputs") -> dict:
+    try:
+        return progress_store.get(task_id)
+    except KeyError:
+        task_dir = Path(output_root) / task_id
+        if task_dir.is_dir() and (task_dir / "report.md").is_file():
+            summary = load_task_result(task_id, output_root).get("summary", {})
+            return {
+                "task_id": task_id,
+                "status": "completed",
+                "current_node": None,
+                "current_label": "分析完成",
+                "completed_nodes": len(ANALYSIS_GRAPH_STEPS),
+                "total_nodes": len(ANALYSIS_GRAPH_STEPS),
+                "percent": 100,
+                "error": None,
+                "summary": summary,
+                "steps": [{**step, "status": "done"} for step in ANALYSIS_GRAPH_STEPS],
+                "created_at": None,
+                "started_at": None,
+                "updated_at": None,
+                "finished_at": None,
+            }
+        raise HTTPException(status_code=404, detail="Task progress not found.")
 
 
 @app.get("/analysis/tasks/{task_id}/report")
@@ -275,49 +469,133 @@ def _validate_external_ai_consents(
     vision_enabled: bool | None, text_consent: bool | None, vision_consent: bool,
     image_enabled: bool | None = None, image_consent: bool = False,
     teaching_review_enabled: bool | None = None,
+    teaching_narrative_enabled: bool | None = None,
+    teaching_review_consent: bool = False,
 ) -> None:
     resolved_text_consent = legacy_consent if text_consent is None else text_consent
-    if LLMSettings.from_env(analysis_mode, text_enabled).text_llm_enabled and not resolved_text_consent:
+    llm_settings = LLMSettings.from_env(analysis_mode, text_enabled, teaching_narrative_enabled)
+    if llm_settings.text_llm_enabled and not resolved_text_consent:
         raise HTTPException(
             status_code=400,
             detail="text_llm_enabled=true requires external_text_consent=true (legacy external_model_consent=true).",
         )
+    if llm_settings.teaching_narrative_llm_enabled and not resolved_text_consent:
+        raise HTTPException(
+            status_code=400,
+            detail="teaching_narrative_llm_enabled=true requires external_text_consent=true.",
+        )
     if VisionSettings.from_env(vision_enabled).enabled and not vision_consent:
         raise HTTPException(status_code=400, detail="vision_vlm_enabled=true requires external_vision_consent=true.")
-    image_settings = ImageGenerationSettings.from_env(image_enabled, image_consent, teaching_review_enabled)
+    resolved_review_enabled = _resolve_teaching_review_enabled(teaching_review_enabled, teaching_review_consent)
+    image_settings = ImageGenerationSettings.from_env(image_enabled, image_consent, resolved_review_enabled)
     if image_settings.enabled and not image_consent:
         raise HTTPException(status_code=400, detail="image_generation_enabled=true requires external_image_consent=true.")
-    if image_settings.teaching_review_vlm_enabled and not vision_consent:
-        raise HTTPException(status_code=400, detail="teaching_review_vlm_enabled=true requires external_vision_consent=true.")
+    if image_settings.teaching_review_vlm_enabled and not image_settings.enabled:
+        raise HTTPException(status_code=422, detail="teaching_review_vlm_enabled=true requires image_generation_enabled=true.")
+    if image_settings.teaching_review_vlm_enabled and not image_consent:
+        raise HTTPException(status_code=422, detail="teaching_review_vlm_enabled=true requires external_image_consent=true.")
+    if image_settings.teaching_review_vlm_enabled and not teaching_review_consent:
+        raise HTTPException(status_code=422, detail="teaching_review_vlm_enabled=true requires external_teaching_review_consent=true.")
 
 
 def _run_analysis_with_llm_options(
     zip_path, output_root, library_db_path, paper_pdf_path, analysis_mode: str | None, consent: bool,
-    text_enabled: bool | None = None, vision_enabled: bool | None = None,
+    text_enabled: bool | None = None, teaching_narrative_enabled: bool | None = None,
+    vision_enabled: bool | None = None,
     text_consent: bool | None = None, vision_consent: bool = False,
     teaching_diagrams_enabled: bool = True, image_enabled: bool | None = None,
     image_consent: bool = False, teaching_review_enabled: bool | None = None,
+    teaching_review_consent: bool = False,
+    task_id: str | None = None,
+    progress_callback: ProgressCallback | None = None,
 ):
     _validate_external_ai_consents(
         analysis_mode, consent, text_enabled, vision_enabled, text_consent, vision_consent,
         image_enabled, image_consent, teaching_review_enabled,
+        teaching_narrative_enabled, teaching_review_consent,
     )
     if (
         analysis_mode is None and not consent and text_enabled is None and vision_enabled is None
         and text_consent is None and not vision_consent and teaching_diagrams_enabled
+        and teaching_narrative_enabled is None
         and image_enabled is None and not image_consent and teaching_review_enabled is None
+        and not teaching_review_consent and task_id is None and progress_callback is None
     ):
         return run_analysis(zip_path, output_root, library_db_path, paper_pdf_path)
     return run_analysis(
         zip_path, output_root, library_db_path, paper_pdf_path,
         analysis_mode=analysis_mode, external_model_consent=consent,
         text_llm_enabled=text_enabled, vision_vlm_enabled=vision_enabled,
+        teaching_narrative_llm_enabled=teaching_narrative_enabled,
         external_text_consent=text_consent, external_vision_consent=vision_consent,
         teaching_diagrams_enabled=teaching_diagrams_enabled,
         image_generation_enabled=image_enabled,
         external_image_consent=image_consent,
         teaching_review_vlm_enabled=teaching_review_enabled,
+        external_teaching_review_consent=teaching_review_consent,
+        task_id=task_id,
+        progress_callback=progress_callback,
     )
+
+
+def _run_background_analysis(
+    task_id: str,
+    zip_path,
+    output_root,
+    library_db_path,
+    paper_pdf_path,
+    analysis_mode: str | None,
+    consent: bool,
+    text_enabled: bool | None,
+    teaching_narrative_enabled: bool | None,
+    vision_enabled: bool | None,
+    text_consent: bool | None,
+    vision_consent: bool,
+    teaching_diagrams_enabled: bool,
+    image_enabled: bool | None,
+    image_consent: bool,
+    teaching_review_enabled: bool | None,
+    teaching_review_consent: bool,
+) -> None:
+    progress_store.mark_running(task_id)
+    try:
+        state = _run_analysis_with_llm_options(
+            zip_path, output_root, library_db_path, paper_pdf_path, analysis_mode, consent,
+            text_enabled, teaching_narrative_enabled, vision_enabled,
+            text_consent, vision_consent, teaching_diagrams_enabled,
+            image_enabled, image_consent, teaching_review_enabled, teaching_review_consent,
+            task_id=task_id,
+            progress_callback=_progress_callback_for(task_id),
+        )
+        progress_store.complete(task_id, summarize_state(state))
+    except Exception as exc:
+        progress_store.fail(task_id, str(exc))
+
+
+def _progress_callback_for(task_id: str) -> ProgressCallback:
+    def callback(
+        event: str,
+        node_id: str,
+        label: str,
+        index: int,
+        total: int,
+        state,
+        exc: BaseException | None,
+    ) -> None:
+        progress_store.update_node(task_id, event, node_id, label, index, total, state, exc)
+
+    return callback
+
+
+def _resolve_teaching_review_enabled(
+    teaching_review_enabled: bool | None,
+    teaching_review_consent: bool,
+) -> bool | None:
+    if teaching_review_enabled is not None:
+        return teaching_review_enabled
+    if not teaching_review_consent:
+        return False
+    return None
 
 
 async def _save_upload_limited(

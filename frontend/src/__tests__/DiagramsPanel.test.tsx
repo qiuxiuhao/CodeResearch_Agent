@@ -7,16 +7,25 @@ vi.mock("../components/MermaidBlock", () => ({
   MermaidBlock: ({ code }: { code: string }) => <pre data-testid="mermaid-block">{code}</pre>
 }));
 
-test("switches between Mermaid Blueprint and AI teaching views", () => {
+test("switches between Blueprint and AI teaching views without duplicating Mermaid", () => {
   render(<DiagramsPanel result={resultWithTeaching({ display_variant: "ai", final_asset: asset("final") })} />);
 
   expect(screen.getByAltText(/AI 教学图/)).toHaveAttribute("src", expect.stringContaining("final.png"));
-  fireEvent.click(screen.getByRole("button", { name: "Mermaid" }));
-  expect(screen.getAllByTestId("mermaid-block").some((item) => item.textContent?.includes("graph TD"))).toBe(true);
+  expect(screen.queryByRole("button", { name: "Mermaid" })).not.toBeInTheDocument();
+  expect(screen.queryByTestId("mermaid-block")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Blueprint" }));
   expect(screen.getByAltText(/Blueprint/)).toHaveAttribute("src", expect.stringContaining("blueprint.png"));
   fireEvent.click(screen.getByRole("button", { name: "AI 教学图" }));
   expect(screen.getByText(/可能存在简化/)).toBeInTheDocument();
+});
+
+test("shows one selectable Mermaid diagram when teaching diagrams are absent", () => {
+  render(<DiagramsPanel result={resultWithMermaidOnly()} />);
+
+  expect(screen.getByRole("button", { name: /项目结构图/ })).toHaveClass("active");
+  expect(screen.getByTestId("mermaid-block")).toHaveTextContent("graph TD");
+  fireEvent.click(screen.getByRole("button", { name: /模型整体流程图/ }));
+  expect(screen.getByTestId("mermaid-block")).toHaveTextContent("flowchart LR");
 });
 
 test("disables AI tab and defaults to Blueprint when review did not pass", () => {
@@ -74,4 +83,16 @@ function asset(name: string) {
     byte_size: 123,
     sha256: "a".repeat(64)
   };
+}
+
+function resultWithMermaidOnly(): AnalysisResult {
+  return {
+    task_id: "task_mermaid",
+    diagrams: {
+      diagrams: [
+        { id: "project_structure", diagram_type: "project_structure", title: "项目结构图", mermaid: "graph TD\nA-->B", description: "项目结构" },
+        { id: "model_flow", diagram_type: "model_flow", title: "模型整体流程图", mermaid: "flowchart LR\nX-->Y", description: "模型流程" }
+      ]
+    }
+  } as AnalysisResult;
 }

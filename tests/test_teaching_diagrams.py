@@ -340,6 +340,55 @@ def test_teaching_narrative_llm_success_counts_budget_without_changing_skeleton(
     assert state["teaching_plan_budget"]["sent_provider_requests"] >= 1
 
 
+def test_teaching_narrative_llm_can_run_when_text_analysis_llm_is_disabled(tmp_path: Path):
+    def narrative(request):
+        return {
+            "skeleton_id": request.input_payload["skeleton_id"],
+            "skeleton_hash": request.input_payload["skeleton_hash"],
+            "one_sentence_summary": "只启用教学文案 LLM。",
+        }
+
+    settings = LLMSettings.from_env(text_llm_enabled=False, teaching_narrative_llm_enabled=True).model_copy(update={"cache_enabled": False})
+    runtime = create_llm_runtime(settings, [MockProvider("deepseek", responses={"teaching_diagram_narrative": narrative})])
+    state = run_analysis(
+        "examples/small_pytorch_project.zip",
+        output_root=tmp_path,
+        text_llm_enabled=False,
+        teaching_narrative_llm_enabled=True,
+        external_text_consent=True,
+        vision_vlm_enabled=False,
+        image_generation_enabled=False,
+        llm_runtime=runtime,
+    )
+
+    assert state["text_llm_enabled"] is False
+    assert state["teaching_narrative_llm_enabled"] is True
+    assert state["teaching_diagram_specs"][0]["one_sentence_summary"] == "只启用教学文案 LLM。"
+    assert state["llm_budget"]["sent_provider_requests"] == 0
+    assert state["teaching_plan_budget"]["sent_provider_requests"] >= 1
+
+
+def test_text_llm_enabled_but_teaching_narrative_disabled_uses_local_narrative(tmp_path: Path):
+    runtime = create_llm_runtime(
+        LLMSettings.from_env(text_llm_enabled=True, teaching_narrative_llm_enabled=False).model_copy(update={"cache_enabled": False}),
+        [MockProvider("deepseek", responses={"teaching_diagram_narrative": lambda _request: {"one_sentence_summary": "should not be used"}})],
+    )
+    state = run_analysis(
+        "examples/small_pytorch_project.zip",
+        output_root=tmp_path,
+        text_llm_enabled=True,
+        teaching_narrative_llm_enabled=False,
+        external_text_consent=True,
+        vision_vlm_enabled=False,
+        image_generation_enabled=False,
+        llm_runtime=runtime,
+    )
+
+    assert state["teaching_narrative_llm_enabled"] is False
+    assert state["teaching_plan_budget"]["sent_provider_requests"] == 0
+    assert state["teaching_diagram_specs"][0]["one_sentence_summary"] != "should not be used"
+
+
 def test_teaching_narrative_llm_failure_falls_back_local(tmp_path: Path):
     runtime = create_llm_runtime(
         LLMSettings.from_env(text_llm_enabled=True).model_copy(update={"cache_enabled": False}),
@@ -366,20 +415,18 @@ def test_teaching_narrative_llm_failure_falls_back_local(tmp_path: Path):
 def test_review_skips_without_ai_images(tmp_path: Path):
     provider = MockVisionProvider("qwen_vl", response=_review_response)
     vision_runtime = create_vision_runtime(VisionSettings.from_env(False), [provider])
-    state = run_analysis(
-        "examples/small_pytorch_project.zip",
-        output_root=tmp_path,
-        text_llm_enabled=False,
-        vision_vlm_enabled=False,
-        image_generation_enabled=False,
-        teaching_review_vlm_enabled=True,
-        external_vision_consent=True,
-        vision_runtime=vision_runtime,
-    )
-
+    with pytest.raises(ValueError, match="image_generation_enabled"):
+        run_analysis(
+            "examples/small_pytorch_project.zip",
+            output_root=tmp_path,
+            text_llm_enabled=False,
+            vision_vlm_enabled=False,
+            image_generation_enabled=False,
+            teaching_review_vlm_enabled=True,
+            external_teaching_review_consent=True,
+            vision_runtime=vision_runtime,
+        )
     assert provider.calls == []
-    assert state["teaching_diagram_manifest"]["diagrams"][0]["display_variant"] == "blueprint"
-    assert state["teaching_diagram_manifest"]["diagrams"][0]["review"] is None
 
 
 def test_teaching_review_uses_mock_vision_and_cache_hit(tmp_path: Path, monkeypatch):
@@ -396,7 +443,7 @@ def test_teaching_review_uses_mock_vision_and_cache_hit(tmp_path: Path, monkeypa
         image_generation_enabled=True,
         external_image_consent=True,
         teaching_review_vlm_enabled=True,
-        external_vision_consent=True,
+        external_teaching_review_consent=True,
         image_runtime=image_runtime,
         vision_runtime=first_vision,
     )
@@ -411,7 +458,7 @@ def test_teaching_review_uses_mock_vision_and_cache_hit(tmp_path: Path, monkeypa
         image_generation_enabled=True,
         external_image_consent=True,
         teaching_review_vlm_enabled=True,
-        external_vision_consent=True,
+        external_teaching_review_consent=True,
         image_runtime=second_image_runtime,
         vision_runtime=second_vision,
     )
@@ -511,7 +558,7 @@ def test_review_failure_triggers_seedream_regeneration(tmp_path: Path, monkeypat
         image_generation_enabled=True,
         external_image_consent=True,
         teaching_review_vlm_enabled=True,
-        external_vision_consent=True,
+        external_teaching_review_consent=True,
         image_runtime=image_runtime,
         vision_runtime=vision_runtime,
     )

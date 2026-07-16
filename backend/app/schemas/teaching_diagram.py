@@ -6,7 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-SCHEMA_VERSION = "1.3.2"
+SCHEMA_VERSION = "1.3.3"
 Confidence = Literal["high", "medium", "low"]
 
 
@@ -137,7 +137,7 @@ class TeachingDiagramStyleHints(StrictTeachingModel):
 
 
 class TeachingDiagramSpec(StrictTeachingModel):
-    schema_version: Literal["1.3.2"] = SCHEMA_VERSION
+    schema_version: Literal["1.3.3"] = SCHEMA_VERSION
     diagram_id: str
     related_mermaid_diagram_ids: list[str] = Field(default_factory=list)
     source_entity: TeachingDiagramSourceEntity
@@ -222,13 +222,15 @@ class TeachingDiagramManifestItem(StrictTeachingModel):
 
 
 class TeachingDiagramManifest(StrictTeachingModel):
-    version: Literal["1.3.2"] = SCHEMA_VERSION
+    version: Literal["1.3.3"] = SCHEMA_VERSION
     status: Literal["success", "partial", "blueprint_only", "disabled", "failed"] = "disabled"
     teaching_diagrams_enabled: bool = True
+    teaching_narrative_llm_enabled: bool = False
     image_generation_enabled: bool = False
     teaching_review_vlm_enabled: bool = False
     external_image_consent: bool = False
     external_vision_consent: bool = False
+    external_teaching_review_consent: bool = False
     budget: dict = Field(default_factory=dict)
     diagram_evidence_catalog: list[TeachingDiagramEvidenceItem] = Field(default_factory=list)
     diagrams: list[TeachingDiagramManifestItem] = Field(default_factory=list)

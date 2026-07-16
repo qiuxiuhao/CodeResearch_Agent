@@ -52,3 +52,38 @@ def test_legacy_consent_never_grants_vision_consent():
     })
     assert response.status_code == 400
     assert "external_vision_consent" in response.json()["detail"]
+
+
+def test_teaching_review_requires_own_consent_and_image_enabled(monkeypatch):
+    monkeypatch.setattr("backend.app.main.run_analysis", lambda *args, **kwargs: {
+        "task_id": "task_review",
+        "output_dir": "/tmp/task_review",
+        "errors": [],
+        "teaching_review_vlm_enabled": kwargs.get("teaching_review_vlm_enabled"),
+        "external_teaching_review_consent": kwargs.get("external_teaching_review_consent"),
+    })
+    base = {
+        "zip_path": "examples/small_pytorch_project.zip",
+        "image_generation_enabled": True,
+        "external_image_consent": True,
+        "teaching_review_vlm_enabled": True,
+    }
+
+    no_review_consent = client.post("/analysis/tasks", json={**base, "external_vision_consent": True})
+    no_image = client.post("/analysis/tasks", json={
+        **base,
+        "image_generation_enabled": False,
+        "external_teaching_review_consent": True,
+    })
+    allowed_without_paper_vision_consent = client.post("/analysis/tasks", json={
+        **base,
+        "external_teaching_review_consent": True,
+        "external_vision_consent": False,
+    })
+
+    assert no_review_consent.status_code == 422
+    assert "external_teaching_review_consent" in no_review_consent.json()["detail"]
+    assert no_image.status_code == 422
+    assert "image_generation_enabled" in no_image.json()["detail"]
+    assert allowed_without_paper_vision_consent.status_code == 200
+    assert allowed_without_paper_vision_consent.json()["external_teaching_review_consent"] is True

@@ -52,19 +52,21 @@ class VisionSettings(BaseModel):
     @classmethod
     def from_env(cls, enabled: bool | None = None) -> "VisionSettings":
         pdf_safety = PDFSafetySettings.from_env()
+        qwen_values = _runtime_provider_values("qwen_vl")
+        glm_values = _runtime_provider_values("glm_v")
         return cls(
             enabled=_bool_env("VISION_VLM_ENABLED", False) if enabled is None else enabled,
             qwen_vl=VisionProviderSettings(
-                name="qwen_vl", api_key=os.getenv("QWEN_VL_API_KEY", ""),
-                base_url=os.getenv("QWEN_VL_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-                model=os.getenv("QWEN_VL_MODEL", "qwen-vl-plus"),
+                name="qwen_vl", api_key=qwen_values.get("api_key", os.getenv("QWEN_VL_API_KEY", "")),
+                base_url=qwen_values.get("base_url", os.getenv("QWEN_VL_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")),
+                model=qwen_values.get("model", os.getenv("QWEN_VL_MODEL", "qwen-vl-plus")),
                 supports_json_object=_bool_env("QWEN_VL_SUPPORTS_JSON_OBJECT", False),
                 disable_thinking=_bool_env("QWEN_VL_DISABLE_THINKING", False),
             ),
             glm_v=VisionProviderSettings(
-                name="glm_v", api_key=os.getenv("GLM_V_API_KEY", ""),
-                base_url=os.getenv("GLM_V_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"),
-                model=os.getenv("GLM_V_MODEL", "glm-4.5v"),
+                name="glm_v", api_key=glm_values.get("api_key", os.getenv("GLM_V_API_KEY", "")),
+                base_url=glm_values.get("base_url", os.getenv("GLM_V_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")),
+                model=glm_values.get("model", os.getenv("GLM_V_MODEL", "glm-4.5v")),
                 supports_json_object=_bool_env("GLM_V_SUPPORTS_JSON_OBJECT", False),
                 disable_thinking=_bool_env("GLM_V_DISABLE_THINKING", False),
             ),
@@ -126,3 +128,12 @@ def _bool_env(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _runtime_provider_values(provider_id: str) -> dict[str, str]:
+    try:
+        from backend.app.settings.provider_settings import ProviderSettingsService
+
+        return ProviderSettingsService().runtime_provider_values(provider_id)
+    except Exception:
+        return {}

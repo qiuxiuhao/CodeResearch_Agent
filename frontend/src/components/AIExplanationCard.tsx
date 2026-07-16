@@ -13,8 +13,8 @@ export function AIExplanationCard({ explanation, mode }: { explanation?: LLMExpl
   ] as const;
   const metadata = explanation.metadata;
   return (
-    <details className="ai-card">
-      <summary>AI 增强解释（基于静态分析事实）</summary>
+    <section className="ai-card" aria-label="AI 增强解释">
+      <h4 className="ai-card-title">AI 增强解释（基于静态分析事实）</h4>
       {summary && <p>{summary}</p>}
       {explanation.architecture_role && <p>架构位置：{explanation.architecture_role}</p>}
       {mode === "beginner" && explanation.teaching_explanation && <p>{explanation.teaching_explanation}</p>}
@@ -27,6 +27,6 @@ export function AIExplanationCard({ explanation, mode }: { explanation?: LLMExpl
       {explanation.uncertainties && explanation.uncertainties.length > 0 && <p className="muted">不确定项：{explanation.uncertainties.join("；")}</p>}
       {explanation.evidence_refs && explanation.evidence_refs.length > 0 && <p className="muted">证据：{explanation.evidence_refs.join(", ")}</p>}
       {metadata && <p className="muted">{metadata.provider}/{metadata.model}{metadata.cache_hit ? " · 缓存命中" : ""}{metadata.total_tokens != null ? ` · ${metadata.total_tokens} tokens` : ""}</p>}
-    </details>
+    </section>
   );
 }

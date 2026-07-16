@@ -5,6 +5,12 @@ import type {
   GlobalLibraryStats,
   LLMPublicConfig,
   AnalysisMode,
+  ProviderPublicSettings,
+  ProviderSettingsPayload,
+  ProviderSettingsResponse,
+  ProviderTestResponse,
+  ProviderValidateResponse,
+  TaskProgress,
   TaskSummary
 } from "../types/analysis";
 
@@ -16,6 +22,7 @@ export type CreateTaskPayload = {
   analysis_mode?: AnalysisMode;
   external_model_consent?: boolean;
   text_llm_enabled?: boolean;
+  teaching_narrative_llm_enabled?: boolean;
   vision_vlm_enabled?: boolean;
   external_text_consent?: boolean;
   external_vision_consent?: boolean;
@@ -23,6 +30,7 @@ export type CreateTaskPayload = {
   image_generation_enabled?: boolean;
   external_image_consent?: boolean;
   teaching_review_vlm_enabled?: boolean;
+  external_teaching_review_consent?: boolean;
 };
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -53,8 +61,23 @@ export function createTaskByPath(payload: CreateTaskPayload): Promise<TaskSummar
   });
 }
 
+export function createTaskByPathAsync(payload: CreateTaskPayload): Promise<TaskProgress> {
+  return requestJson<TaskProgress>("/analysis/tasks/async", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
 export function createTaskByUpload(formData: FormData): Promise<TaskSummary> {
   return requestJson<TaskSummary>("/analysis/tasks/upload", {
+    method: "POST",
+    body: formData
+  });
+}
+
+export function createTaskByUploadAsync(formData: FormData): Promise<TaskProgress> {
+  return requestJson<TaskProgress>("/analysis/tasks/upload/async", {
     method: "POST",
     body: formData
   });
@@ -68,12 +91,52 @@ export function getTaskResult(taskId: string): Promise<AnalysisResult> {
   return requestJson<AnalysisResult>(`/analysis/tasks/${encodeURIComponent(taskId)}`);
 }
 
+export function getTaskProgress(taskId: string): Promise<TaskProgress> {
+  return requestJson<TaskProgress>(`/analysis/tasks/${encodeURIComponent(taskId)}/progress`);
+}
+
 export function getTaskReport(taskId: string): Promise<{ task_id: string; report_md: string }> {
   return requestJson<{ task_id: string; report_md: string }>(`/analysis/tasks/${encodeURIComponent(taskId)}/report`);
 }
 
 export function getLLMPublicConfig(): Promise<LLMPublicConfig> {
   return requestJson<LLMPublicConfig>("/llm/public-config");
+}
+
+export function getProviderSettings(): Promise<ProviderSettingsResponse> {
+  return requestJson<ProviderSettingsResponse>("/settings/providers");
+}
+
+export function saveProviderSettings(providerId: string, payload: ProviderSettingsPayload): Promise<ProviderPublicSettings> {
+  return requestJson<ProviderPublicSettings>(`/settings/providers/${encodeURIComponent(providerId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteProviderApiKey(providerId: string, expected_revision: number): Promise<ProviderPublicSettings> {
+  return requestJson<ProviderPublicSettings>(`/settings/providers/${encodeURIComponent(providerId)}/api-key`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expected_revision })
+  });
+}
+
+export function validateProviderSettings(providerId: string, payload: Partial<ProviderSettingsPayload>): Promise<ProviderValidateResponse> {
+  return requestJson<ProviderValidateResponse>(`/settings/providers/${encodeURIComponent(providerId)}/validate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function testProviderSettings(providerId: string, confirmCost: boolean): Promise<ProviderTestResponse> {
+  return requestJson<ProviderTestResponse>(`/settings/providers/${encodeURIComponent(providerId)}/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm_cost: confirmCost })
+  });
 }
 
 export function figurePreviewUrl(taskId: string, figureId: string): string {

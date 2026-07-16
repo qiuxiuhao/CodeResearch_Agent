@@ -55,6 +55,12 @@ class QwenImageProvider(BaseImageProvider):
     def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         if not self.configured:
             raise ImageGenerationError("image_provider_unconfigured", f"{self.name} is not configured.")
+        if self.supports_async:
+            raise ImageGenerationError(
+                "image_provider_async_not_supported",
+                "v1.3.3 only supports synchronous teaching-image generation.",
+                recoverable=False,
+            )
         started = time.monotonic()
         try:
             with httpx.Client(timeout=self.timeout_seconds, transport=self._transport) as client:
@@ -85,7 +91,7 @@ class QwenImageProvider(BaseImageProvider):
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
-            "X-DashScope-Async": "disable" if not self.supports_async else "enable",
+            "X-DashScope-Async": "disable",
         }
         if self.workspace:
             headers["X-DashScope-WorkSpace"] = self.workspace
