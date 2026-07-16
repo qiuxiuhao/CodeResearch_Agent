@@ -115,6 +115,8 @@ GET /analysis/tasks/{task_id}/report
 
 三类授权由后端独立校验。旧 `analysis_mode`/`external_model_consent` 暂时兼容文本能力，但绝不能授权图片生成或视觉审查外发。
 
+`analysis_mode`、`external_model_consent` 和同步创建路由已在 OpenAPI 标记 deprecated，前端只发送独立能力开关与授权字段。Provider 请求中的 `supports_async` 也只保留到 v1.4：未传或 false 被接受并忽略，true 返回 422；该值不会持久化或进入运行时。
+
 ### Figure Preview
 
 ```text

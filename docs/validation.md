@@ -13,6 +13,8 @@ bash scripts/validate.sh
 3. 前端测试。
 4. 前端生产构建。
 
+前端构建先分别对 app 与 `vite.config.ts` 执行 no-emit typecheck，再执行 Vite。构建契约会验证 Mermaid 只作为动态 chunk 加载，并拒绝 `vite.config.js`、`vite.config.d.ts` 或 `*.tsbuildinfo` 生成物。
+
 自动验收禁止真实模型网络请求。Provider 测试使用 MockProvider/MockTransport。
 
 真实 API 仅可手动验证，例如：
@@ -66,6 +68,7 @@ http://127.0.0.1:8000/health
 ## 演示检查
 
 - 使用 `examples/small_pytorch_project.zip` 创建任务。
+- 确认 `tests/test_example_archive_contract.py` 验证展开示例、临时确定性 ZIP 和已提交 ZIP 内容一致。
 - 确认总览、文件、函数、当前任务库函数说明、全局函数库、模型、图示和报告页面可以加载。
 - 切换零基础模式，并打开一个库函数解释弹窗。
 

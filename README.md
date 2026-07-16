@@ -119,6 +119,14 @@ npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173
 examples/small_pytorch_project.zip
 ```
 
+展开目录 `examples/small_pytorch_project/` 是示例事实源；可用下列命令在任意临时目录确定性生成等价 ZIP：
+
+```bash
+python scripts/build_example_zip.py /tmp/small_pytorch_project.zip
+```
+
+测试会验证展开源码与已提交 ZIP 的逐文件 SHA-256 一致性。
+
 推荐演示步骤：
 
 1. 执行 `bash scripts/dev.sh`。
