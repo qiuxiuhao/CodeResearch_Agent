@@ -67,7 +67,7 @@ def paper_code_align_llm_node(state: AgentState, llm_runtime: LLMRuntime | None 
 
     return run_selected_entities(
         state=state, runtime=llm_runtime, task_type="paper_code_align", output_field="paper_code_align_llm_explanations",
-        prompt_file="paper_code_align_llm.md", selected=selected, skipped=skipped,
+        prompt_key="paper_code_align", selected=selected, skipped=skipped,
         response_model=PaperCodeAlignLLMExplanation, prepare=prepare,
     )
 

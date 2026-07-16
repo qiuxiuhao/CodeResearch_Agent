@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from backend.app.llm.privacy import sanitize_payload
-from backend.app.llm.prompt_loader import load_prompt
+from backend.app.llm.prompt_registry import load_registered_prompt
 from backend.app.schemas.paper_figure import VisionEvidenceItem
 from backend.app.schemas.state import AgentState
 from backend.app.vision.runtime import VisionRuntime
@@ -74,7 +74,7 @@ def paper_figure_analyze_vlm_node(state: AgentState, vision_runtime: VisionRunti
     allowed = selected[:reservation.reserved]
     for item in selected[reservation.reserved:]:
         payload.setdefault("skipped_figures", []).append({"figure_id": item["figure_id"], "reason": "figure_budget_exceeded"})
-    prompt = load_prompt("paper_figure_analyze_vlm.md")
+    prompt = load_registered_prompt("paper_figure_analyze")
     contributions = state.get("paper_analysis", {}).get("contributions", [])
 
     def execute(figure):

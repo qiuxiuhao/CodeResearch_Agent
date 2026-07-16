@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from backend.app.llm.evidence import merge_evidence
-from backend.app.llm.prompt_loader import load_prompt
+from backend.app.llm.prompt_registry import load_registered_prompt
 from backend.app.llm.privacy import is_sensitive_path, sanitize_payload
 from backend.app.llm.runtime import LLMRuntime
 from backend.app.llm.types import LLMTaskType
@@ -20,7 +20,7 @@ def run_selected_entities(
     runtime: LLMRuntime | None,
     task_type: LLMTaskType,
     output_field: str,
-    prompt_file: str,
+    prompt_key: str,
     selected: list[dict],
     skipped: list[dict],
     response_model: type[BaseModel],
@@ -71,7 +71,7 @@ def run_selected_entities(
     explanations = list(state.get(output_field, []))
     warnings = list(state.get("llm_warnings", []))
     catalog = list(state.get("llm_evidence_catalog", []))
-    prompt = load_prompt(prompt_file)
+    prompt = load_registered_prompt(prompt_key)
     jobs = []
     for item in allowed:
         prepared = prepare(item)

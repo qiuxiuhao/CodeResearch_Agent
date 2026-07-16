@@ -25,6 +25,6 @@ def model_explain_llm_node(state: AgentState, llm_runtime: LLMRuntime | None = N
 
     return run_selected_entities(
         state=state, runtime=llm_runtime, task_type="model_explain", output_field="model_llm_explanations",
-        prompt_file="model_explain_llm.md", selected=selected, skipped=skipped,
+        prompt_key="model_explain", selected=selected, skipped=skipped,
         response_model=ModelLLMExplanation, prepare=prepare,
     )

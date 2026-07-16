@@ -37,7 +37,7 @@ def function_explain_llm_node(state: AgentState, llm_runtime: LLMRuntime | None 
 
     return run_selected_entities(
         state=state, runtime=llm_runtime, task_type="function_explain", output_field="function_llm_explanations",
-        prompt_file="function_explain_llm.md", selected=selected, skipped=skipped,
+        prompt_key="function_explain", selected=selected, skipped=skipped,
         response_model=FunctionLLMExplanation, prepare=prepare,
     )
 

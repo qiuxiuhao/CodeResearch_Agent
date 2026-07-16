@@ -243,13 +243,11 @@ code-research-agent/
         report.py
 
       prompts/
-        function_analyzer.md
-        file_analyzer.md
-        model_analyzer.md
-        library_function_doc_writer.md
-        paper_analyzer.md
-        paper_code_aligner.md
-        report_writer.md
+        function_explain_llm.md
+        file_explain_llm.md
+        model_explain_llm.md
+        paper_code_align_llm.md
+        paper_figure_analyze_vlm.md
 
       utils/
         path_utils.py
@@ -1732,16 +1730,14 @@ backend/app/prompts/
 4. 禁止事项
 5. 示例输出
 
-建议 Prompt 文件包括：
+当前 Prompt 文件由 `backend/app/llm/prompt_registry.py` 统一注册，包括：
 
 ```text
-function_analyzer.md
-file_analyzer.md
-model_analyzer.md
-library_function_doc_writer.md
-paper_analyzer.md
-paper_code_aligner.md
-report_writer.md
+function_explain_llm.md
+file_explain_llm.md
+model_explain_llm.md
+paper_code_align_llm.md
+paper_figure_analyze_vlm.md
 ```
 
 输出格式要尽量稳定，优先使用 JSON 或固定 Markdown 模板。
