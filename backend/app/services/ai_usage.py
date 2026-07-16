@@ -7,93 +7,44 @@ from backend.app.schemas.state import AgentState
 
 def build_ai_usage(state: AgentState) -> dict[str, dict[str, Any]]:
     providers = state.get("ai_provider_config", {})
-    return {
-        "text_analysis": _usage_group(
-            enabled=state.get("text_llm_enabled", False),
-            consent=state.get("external_text_consent", False),
-            provider_info=providers.get("text_analysis", {}),
-            budget=state.get("llm_budget", {}),
-            warnings=state.get("llm_warnings", []),
-            failure_prefixes=("llm_",),
-        ),
-        "teaching_narrative": _usage_group(
-            enabled=state.get("teaching_narrative_llm_enabled", False),
-            consent=state.get("external_text_consent", False),
-            provider_info=providers.get("teaching_narrative", {}),
-            budget=state.get("teaching_plan_budget", {}),
-            warnings=state.get("teaching_diagram_warnings", []),
-            failure_prefixes=("teaching_", "llm_"),
-        ),
-        "paper_vision": _usage_group(
-            enabled=state.get("vision_vlm_enabled", False),
-            consent=state.get("external_vision_consent", False),
-            provider_info=providers.get("paper_vision", {}),
-            budget=state.get("vision_budget", {}),
-            warnings=state.get("paper_figure_analysis", {}).get("warnings", []),
-            failure_prefixes=("vlm_",),
-        ),
-        "image_generation": _usage_group(
-            enabled=state.get("image_generation_enabled", False),
-            consent=state.get("external_image_consent", False),
-            provider_info=providers.get("image_generation", {}),
-            budget=state.get("teaching_image_budget", {}),
-            warnings=state.get("teaching_diagram_manifest", {}).get("warnings", []),
-            failure_prefixes=("image_",),
-        ),
-        "teaching_review": _usage_group(
-            enabled=state.get("teaching_review_vlm_enabled", False),
-            consent=state.get("external_teaching_review_consent", False),
-            provider_info=providers.get("teaching_review", {}),
-            budget=state.get("teaching_review_budget", {}),
-            warnings=state.get("teaching_diagram_manifest", {}).get("warnings", []),
-            failure_prefixes=("vlm_", "review_"),
-        ),
-    }
+    manifest_warnings = state.get("teaching_diagram_manifest", {}).get("warnings", [])
+    return _build_usage_groups({
+        "text_analysis": (state.get("text_llm_enabled", False), state.get("external_text_consent", False), providers.get("text_analysis", {}), state.get("llm_budget", {}), state.get("llm_warnings", [])),
+        "teaching_narrative": (state.get("teaching_narrative_llm_enabled", False), state.get("external_text_consent", False), providers.get("teaching_narrative", {}), state.get("teaching_plan_budget", {}), state.get("teaching_diagram_warnings", [])),
+        "paper_vision": (state.get("vision_vlm_enabled", False), state.get("external_vision_consent", False), providers.get("paper_vision", {}), state.get("vision_budget", {}), state.get("paper_figure_analysis", {}).get("warnings", [])),
+        "image_generation": (state.get("image_generation_enabled", False), state.get("external_image_consent", False), providers.get("image_generation", {}), state.get("teaching_image_budget", {}), manifest_warnings),
+        "teaching_review": (state.get("teaching_review_vlm_enabled", False), state.get("external_teaching_review_consent", False), providers.get("teaching_review", {}), state.get("teaching_review_budget", {}), manifest_warnings),
+    })
 
 
 def build_ai_usage_from_outputs(llm: dict, figures: dict, teaching: dict) -> dict[str, dict[str, Any]]:
     budget = teaching.get("budget", {}) or {}
+    warnings = teaching.get("warnings", [])
+    return _build_usage_groups({
+        "text_analysis": (llm.get("text_llm_enabled", False), llm.get("external_text_consent", False), {}, llm.get("budget", {}), llm.get("warnings", [])),
+        "teaching_narrative": (teaching.get("teaching_narrative_llm_enabled", False), llm.get("external_text_consent", False), {}, budget.get("teaching_plan", {}), warnings),
+        "paper_vision": (figures.get("vision_vlm_enabled", False), figures.get("external_vision_consent", False), {}, figures.get("budget", {}), figures.get("warnings", [])),
+        "image_generation": (teaching.get("image_generation_enabled", False), teaching.get("external_image_consent", False), {}, budget.get("teaching_image", {}), warnings),
+        "teaching_review": (teaching.get("teaching_review_vlm_enabled", False), teaching.get("external_teaching_review_consent", False), {}, budget.get("teaching_review", {}), warnings),
+    })
+
+
+_FAILURE_PREFIXES = {
+    "text_analysis": ("llm_",),
+    "teaching_narrative": ("teaching_", "llm_"),
+    "paper_vision": ("vlm_",),
+    "image_generation": ("image_",),
+    "teaching_review": ("vlm_", "review_"),
+}
+
+
+def _build_usage_groups(groups: dict[str, tuple[object, object, dict, dict, list]]) -> dict[str, dict[str, Any]]:
     return {
-        "text_analysis": _usage_group(
-            enabled=llm.get("text_llm_enabled", False),
-            consent=llm.get("external_text_consent", False),
-            provider_info={},
-            budget=llm.get("budget", {}),
-            warnings=llm.get("warnings", []),
-            failure_prefixes=("llm_",),
-        ),
-        "teaching_narrative": _usage_group(
-            enabled=teaching.get("teaching_narrative_llm_enabled", False),
-            consent=llm.get("external_text_consent", False),
-            provider_info={},
-            budget=budget.get("teaching_plan", {}),
-            warnings=teaching.get("warnings", []),
-            failure_prefixes=("teaching_", "llm_"),
-        ),
-        "paper_vision": _usage_group(
-            enabled=figures.get("vision_vlm_enabled", False),
-            consent=figures.get("external_vision_consent", False),
-            provider_info={},
-            budget=figures.get("budget", {}),
-            warnings=figures.get("warnings", []),
-            failure_prefixes=("vlm_",),
-        ),
-        "image_generation": _usage_group(
-            enabled=teaching.get("image_generation_enabled", False),
-            consent=teaching.get("external_image_consent", False),
-            provider_info={},
-            budget=budget.get("teaching_image", {}),
-            warnings=teaching.get("warnings", []),
-            failure_prefixes=("image_",),
-        ),
-        "teaching_review": _usage_group(
-            enabled=teaching.get("teaching_review_vlm_enabled", False),
-            consent=teaching.get("external_teaching_review_consent", False),
-            provider_info={},
-            budget=budget.get("teaching_review", {}),
-            warnings=teaching.get("warnings", []),
-            failure_prefixes=("vlm_", "review_"),
-        ),
+        name: _usage_group(
+            enabled=bool(values[0]), consent=bool(values[1]), provider_info=values[2],
+            budget=values[3], warnings=values[4], failure_prefixes=_FAILURE_PREFIXES[name],
+        )
+        for name, values in groups.items()
     }
 
 
