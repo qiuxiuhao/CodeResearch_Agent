@@ -125,11 +125,16 @@ export function ProviderSettingsDrawer({ open, onClose }: Props) {
 
   async function removeKey() {
     if (!selected) return;
+    if (selected.api_key_source === "Environment") {
+      setStatus(null);
+      setError("环境变量 Key 不能从 UI 删除。");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       await deleteProviderApiKey(selected.id, selected.revision);
-      setStatus("Key 已删除");
+      setStatus("UI Key 已清除");
       await reload();
       notifyProviderSettingsUpdated();
     } catch (exc) {
@@ -296,7 +301,7 @@ function ProviderSettingsForm({
               <input value={draft.workspace} onChange={(event) => onDraftChange({ ...draft, workspace: event.target.value })} />
             </Field>
             <Field label="Allowlist" source={provider.source.allowed_domains}>
-              <input value={draft.allowed_domains} onChange={(event) => onDraftChange({ ...draft, allowed_domains: event.target.value })} />
+              <TagInput value={draft.allowed_domains} onChange={(allowed_domains) => onDraftChange({ ...draft, allowed_domains })} />
             </Field>
           </>
         )}
@@ -326,6 +331,7 @@ function ProviderSettingsForm({
       </div>
 
       {provider.warnings?.map((warning) => <p className="inline-warning" key={warning}>{warning}</p>)}
+      {provider.api_key_source === "Environment" && <p className="inline-note">环境变量 Key 不能从 UI 删除。</p>}
 
       <div className="drawer-actions">
         <button className="primary-button" disabled={disabled} type="submit">
@@ -337,7 +343,7 @@ function ProviderSettingsForm({
         <button className="secondary-button" disabled={disabled || !provider.configured} onClick={onTest} type="button">
           <RefreshCw aria-hidden="true" size={16} /> Test
         </button>
-        <button className="danger-button" disabled={disabled || !provider.configured} onClick={onDeleteKey} type="button">
+        <button className="danger-button" disabled={disabled || !provider.configured || provider.api_key_source === "Environment"} onClick={onDeleteKey} type="button">
           <Trash2 aria-hidden="true" size={16} /> 删除 Key
         </button>
       </div>
@@ -355,6 +361,50 @@ function Field({ label, source, children }: { label: string; source?: string; ch
       </span>
       {children}
     </label>
+  );
+}
+
+function TagInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [draft, setDraft] = useState("");
+  const tags = value.split(",").map((item) => item.trim()).filter(Boolean);
+
+  function commit(raw: string) {
+    const next = raw.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
+    if (!next.length) return;
+    const merged = Array.from(new Set([...tags, ...next]));
+    onChange(merged.join(","));
+    setDraft("");
+  }
+
+  function remove(tag: string) {
+    onChange(tags.filter((item) => item !== tag).join(","));
+  }
+
+  return (
+    <div className="tag-input">
+      <div className="tag-list" aria-label="Allowed result domains">
+        {tags.map((tag) => (
+          <button key={tag} className="tag-chip" type="button" onClick={() => remove(tag)} title="移除域名">
+            {tag}
+          </button>
+        ))}
+      </div>
+      <input
+        value={draft}
+        placeholder="输入域名后回车"
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => commit(draft)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === ",") {
+            event.preventDefault();
+            commit(draft);
+          }
+          if (event.key === "Backspace" && !draft && tags.length) {
+            remove(tags[tags.length - 1]);
+          }
+        }}
+      />
+    </div>
   );
 }
 

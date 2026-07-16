@@ -86,7 +86,9 @@ class ModelRouter:
                 except Exception:
                     warnings.append(_warning("llm_cache_error", task_type, context_id, provider=provider.name))
 
-            for attempt in range(self.settings.max_retries + 1):
+            max_retries = int(getattr(provider, "max_retries", self.settings.max_retries))
+            max_output_tokens = int(getattr(provider, "max_output_tokens", self.settings.max_output_tokens))
+            for attempt in range(max_retries + 1):
                 total_attempts += 1
                 reservation = self.budget.try_reserve_provider_request(
                     provider.name, task_type, context_id, retry=attempt > 0, fallback=provider_index > 0 and attempt == 0
@@ -100,7 +102,7 @@ class ModelRouter:
                         system_prompt=system_prompt,
                         input_payload=sanitized,
                         response_model=response_model,
-                        max_output_tokens=self.settings.max_output_tokens,
+                        max_output_tokens=max_output_tokens,
                     ))
                     value = response_model.model_validate(response.data)
                     if not validate_evidence_refs(_all_evidence_refs(value.model_dump()), evidence_catalog):

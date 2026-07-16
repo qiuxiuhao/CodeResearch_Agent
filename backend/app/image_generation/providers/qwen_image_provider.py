@@ -38,6 +38,7 @@ class QwenImageProvider(BaseImageProvider):
         self.request_height = settings.request_height
         self._settings = settings
         self.timeout_seconds = timeout_seconds
+        self.max_retries = settings.max_retries
         self._transport = transport
         self.capabilities = ImageProviderCapabilities(
             supports_json_prompt=True,
@@ -58,7 +59,7 @@ class QwenImageProvider(BaseImageProvider):
         if self.supports_async:
             raise ImageGenerationError(
                 "image_provider_async_not_supported",
-                "v1.3.3 only supports synchronous teaching-image generation.",
+                "v1.3.4 only supports synchronous teaching-image generation.",
                 recoverable=False,
             )
         started = time.monotonic()

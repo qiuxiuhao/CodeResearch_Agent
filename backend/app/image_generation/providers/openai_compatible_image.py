@@ -25,6 +25,7 @@ class OpenAICompatibleImageProvider(BaseImageProvider):
         self.request_width = settings.request_width
         self.request_height = settings.request_height
         self.timeout_seconds = timeout_seconds
+        self.max_retries = settings.max_retries
         self._transport = transport
         self.capabilities = ImageProviderCapabilities(supports_json_prompt=True)
 

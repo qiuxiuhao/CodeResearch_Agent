@@ -42,7 +42,7 @@ from backend.app.vision.types import VisionRequest
 
 @dataclass(frozen=True)
 class FieldDefinition:
-    env: str | None
+    env: str | tuple[str, ...] | None
     default: Any
     kind: str = "str"
 
@@ -61,27 +61,27 @@ PROVIDERS: dict[str, ProviderDefinition] = {
         "api_key": FieldDefinition("DEEPSEEK_API_KEY", "", "secret"),
         "base_url": FieldDefinition("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         "model": FieldDefinition("DEEPSEEK_MODEL", "deepseek-chat"),
-        "timeout_seconds": FieldDefinition("LLM_TIMEOUT_SECONDS", 45, "float"),
-        "retry": FieldDefinition("LLM_MAX_RETRIES", 1, "int"),
-        "max_output_tokens": FieldDefinition("LLM_MAX_OUTPUT_TOKENS", 1200, "int"),
+        "timeout_seconds": FieldDefinition(("DEEPSEEK_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS"), 45, "float"),
+        "retry": FieldDefinition(("DEEPSEEK_MAX_RETRIES", "LLM_MAX_RETRIES"), 1, "int"),
+        "max_output_tokens": FieldDefinition(("DEEPSEEK_MAX_OUTPUT_TOKENS", "LLM_MAX_OUTPUT_TOKENS"), 1200, "int"),
     }),
     "qwen": ProviderDefinition("qwen", "Qwen", "text_llm", {
         "enabled": FieldDefinition("QWEN_ENABLED", True, "bool"),
         "api_key": FieldDefinition("QWEN_API_KEY", "", "secret"),
         "base_url": FieldDefinition("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
         "model": FieldDefinition("QWEN_MODEL", "qwen-plus"),
-        "timeout_seconds": FieldDefinition("LLM_TIMEOUT_SECONDS", 45, "float"),
-        "retry": FieldDefinition("LLM_MAX_RETRIES", 1, "int"),
-        "max_output_tokens": FieldDefinition("LLM_MAX_OUTPUT_TOKENS", 1200, "int"),
+        "timeout_seconds": FieldDefinition(("QWEN_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS"), 45, "float"),
+        "retry": FieldDefinition(("QWEN_MAX_RETRIES", "LLM_MAX_RETRIES"), 1, "int"),
+        "max_output_tokens": FieldDefinition(("QWEN_MAX_OUTPUT_TOKENS", "LLM_MAX_OUTPUT_TOKENS"), 1200, "int"),
     }),
     "qwen_vl": ProviderDefinition("qwen_vl", "Qwen-VL", "vision_vlm", {
         "enabled": FieldDefinition("QWEN_VL_ENABLED", True, "bool"),
         "api_key": FieldDefinition("QWEN_VL_API_KEY", "", "secret"),
         "base_url": FieldDefinition("QWEN_VL_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
         "model": FieldDefinition("QWEN_VL_MODEL", "qwen-vl-plus"),
-        "timeout_seconds": FieldDefinition("VLM_TIMEOUT_SECONDS", 45, "float"),
-        "retry": FieldDefinition("VLM_MAX_RETRIES", 1, "int"),
-        "max_output_tokens": FieldDefinition("VLM_MAX_OUTPUT_TOKENS", 1200, "int"),
+        "timeout_seconds": FieldDefinition(("QWEN_VL_TIMEOUT_SECONDS", "VLM_TIMEOUT_SECONDS"), 45, "float"),
+        "retry": FieldDefinition(("QWEN_VL_MAX_RETRIES", "VLM_MAX_RETRIES"), 1, "int"),
+        "max_output_tokens": FieldDefinition(("QWEN_VL_MAX_OUTPUT_TOKENS", "VLM_MAX_OUTPUT_TOKENS"), 1200, "int"),
         "supports_json_object": FieldDefinition("QWEN_VL_SUPPORTS_JSON_OBJECT", False, "bool"),
         "disable_thinking": FieldDefinition("QWEN_VL_DISABLE_THINKING", False, "bool"),
     }),
@@ -90,9 +90,9 @@ PROVIDERS: dict[str, ProviderDefinition] = {
         "api_key": FieldDefinition("GLM_V_API_KEY", "", "secret"),
         "base_url": FieldDefinition("GLM_V_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"),
         "model": FieldDefinition("GLM_V_MODEL", "glm-4.5v"),
-        "timeout_seconds": FieldDefinition("VLM_TIMEOUT_SECONDS", 45, "float"),
-        "retry": FieldDefinition("VLM_MAX_RETRIES", 1, "int"),
-        "max_output_tokens": FieldDefinition("VLM_MAX_OUTPUT_TOKENS", 1200, "int"),
+        "timeout_seconds": FieldDefinition(("GLM_V_TIMEOUT_SECONDS", "VLM_TIMEOUT_SECONDS"), 45, "float"),
+        "retry": FieldDefinition(("GLM_V_MAX_RETRIES", "VLM_MAX_RETRIES"), 1, "int"),
+        "max_output_tokens": FieldDefinition(("GLM_V_MAX_OUTPUT_TOKENS", "VLM_MAX_OUTPUT_TOKENS"), 1200, "int"),
         "supports_json_object": FieldDefinition("GLM_V_SUPPORTS_JSON_OBJECT", False, "bool"),
         "disable_thinking": FieldDefinition("GLM_V_DISABLE_THINKING", False, "bool"),
     }),
@@ -101,8 +101,8 @@ PROVIDERS: dict[str, ProviderDefinition] = {
         "api_key": FieldDefinition("QWEN_IMAGE_API_KEY", "", "secret"),
         "base_url": FieldDefinition("QWEN_IMAGE_BASE_URL", "https://dashscope.aliyuncs.com"),
         "model": FieldDefinition("QWEN_IMAGE_MODEL", ""),
-        "timeout_seconds": FieldDefinition("IMAGE_GENERATION_TIMEOUT_SECONDS", 60, "float"),
-        "retry": FieldDefinition(None, 0, "int"),
+        "timeout_seconds": FieldDefinition(("QWEN_IMAGE_TIMEOUT_SECONDS", "IMAGE_GENERATION_TIMEOUT_SECONDS"), 60, "float"),
+        "retry": FieldDefinition(("QWEN_IMAGE_MAX_RETRIES", "IMAGE_GENERATION_MAX_RETRIES"), 0, "int"),
         "request_width": FieldDefinition("QWEN_IMAGE_REQUEST_WIDTH", 1280, "int"),
         "request_height": FieldDefinition("QWEN_IMAGE_REQUEST_HEIGHT", 720, "int"),
         "allowed_domains": FieldDefinition("QWEN_IMAGE_ALLOWED_DOMAINS", "dashscope.aliyuncs.com,aliyuncs.com,oss-cn-hangzhou.aliyuncs.com,oss-cn-beijing.aliyuncs.com,oss-cn-shanghai.aliyuncs.com,oss-cn-shenzhen.aliyuncs.com", "csv"),
@@ -115,8 +115,8 @@ PROVIDERS: dict[str, ProviderDefinition] = {
         "api_key": FieldDefinition("SEEDREAM_API_KEY", "", "secret"),
         "base_url": FieldDefinition("SEEDREAM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
         "model": FieldDefinition("SEEDREAM_MODEL", ""),
-        "timeout_seconds": FieldDefinition("IMAGE_GENERATION_TIMEOUT_SECONDS", 60, "float"),
-        "retry": FieldDefinition(None, 0, "int"),
+        "timeout_seconds": FieldDefinition(("SEEDREAM_TIMEOUT_SECONDS", "IMAGE_GENERATION_TIMEOUT_SECONDS"), 60, "float"),
+        "retry": FieldDefinition(("SEEDREAM_MAX_RETRIES", "IMAGE_GENERATION_MAX_RETRIES"), 0, "int"),
         "request_width": FieldDefinition("SEEDREAM_REQUEST_WIDTH", 1280, "int"),
         "request_height": FieldDefinition("SEEDREAM_REQUEST_HEIGHT", 720, "int"),
         "allowed_domains": FieldDefinition("SEEDREAM_ALLOWED_DOMAINS", "ark.cn-beijing.volces.com", "csv"),
@@ -156,7 +156,7 @@ class ProviderSettingsService:
         fields = {key_name: value for key_name, value in values.items() if key_name != "api_key"}
         warnings = []
         if fields.get("supports_async"):
-            warnings.append("v1.3.3 only supports synchronous image generation; async provider mode is disabled.")
+            warnings.append("v1.3.4 only supports synchronous image generation; async provider mode is disabled.")
         if key_source == "Environment":
             warnings.append("API key comes from Environment and cannot be deleted from the UI.")
         return ProviderPublicSettings(
@@ -244,7 +244,7 @@ class ProviderSettingsService:
         if domains is not None and any(not _valid_hostname(item) for item in domains):
             errors.append("allowed_domains contains an invalid hostname.")
         if provider_id in {"qwen_image", "seedream"} and effective_values.get("supports_async"):
-            raise ValueError("supports_async=true is not supported in v1.3.3.")
+            raise ValueError("supports_async=true is not supported in v1.3.4.")
         base_url = values.get("base_url")
         if base_url:
             try:
@@ -284,6 +284,9 @@ class ProviderSettingsService:
 
     def delete_api_key(self, provider_id: str, request: ProviderApiKeyDeleteRequest) -> ProviderPublicSettings:
         _definition(provider_id)
+        public = self.get_public_settings(provider_id)
+        if public.api_key_source == "Environment":
+            raise ValueError("API key is read-only because it comes from Environment.")
         try:
             data = self.store.delete_api_key(provider_id, expected_revision=request.expected_revision)
         except SecretStoreConflictError:
@@ -339,8 +342,8 @@ class ProviderSettingsService:
             if field_name in ui_config:
                 values[field_name] = _coerce(ui_config[field_name], field_def.kind)
                 source[field_name] = "UI"
-            elif field_def.env and os.getenv(field_def.env) not in (None, ""):
-                values[field_name] = _coerce(os.getenv(field_def.env), field_def.kind)
+            elif (env_value := _first_env_value(field_def.env)) is not None:
+                values[field_name] = _coerce(env_value, field_def.kind)
                 source[field_name] = "Environment"
             else:
                 values[field_name] = _coerce(field_def.default, field_def.kind)
@@ -449,6 +452,17 @@ def _coerce(value: Any, kind: str) -> Any:
             return [str(item).strip().lower() for item in value if str(item).strip()]
         return [item.strip().lower() for item in str(value).split(",") if item.strip()]
     return str(value)
+
+
+def _first_env_value(names: str | tuple[str, ...] | None) -> str | None:
+    if names is None:
+        return None
+    candidates = (names,) if isinstance(names, str) else names
+    for name in candidates:
+        value = os.getenv(name)
+        if value not in (None, ""):
+            return value
+    return None
 
 
 def _valid_hostname(value: str) -> bool:

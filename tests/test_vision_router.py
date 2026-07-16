@@ -192,6 +192,38 @@ def test_vision_router_falls_back_to_glm_and_counts_requests(tmp_path):
     assert runtime.budget.snapshot()["sent_provider_requests"] == 2
 
 
+def test_vision_router_uses_each_provider_retry_and_output_tokens(tmp_path):
+    settings = VisionSettings.from_env(True).model_copy(update={
+        "cache_path": str(tmp_path / "cache.sqlite3"),
+        "cache_enabled": False,
+        "max_retries": 0,
+        "max_output_tokens": 1200,
+    })
+    primary = MockVisionProvider("qwen_vl", error=VisionProviderError("vlm_timeout", "timeout"))
+    fallback_failures = {"count": 0}
+
+    def fallback_error(_request):
+        if fallback_failures["count"] == 0:
+            fallback_failures["count"] += 1
+            return VisionProviderError("vlm_timeout", "glm timeout")
+        return None
+
+    fallback = MockVisionProvider("glm_v", response=_response, error=fallback_error)
+    primary.max_retries = 0
+    primary.max_output_tokens = 444
+    fallback.max_retries = 1
+    fallback.max_output_tokens = 555
+    runtime = create_vision_runtime(settings, [primary, fallback])
+    runtime.budget.try_reserve_entities("paper_figure_analyze", 1)
+
+    result = _request(runtime)
+
+    assert result.value is not None
+    assert result.value.metadata.provider == "glm_v"
+    assert [call.max_output_tokens for call in fallback.calls] == [555, 555]
+    assert runtime.budget.snapshot()["sent_provider_requests"] == 3
+
+
 def test_unexpected_provider_error_is_counted_as_failed_request(tmp_path):
     settings = VisionSettings.from_env(True).model_copy(update={
         "cache_enabled": False, "max_retries": 0,

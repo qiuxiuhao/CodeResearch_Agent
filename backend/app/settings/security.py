@@ -4,6 +4,7 @@ import hmac
 import os
 import time
 from collections import defaultdict, deque
+from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 
@@ -36,17 +37,31 @@ def _validate_origin(request: Request, *, local: bool) -> None:
     if not origin:
         return
     allowed = {
-        item.strip()
+        parsed
         for item in os.getenv(
             "PROVIDER_SETTINGS_ALLOWED_ORIGINS",
             "http://localhost:5173,http://127.0.0.1:5173",
         ).split(",")
-        if item.strip()
+        if (parsed := _parse_origin(item.strip())) is not None
     }
-    if local and origin.startswith(("http://localhost", "http://127.0.0.1")):
-        return
-    if origin not in allowed:
+    parsed_origin = _parse_origin(origin)
+    if parsed_origin is None or parsed_origin not in allowed:
         raise HTTPException(status_code=403, detail="Origin is not allowed for provider settings writes.")
+
+
+def _parse_origin(value: str) -> tuple[str, str, int | None] | None:
+    try:
+        parsed = urlparse(value)
+        port = parsed.port
+    except ValueError:
+        return None
+    if not parsed.scheme or not parsed.hostname:
+        return None
+    if parsed.username or parsed.password or parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+        return None
+    if parsed.scheme not in {"http", "https"}:
+        return None
+    return (parsed.scheme.lower(), parsed.hostname.lower(), port)
 
 
 def _rate_limit(key: str) -> None:

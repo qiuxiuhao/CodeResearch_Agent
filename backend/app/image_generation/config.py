@@ -10,6 +10,8 @@ class ImageProviderSettings(BaseModel):
     api_key: str = ""
     base_url: str
     model: str
+    timeout_seconds: float = Field(default=60, ge=1, le=600)
+    max_retries: int = Field(default=0, ge=0, le=5)
     allowed_domains: list[str] = Field(default_factory=list)
     endpoint_path: str = ""
     workspace: str = ""
@@ -68,7 +70,10 @@ class ImageGenerationSettings(BaseModel):
     ) -> "ImageGenerationSettings":
         qwen_values, qwen_source = _runtime_provider_bundle("qwen_image")
         seedream_values, seedream_source = _runtime_provider_bundle("seedream")
-        provider_values = [(qwen_values, qwen_source), (seedream_values, seedream_source)]
+        qwen_timeout = _provider_float(qwen_values, "timeout_seconds", "IMAGE_GENERATION_TIMEOUT_SECONDS", 60)
+        seedream_timeout = _provider_float(seedream_values, "timeout_seconds", "IMAGE_GENERATION_TIMEOUT_SECONDS", 60)
+        qwen_retries = _provider_int(qwen_values, "retry", "IMAGE_GENERATION_MAX_RETRIES", 0)
+        seedream_retries = _provider_int(seedream_values, "retry", "IMAGE_GENERATION_MAX_RETRIES", 0)
         return cls(
             enabled=_bool_env("IMAGE_GENERATION_ENABLED", False) if enabled is None else enabled,
             external_image_consent=external_image_consent,
@@ -79,6 +84,8 @@ class ImageGenerationSettings(BaseModel):
                 api_key=qwen_values.get("api_key", os.getenv("QWEN_IMAGE_API_KEY", "")),
                 base_url=qwen_values.get("base_url", os.getenv("QWEN_IMAGE_BASE_URL", "https://dashscope.aliyuncs.com")),
                 model=qwen_values.get("model", os.getenv("QWEN_IMAGE_MODEL", "")),
+                timeout_seconds=qwen_timeout,
+                max_retries=qwen_retries,
                 allowed_domains=_list_value(qwen_values.get("allowed_domains"), _csv_env(
                     "QWEN_IMAGE_ALLOWED_DOMAINS",
                     "dashscope.aliyuncs.com,aliyuncs.com,oss-cn-hangzhou.aliyuncs.com,oss-cn-beijing.aliyuncs.com,oss-cn-shanghai.aliyuncs.com,oss-cn-shenzhen.aliyuncs.com",
@@ -98,6 +105,8 @@ class ImageGenerationSettings(BaseModel):
                 api_key=seedream_values.get("api_key", os.getenv("SEEDREAM_API_KEY", "")),
                 base_url=seedream_values.get("base_url", os.getenv("SEEDREAM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")),
                 model=seedream_values.get("model", os.getenv("SEEDREAM_MODEL", "")),
+                timeout_seconds=seedream_timeout,
+                max_retries=seedream_retries,
                 allowed_domains=_list_value(seedream_values.get("allowed_domains"), _csv_env("SEEDREAM_ALLOWED_DOMAINS", "ark.cn-beijing.volces.com")),
                 endpoint_path=seedream_values.get("endpoint_path", os.getenv("SEEDREAM_ENDPOINT_PATH", "/images/generations")),
                 supports_async=False,
@@ -108,8 +117,8 @@ class ImageGenerationSettings(BaseModel):
                 max_request_width=4096,
                 max_request_height=4096,
             ),
-            timeout_seconds=float(_runtime_scalar(provider_values, "timeout_seconds", "IMAGE_GENERATION_TIMEOUT_SECONDS", 60)),
-            max_retries=int(_runtime_scalar(provider_values, "retry", "IMAGE_GENERATION_MAX_RETRIES", 0)),
+            timeout_seconds=_float_env("IMAGE_GENERATION_TIMEOUT_SECONDS", 60),
+            max_retries=_int_env("IMAGE_GENERATION_MAX_RETRIES", 0),
             max_provider_requests=_int_env("TEACHING_IMAGE_MAX_PROVIDER_REQUESTS", _int_env("IMAGE_GENERATION_MAX_PROVIDER_REQUESTS", 8)),
             max_concurrency=1,
             max_single_image_bytes=_int_env("IMAGE_GENERATION_MAX_SINGLE_IMAGE_BYTES", 10_485_760),
@@ -132,6 +141,8 @@ class ImageGenerationSettings(BaseModel):
             "default_image_generation_enabled": self.enabled,
             "default_teaching_review_vlm_enabled": self.teaching_review_vlm_enabled,
             "max_provider_requests": self.max_provider_requests,
+            "teaching_narrative_max_provider_requests": self.teaching_plan_max_llm_requests,
+            "teaching_review_max_provider_requests": self.teaching_review_max_provider_requests,
             "max_concurrency": self.max_concurrency,
             "providers": {
                 "qwen_image": {"configured": self.qwen_image.configured, "model": self.qwen_image.model},
@@ -142,7 +153,7 @@ class ImageGenerationSettings(BaseModel):
                 "并可能产生费用；不会发送完整源码、完整仓库或完整论文。"
             ),
             "async_supported": False,
-            "async_notice": "v1.3.3 仅启用同步生图；IMAGE_TASK_* 配置为预留项。",
+            "async_notice": "v1.3.4 仅启用同步生图；IMAGE_TASK_* 配置为预留项。",
         }
 
 
@@ -188,14 +199,16 @@ def _list_value(value: object, default: list[str]) -> list[str]:
     return [item.strip().lower() for item in str(value).split(",") if item.strip()]
 
 
-def _runtime_scalar(provider_values: list[tuple[dict[str, object], dict[str, str]]], field: str, env_name: str, default: int | float) -> object:
-    for source_name in ("UI", "Environment"):
-        for values, source in provider_values:
-            if values.get("enabled") is False:
-                continue
-            if source.get(field) == source_name:
-                return values[field]
-    return _float_env(env_name, float(default)) if isinstance(default, float) else _int_env(env_name, int(default))
+def _provider_float(values: dict[str, object], field: str, env_name: str, default: float) -> float:
+    if values.get(field) not in (None, ""):
+        return float(values[field])
+    return _float_env(env_name, default)
+
+
+def _provider_int(values: dict[str, object], field: str, env_name: str, default: int) -> int:
+    if values.get(field) not in (None, ""):
+        return int(values[field])
+    return _int_env(env_name, default)
 
 
 def _runtime_provider_bundle(provider_id: str) -> tuple[dict[str, object], dict[str, str]]:

@@ -16,5 +16,7 @@ class QwenProvider(OpenAICompatibleProvider):
             model=settings.model,
             capabilities=ProviderCapabilities(supports_json_object=True),
             timeout_seconds=timeout_seconds,
+            max_retries=settings.max_retries,
+            max_output_tokens=settings.max_output_tokens,
             client=client,
         )

@@ -34,4 +34,6 @@ def test_public_config_exposes_only_safe_limits():
     assert body["default_analysis_mode"] in {"rule", "hybrid"}
     assert "max_total_entities" in body
     assert "max_provider_requests" in body
+    assert body["image_generation"]["teaching_narrative_max_provider_requests"] >= 0
+    assert body["image_generation"]["teaching_review_max_provider_requests"] >= 0
     assert "api_key" not in str(body).lower()

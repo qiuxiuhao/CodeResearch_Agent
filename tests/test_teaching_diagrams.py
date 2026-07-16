@@ -288,6 +288,45 @@ def test_image_router_unknown_provider_exception_counts_failed_request(tmp_path:
     assert budget.snapshot()["sent_provider_requests"] == 1
 
 
+def test_image_router_uses_fallback_provider_own_retry(tmp_path: Path):
+    settings = ImageGenerationSettings.from_env(False).model_copy(update={"cache_enabled": False, "max_retries": 0})
+    qwen = MockImageProvider("qwen_image", error=ImageGenerationError("image_provider_timeout", "timeout"))
+    seedream_failures = {"count": 0}
+
+    def seedream_error(_request):
+        if seedream_failures["count"] == 0:
+            seedream_failures["count"] += 1
+            return ImageGenerationError("image_provider_timeout", "seedream timeout")
+        return None
+
+    seedream = MockImageProvider("seedream", error=seedream_error)
+    qwen.max_retries = 0
+    seedream.max_retries = 1
+    budget = BudgetManager(4, 5)
+    result = ImageGenerationRouter(
+        settings,
+        [qwen, seedream],
+        budget,
+        ImageGenerationCache(str(tmp_path / "cache.sqlite3"), str(tmp_path / "cache"), enabled=False),
+    ).generate(ImageGenerationRequest(
+        diagram_id="td_test",
+        public_spec={"public_spec_hash": "a" * 64},
+        prompt_version="test",
+        schema_version="1.3.3",
+        width=320,
+        height=180,
+        mime_type="image/png",
+        max_output_bytes=1024 * 1024,
+        output_dir=tmp_path,
+    ))
+
+    assert result.image_path is not None
+    assert result.metadata["provider"] == "seedream"
+    assert len(qwen.calls) == 1
+    assert len(seedream.calls) == 2
+    assert budget.snapshot()["sent_provider_requests"] == 3
+
+
 def test_workflow_generates_blueprint_without_external_requests(tmp_path: Path):
     state = run_analysis(
         "examples/small_pytorch_project.zip",

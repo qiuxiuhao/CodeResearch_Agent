@@ -77,7 +77,9 @@ class VisionModelRouter:
                 except (ValidationError, ValueError):
                     warnings.append(_warning("vlm_cache_error", context_id, provider=provider.name))
 
-            for attempt in range(self.settings.max_retries + 1):
+            max_retries = int(getattr(provider, "max_retries", self.settings.max_retries))
+            max_output_tokens = int(getattr(provider, "max_output_tokens", self.settings.max_output_tokens))
+            for attempt in range(max_retries + 1):
                 attempts += 1
                 reservation = self.budget.try_reserve_provider_request(
                     provider.name, "paper_figure_analyze", context_id,
@@ -90,7 +92,7 @@ class VisionModelRouter:
                     response = provider.analyze_figure(VisionRequest(
                         context_id=context_id, system_prompt=system_prompt, input_payload=input_payload,
                         image_bytes=image_bytes, mime_type=mime_type, response_model=FigureAnalysis,
-                        max_output_tokens=self.settings.max_output_tokens,
+                        max_output_tokens=max_output_tokens,
                     ))
                     value = FigureAnalysis.model_validate(response.data)
                     _validate_value(value, context_id, valid_evidence, valid_contributions)
@@ -160,7 +162,9 @@ class VisionModelRouter:
             return VisionRouterResult(None, [_warning_for_task(task_type, "vlm_provider_unconfigured", context_id, message="Vision provider is not configured.")])
         attempts = 0
         for provider_index, provider in available:
-            for attempt in range(self.settings.max_retries + 1):
+            max_retries = int(getattr(provider, "max_retries", self.settings.max_retries))
+            max_output_tokens = int(getattr(provider, "max_output_tokens", self.settings.max_output_tokens))
+            for attempt in range(max_retries + 1):
                 attempts += 1
                 reservation = self.budget.try_reserve_provider_request(
                     provider.name,
@@ -180,7 +184,7 @@ class VisionModelRouter:
                         image_bytes=image_bytes,
                         mime_type=mime_type,
                         response_model=response_model,
-                        max_output_tokens=self.settings.max_output_tokens,
+                        max_output_tokens=max_output_tokens,
                     ))
                     value = response_model.model_validate(response.data)
                     if validator:

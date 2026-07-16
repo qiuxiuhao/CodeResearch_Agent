@@ -274,6 +274,8 @@ export type ImageGenerationPublicConfig = {
   default_image_generation_enabled: boolean;
   default_teaching_review_vlm_enabled: boolean;
   max_provider_requests: number;
+  teaching_narrative_max_provider_requests?: number;
+  teaching_review_max_provider_requests?: number;
   max_concurrency: number;
   providers: Record<string, { configured: boolean; model: string }>;
   external_image_notice: string;

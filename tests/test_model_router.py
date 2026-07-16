@@ -36,6 +36,43 @@ def test_router_falls_back_and_counts_real_requests(tmp_path):
     assert budget.snapshot()["sent_provider_requests"] == 2
 
 
+def test_router_uses_fallback_provider_own_retry_and_output_tokens(tmp_path):
+    settings = LLMSettings.from_env("hybrid").model_copy(update={
+        "cache_path": str(tmp_path / "cache.sqlite3"),
+        "cache_enabled": False,
+        "max_retries": 0,
+        "max_output_tokens": 1200,
+    })
+    budget = BudgetManager(5, 5)
+    primary = MockProvider("deepseek", error=ProviderError("llm_timeout", "timeout"))
+    backup_failures = {"count": 0}
+
+    def backup_error(_request):
+        if backup_failures["count"] == 0:
+            backup_failures["count"] += 1
+            return ProviderError("llm_timeout", "qwen timeout")
+        return None
+
+    backup = MockProvider("qwen", responses={"file_explain": _response()}, error=backup_error)
+    primary.max_retries = 0
+    primary.max_output_tokens = 111
+    backup.max_retries = 1
+    backup.max_output_tokens = 33
+    router = ModelRouter(settings, [primary, backup], budget, LLMCache(settings.cache_path, enabled=False))
+    evidence = [make_evidence("file:main.py", "file_rule", "入口", file_path="main.py")]
+
+    result = router.generate_structured(
+        task_type="file_explain", context_id="main.py", system_prompt="system",
+        input_payload={"evidence_catalog": [item.model_dump() for item in evidence]},
+        response_model=FileLLMExplanation, evidence_catalog=evidence,
+    )
+
+    assert result.value is not None
+    assert result.value.metadata.provider == "qwen"
+    assert [call.max_output_tokens for call in backup.calls] == [33, 33]
+    assert budget.snapshot()["sent_provider_requests"] == 3
+
+
 def test_router_cache_hit_uses_no_second_request(tmp_path):
     settings = LLMSettings.from_env("hybrid").model_copy(update={"cache_path": str(tmp_path / "cache.sqlite3"), "max_retries": 0})
     budget = BudgetManager(5, 5)

@@ -12,6 +12,9 @@ class VisionProviderSettings(BaseModel):
     api_key: str = ""
     base_url: str
     model: str
+    timeout_seconds: float = Field(default=45, ge=1, le=300)
+    max_retries: int = Field(default=1, ge=0, le=5)
+    max_output_tokens: int = Field(default=1200, ge=128, le=16000)
     supports_json_object: bool = False
     disable_thinking: bool = False
 
@@ -54,13 +57,21 @@ class VisionSettings(BaseModel):
         pdf_safety = PDFSafetySettings.from_env()
         qwen_values, qwen_source = _runtime_provider_bundle("qwen_vl")
         glm_values, glm_source = _runtime_provider_bundle("glm_v")
-        provider_values = [(qwen_values, qwen_source), (glm_values, glm_source)]
+        qwen_timeout = _provider_float(qwen_values, "timeout_seconds", "VLM_TIMEOUT_SECONDS", 45)
+        glm_timeout = _provider_float(glm_values, "timeout_seconds", "VLM_TIMEOUT_SECONDS", 45)
+        qwen_retries = _provider_int(qwen_values, "retry", "VLM_MAX_RETRIES", 1)
+        glm_retries = _provider_int(glm_values, "retry", "VLM_MAX_RETRIES", 1)
+        qwen_tokens = _provider_int(qwen_values, "max_output_tokens", "VLM_MAX_OUTPUT_TOKENS", 1200)
+        glm_tokens = _provider_int(glm_values, "max_output_tokens", "VLM_MAX_OUTPUT_TOKENS", 1200)
         return cls(
             enabled=_bool_env("VISION_VLM_ENABLED", False) if enabled is None else enabled,
             qwen_vl=VisionProviderSettings(
                 name="qwen_vl", api_key=qwen_values.get("api_key", os.getenv("QWEN_VL_API_KEY", "")),
                 base_url=qwen_values.get("base_url", os.getenv("QWEN_VL_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")),
                 model=qwen_values.get("model", os.getenv("QWEN_VL_MODEL", "qwen-vl-plus")),
+                timeout_seconds=qwen_timeout,
+                max_retries=qwen_retries,
+                max_output_tokens=qwen_tokens,
                 supports_json_object=_bool_value(qwen_values.get("supports_json_object"), _bool_env("QWEN_VL_SUPPORTS_JSON_OBJECT", False)),
                 disable_thinking=_bool_value(qwen_values.get("disable_thinking"), _bool_env("QWEN_VL_DISABLE_THINKING", False)),
             ),
@@ -68,11 +79,14 @@ class VisionSettings(BaseModel):
                 name="glm_v", api_key=glm_values.get("api_key", os.getenv("GLM_V_API_KEY", "")),
                 base_url=glm_values.get("base_url", os.getenv("GLM_V_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")),
                 model=glm_values.get("model", os.getenv("GLM_V_MODEL", "glm-4.5v")),
+                timeout_seconds=glm_timeout,
+                max_retries=glm_retries,
+                max_output_tokens=glm_tokens,
                 supports_json_object=_bool_value(glm_values.get("supports_json_object"), _bool_env("GLM_V_SUPPORTS_JSON_OBJECT", False)),
                 disable_thinking=_bool_value(glm_values.get("disable_thinking"), _bool_env("GLM_V_DISABLE_THINKING", False)),
             ),
-            timeout_seconds=float(_runtime_scalar(provider_values, "timeout_seconds", "VLM_TIMEOUT_SECONDS", 45)),
-            max_retries=int(_runtime_scalar(provider_values, "retry", "VLM_MAX_RETRIES", 1)),
+            timeout_seconds=_float_env("VLM_TIMEOUT_SECONDS", 45),
+            max_retries=_int_env("VLM_MAX_RETRIES", 1),
             max_figure_analyses=_int_env("VLM_MAX_FIGURE_ANALYSES", 5),
             max_provider_requests=_int_env("VLM_MAX_PROVIDER_REQUESTS", 10),
             max_concurrency=_int_env("VLM_MAX_CONCURRENCY", 2),
@@ -80,7 +94,7 @@ class VisionSettings(BaseModel):
             max_total_image_bytes=_int_env("VLM_MAX_TOTAL_IMAGE_BYTES", 31_457_280),
             max_image_width=_int_env("VLM_MAX_IMAGE_WIDTH", 4096),
             max_image_height=_int_env("VLM_MAX_IMAGE_HEIGHT", 4096),
-            max_output_tokens=int(_runtime_scalar(provider_values, "max_output_tokens", "VLM_MAX_OUTPUT_TOKENS", 1200)),
+            max_output_tokens=_int_env("VLM_MAX_OUTPUT_TOKENS", 1200),
             cache_enabled=_bool_env("VLM_CACHE_ENABLED", True),
             cache_path=os.getenv("VLM_CACHE_PATH", "data/vlm_figure_cache.sqlite3"),
             prompt_version=os.getenv("VLM_PROMPT_VERSION", "1.2.0"),
@@ -139,14 +153,16 @@ def _bool_value(value: object, default: bool) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _runtime_scalar(provider_values: list[tuple[dict[str, object], dict[str, str]]], field: str, env_name: str, default: int | float) -> object:
-    for source_name in ("UI", "Environment"):
-        for values, source in provider_values:
-            if values.get("enabled") is False:
-                continue
-            if source.get(field) == source_name:
-                return values[field]
-    return _float_env(env_name, float(default)) if isinstance(default, float) else _int_env(env_name, int(default))
+def _provider_float(values: dict[str, object], field: str, env_name: str, default: float) -> float:
+    if values.get(field) not in (None, ""):
+        return float(values[field])
+    return _float_env(env_name, default)
+
+
+def _provider_int(values: dict[str, object], field: str, env_name: str, default: int) -> int:
+    if values.get(field) not in (None, ""):
+        return int(values[field])
+    return _int_env(env_name, default)
 
 
 def _runtime_provider_bundle(provider_id: str) -> tuple[dict[str, object], dict[str, str]]:

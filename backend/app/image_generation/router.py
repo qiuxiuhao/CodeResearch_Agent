@@ -75,7 +75,8 @@ class ImageGenerationRouter:
                 except Exception:
                     warnings.append(_warning("image_cache_error", request.diagram_id, provider=provider.name))
 
-            for attempt in range(self.settings.max_retries + 1):
+            max_retries = int(getattr(provider, "max_retries", self.settings.max_retries))
+            for attempt in range(max_retries + 1):
                 reservation = self.budget.try_reserve_provider_request(
                     provider.name, "teaching_image_generate", request.diagram_id,
                     retry=attempt > 0,
@@ -91,7 +92,7 @@ class ImageGenerationRouter:
                     if response.remote_url:
                         downloader = SafeImageDownloader(
                             getattr(provider, "allowed_domains", []),
-                            timeout_seconds=self.settings.timeout_seconds,
+                            timeout_seconds=float(getattr(provider, "timeout_seconds", self.settings.timeout_seconds)),
                             max_bytes=request.max_output_bytes,
                         )
                         image_bytes, mime_type = downloader.download(response.remote_url)

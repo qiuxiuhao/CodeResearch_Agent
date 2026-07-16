@@ -21,6 +21,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         model: str,
         capabilities: ProviderCapabilities,
         timeout_seconds: float,
+        max_retries: int = 1,
+        max_output_tokens: int = 1200,
         client: httpx.Client | None = None,
     ) -> None:
         self.name = name
@@ -29,6 +31,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         self.model = model
         self.capabilities = capabilities
         self.timeout_seconds = timeout_seconds
+        self.max_retries = max_retries
+        self.max_output_tokens = max_output_tokens
         self._client = client
 
     @property

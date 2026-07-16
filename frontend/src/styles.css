@@ -845,6 +845,34 @@ input[type="checkbox"]:disabled {
   color: var(--color-text-muted);
 }
 
+.tag-input {
+  display: grid;
+  gap: 8px;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 28px;
+}
+
+.tag-chip {
+  min-height: 28px;
+  border: 1px solid rgba(61, 183, 232, 0.48);
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: rgba(20, 98, 138, 0.36);
+  color: var(--color-text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tag-chip:hover {
+  border-color: rgba(255, 107, 122, 0.65);
+  color: #ffd8dc;
+}
+
 .switch-label {
   display: inline-flex !important;
   align-items: center;

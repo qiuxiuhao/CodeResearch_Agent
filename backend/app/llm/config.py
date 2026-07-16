@@ -14,6 +14,9 @@ class ProviderSettings(BaseModel):
     api_key: str = ""
     base_url: str
     model: str
+    timeout_seconds: float = Field(default=45, ge=1, le=300)
+    max_retries: int = Field(default=1, ge=0, le=5)
+    max_output_tokens: int = Field(default=1200, ge=128, le=16000)
 
     @property
     def configured(self) -> bool:
@@ -64,7 +67,12 @@ class LLMSettings(BaseModel):
         resolved_mode = "hybrid" if enabled else "rule"
         deepseek_values, deepseek_source = _runtime_provider_bundle("deepseek")
         qwen_values, qwen_source = _runtime_provider_bundle("qwen")
-        provider_values = [(deepseek_values, deepseek_source), (qwen_values, qwen_source)]
+        deepseek_timeout = _provider_float(deepseek_values, "timeout_seconds", "LLM_TIMEOUT_SECONDS", 45)
+        qwen_timeout = _provider_float(qwen_values, "timeout_seconds", "LLM_TIMEOUT_SECONDS", 45)
+        deepseek_retries = _provider_int(deepseek_values, "retry", "LLM_MAX_RETRIES", 1)
+        qwen_retries = _provider_int(qwen_values, "retry", "LLM_MAX_RETRIES", 1)
+        deepseek_tokens = _provider_int(deepseek_values, "max_output_tokens", "LLM_MAX_OUTPUT_TOKENS", 1200)
+        qwen_tokens = _provider_int(qwen_values, "max_output_tokens", "LLM_MAX_OUTPUT_TOKENS", 1200)
         return cls(
             analysis_mode=resolved_mode,
             text_llm_enabled=enabled,
@@ -74,17 +82,23 @@ class LLMSettings(BaseModel):
                 api_key=deepseek_values.get("api_key", os.getenv("DEEPSEEK_API_KEY", "")),
                 base_url=deepseek_values.get("base_url", os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")),
                 model=deepseek_values.get("model", os.getenv("DEEPSEEK_MODEL", "deepseek-chat")),
+                timeout_seconds=deepseek_timeout,
+                max_retries=deepseek_retries,
+                max_output_tokens=deepseek_tokens,
             ),
             qwen=ProviderSettings(
                 name="qwen",
                 api_key=qwen_values.get("api_key", os.getenv("QWEN_API_KEY", "")),
                 base_url=qwen_values.get("base_url", os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")),
                 model=qwen_values.get("model", os.getenv("QWEN_MODEL", "qwen-plus")),
+                timeout_seconds=qwen_timeout,
+                max_retries=qwen_retries,
+                max_output_tokens=qwen_tokens,
             ),
-            timeout_seconds=float(_runtime_scalar(provider_values, "timeout_seconds", "LLM_TIMEOUT_SECONDS", 45)),
-            max_retries=int(_runtime_scalar(provider_values, "retry", "LLM_MAX_RETRIES", 1)),
+            timeout_seconds=_float_env("LLM_TIMEOUT_SECONDS", 45),
+            max_retries=_int_env("LLM_MAX_RETRIES", 1),
             max_input_chars=_int_env("LLM_MAX_INPUT_CHARS", 12000),
-            max_output_tokens=int(_runtime_scalar(provider_values, "max_output_tokens", "LLM_MAX_OUTPUT_TOKENS", 1200)),
+            max_output_tokens=_int_env("LLM_MAX_OUTPUT_TOKENS", 1200),
             max_function_explanations=_int_env("LLM_MAX_FUNCTION_EXPLANATIONS", 20),
             max_file_explanations=_int_env("LLM_MAX_FILE_EXPLANATIONS", 10),
             max_model_explanations=_int_env("LLM_MAX_MODEL_EXPLANATIONS", 5),
@@ -136,14 +150,16 @@ def _bool_env(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _runtime_scalar(provider_values: list[tuple[dict[str, object], dict[str, str]]], field: str, env_name: str, default: int | float) -> object:
-    for source_name in ("UI", "Environment"):
-        for values, source in provider_values:
-            if values.get("enabled") is False:
-                continue
-            if source.get(field) == source_name:
-                return values[field]
-    return _float_env(env_name, float(default)) if isinstance(default, float) else _int_env(env_name, int(default))
+def _provider_float(values: dict[str, object], field: str, env_name: str, default: float) -> float:
+    if values.get(field) not in (None, ""):
+        return float(values[field])
+    return _float_env(env_name, default)
+
+
+def _provider_int(values: dict[str, object], field: str, env_name: str, default: int) -> int:
+    if values.get(field) not in (None, ""):
+        return int(values[field])
+    return _int_env(env_name, default)
 
 
 def _runtime_provider_bundle(provider_id: str) -> tuple[dict[str, object], dict[str, str]]:

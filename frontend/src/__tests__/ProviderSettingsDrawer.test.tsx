@@ -38,15 +38,28 @@ test("hides async image option and never writes browser storage", async () => {
   expect(localRemove).not.toHaveBeenCalled();
 });
 
-function provider(id: string, display_name: string, group: string, revision: number) {
+test("disables delete for environment api key", async () => {
+  const fetchMock = vi.fn(async () => jsonResponse({
+    revision: 1,
+    providers: [provider("deepseek", "DeepSeek", "text_llm", 1, "Environment")]
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<ProviderSettingsDrawer open onClose={vi.fn()} />);
+
+  expect(await screen.findByText("环境变量 Key 不能从 UI 删除。")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /删除 Key/ })).toBeDisabled();
+});
+
+function provider(id: string, display_name: string, group: string, revision: number, api_key_source: "UI" | "Environment" | "None" = id === "qwen_image" ? "UI" : "None") {
   return {
     id,
     display_name,
     group,
     enabled: true,
-    configured: id === "qwen_image",
+    configured: api_key_source !== "None",
     masked_key: "****1234",
-    api_key_source: id === "qwen_image" ? "UI" : "None",
+    api_key_source,
     revision,
     source: {
       base_url: "Default",

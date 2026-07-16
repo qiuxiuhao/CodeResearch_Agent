@@ -21,8 +21,8 @@ class VisionRuntime:
 def create_vision_runtime(settings: VisionSettings, providers: list[BaseVisionProvider] | None = None) -> VisionRuntime:
     budget = BudgetManager(settings.max_figure_analyses, settings.max_provider_requests)
     configured_providers = providers or [
-        QwenVLProvider(settings.qwen_vl, settings.timeout_seconds),
-        GLMVProvider(settings.glm_v, settings.timeout_seconds),
+        QwenVLProvider(settings.qwen_vl, settings.qwen_vl.timeout_seconds),
+        GLMVProvider(settings.glm_v, settings.glm_v.timeout_seconds),
     ]
     cache = VisionCache(settings.cache_path, settings.cache_enabled)
     return VisionRuntime(settings, budget, VisionModelRouter(settings, configured_providers, budget, cache))

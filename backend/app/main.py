@@ -35,7 +35,7 @@ from backend.app.settings.secret_store import SecretStoreConflictError, SecretSt
 from backend.app.settings.security import require_settings_write_access
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.3.3")
+app = FastAPI(title="CodeResearch Agent", version="1.3.4")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

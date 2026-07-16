@@ -273,7 +273,7 @@ export function TaskForm({ onTaskCreated, onError, onOpenSettings }: Props) {
               <p>
                 最多选择逻辑分析实体：{llmConfig?.max_total_entities ?? 30}；
                 最多发送外部 Provider 请求：{llmConfig?.max_provider_requests ?? 60}；
-                教学文案最多请求：4；
+                教学文案最多请求：{llmConfig?.image_generation?.teaching_narrative_max_provider_requests ?? 4}；
                 最大并发：{llmConfig?.max_concurrency ?? 2}。
               </p>
               <p className="muted">逻辑实体数不是 API 请求数；重试和 fallback 会增加真实请求，缓存命中不会发送请求。</p>
@@ -352,7 +352,7 @@ export function TaskForm({ onTaskCreated, onError, onOpenSettings }: Props) {
             <div className="consent-panel vision-consent-panel">
               <p>本地合成后的教学图图片和脱敏 public spec 可能发送到外部视觉模型服务商。</p>
               <p>
-                最多发送审查 Provider 请求：{llmConfig?.image_generation?.max_provider_requests ?? 8}；
+                最多发送审查 Provider 请求：{llmConfig?.image_generation?.teaching_review_max_provider_requests ?? 8}；
                 缓存命中不会发送请求。
               </p>
               <label className="checkbox-label">

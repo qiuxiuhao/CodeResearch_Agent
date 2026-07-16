@@ -24,8 +24,8 @@ def create_image_generation_runtime(
 ) -> ImageGenerationRuntime:
     budget = BudgetManager(4, settings.max_provider_requests)
     configured_providers = providers or [
-        QwenImageProvider(settings.qwen_image, settings.timeout_seconds),
-        SeedreamProvider(settings.seedream, settings.timeout_seconds),
+        QwenImageProvider(settings.qwen_image, settings.qwen_image.timeout_seconds),
+        SeedreamProvider(settings.seedream, settings.seedream.timeout_seconds),
     ]
     cache = ImageGenerationCache(settings.cache_path, settings.cache_asset_root, enabled=settings.cache_enabled)
     return ImageGenerationRuntime(settings, budget, ImageGenerationRouter(settings, configured_providers, budget, cache))

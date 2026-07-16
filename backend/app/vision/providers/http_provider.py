@@ -28,6 +28,8 @@ class HTTPVisionProvider(BaseVisionProvider):
         self.model = settings.model
         self.disable_thinking = settings.disable_thinking
         self.timeout_seconds = timeout_seconds
+        self.max_retries = settings.max_retries
+        self.max_output_tokens = settings.max_output_tokens
         self._client = client
         self.capabilities = VisionProviderCapabilities(
             supports_json_schema=False,
