@@ -18,6 +18,7 @@ from backend.app.services.analysis_service import (
     run_analysis,
     summarize_state,
 )
+from backend.app.services.analysis_options import AnalysisOptionsError, resolve_analysis_options
 from backend.app.agents.graph import ANALYSIS_GRAPH_STEPS, ProgressCallback
 from backend.app.services.library_function_service import LibraryFunctionService
 from backend.app.services.task_progress import new_task_id, progress_store
@@ -496,30 +497,22 @@ def _validate_external_ai_consents(
     teaching_narrative_enabled: bool | None = None,
     teaching_review_consent: bool = False,
 ) -> None:
-    resolved_text_consent = legacy_consent if text_consent is None else text_consent
-    llm_settings = LLMSettings.from_env(analysis_mode, text_enabled, teaching_narrative_enabled)
-    if llm_settings.text_llm_enabled and not resolved_text_consent:
-        raise HTTPException(
-            status_code=400,
-            detail="text_llm_enabled=true requires external_text_consent=true (legacy external_model_consent=true).",
+    try:
+        resolve_analysis_options(
+            analysis_mode=analysis_mode,
+            external_model_consent=legacy_consent,
+            text_llm_enabled=text_enabled,
+            teaching_narrative_llm_enabled=teaching_narrative_enabled,
+            vision_vlm_enabled=vision_enabled,
+            external_text_consent=text_consent,
+            external_vision_consent=vision_consent,
+            image_generation_enabled=image_enabled,
+            external_image_consent=image_consent,
+            teaching_review_vlm_enabled=teaching_review_enabled,
+            external_teaching_review_consent=teaching_review_consent,
         )
-    if llm_settings.teaching_narrative_llm_enabled and not resolved_text_consent:
-        raise HTTPException(
-            status_code=400,
-            detail="teaching_narrative_llm_enabled=true requires external_text_consent=true.",
-        )
-    if VisionSettings.from_env(vision_enabled).enabled and not vision_consent:
-        raise HTTPException(status_code=400, detail="vision_vlm_enabled=true requires external_vision_consent=true.")
-    resolved_review_enabled = _resolve_teaching_review_enabled(teaching_review_enabled, teaching_review_consent)
-    image_settings = ImageGenerationSettings.from_env(image_enabled, image_consent, resolved_review_enabled)
-    if image_settings.enabled and not image_consent:
-        raise HTTPException(status_code=400, detail="image_generation_enabled=true requires external_image_consent=true.")
-    if image_settings.teaching_review_vlm_enabled and not image_settings.enabled:
-        raise HTTPException(status_code=422, detail="teaching_review_vlm_enabled=true requires image_generation_enabled=true.")
-    if image_settings.teaching_review_vlm_enabled and not image_consent:
-        raise HTTPException(status_code=422, detail="teaching_review_vlm_enabled=true requires external_image_consent=true.")
-    if image_settings.teaching_review_vlm_enabled and not teaching_review_consent:
-        raise HTTPException(status_code=422, detail="teaching_review_vlm_enabled=true requires external_teaching_review_consent=true.")
+    except AnalysisOptionsError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 def _run_analysis_with_llm_options(
@@ -609,17 +602,6 @@ def _progress_callback_for(task_id: str) -> ProgressCallback:
         progress_store.update_node(task_id, event, node_id, label, index, total, state, exc)
 
     return callback
-
-
-def _resolve_teaching_review_enabled(
-    teaching_review_enabled: bool | None,
-    teaching_review_consent: bool,
-) -> bool | None:
-    if teaching_review_enabled is not None:
-        return teaching_review_enabled
-    if not teaching_review_consent:
-        return False
-    return None
 
 
 async def _save_upload_limited(
