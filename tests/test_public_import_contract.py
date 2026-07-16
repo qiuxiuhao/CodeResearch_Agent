@@ -62,3 +62,15 @@ def test_known_internal_cleanup_candidates_are_not_public_exports() -> None:
     exported = set(getattr(schemas, "__all__", ())) | set(getattr(services, "__all__", ()))
     exported |= set(getattr(exceptions, "__all__", ()))
     assert internal_names.isdisjoint(exported)
+
+
+def test_v135_compatibility_fields_and_sync_routes_are_deprecated_in_openapi() -> None:
+    schema = app.openapi()
+    components = schema["components"]["schemas"]
+    for model_name in ("ProviderSettingsUpdateRequest", "ProviderValidateRequest"):
+        assert components[model_name]["properties"]["supports_async"]["deprecated"] is True
+    request_fields = components["AnalysisTaskRequest"]["properties"]
+    assert request_fields["analysis_mode"]["deprecated"] is True
+    assert request_fields["external_model_consent"]["deprecated"] is True
+    assert schema["paths"]["/analysis/tasks"]["post"]["deprecated"] is True
+    assert schema["paths"]["/analysis/tasks/upload"]["post"]["deprecated"] is True

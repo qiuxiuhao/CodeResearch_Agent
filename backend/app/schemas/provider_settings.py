@@ -44,7 +44,11 @@ class ProviderSettingsUpdateRequest(BaseModel):
     allowed_domains: list[str] | None = None
     endpoint_path: str | None = None
     workspace: str | None = None
-    supports_async: bool | None = None
+    supports_async: bool | None = Field(
+        default=None,
+        deprecated=True,
+        description="Deprecated compatibility field. false is ignored; true is rejected. Removed in v1.4.",
+    )
     supports_json_object: bool | None = None
     disable_thinking: bool | None = None
     allow_custom_base_url: bool | None = None
@@ -67,7 +71,11 @@ class ProviderValidateRequest(BaseModel):
     request_height: int | None = None
     allowed_domains: list[str] | None = None
     endpoint_path: str | None = None
-    supports_async: bool | None = None
+    supports_async: bool | None = Field(
+        default=None,
+        deprecated=True,
+        description="Deprecated compatibility field. false is ignored; true is rejected. Removed in v1.4.",
+    )
     supports_json_object: bool | None = None
     disable_thinking: bool | None = None
     allow_custom_base_url: bool = False

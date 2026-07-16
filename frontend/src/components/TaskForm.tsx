@@ -152,8 +152,6 @@ export function TaskForm({ onTaskCreated, onError, onOpenSettings }: Props) {
               zip_path: zipPath,
               output_root: "outputs",
               paper_pdf_path: paperPath || null,
-              analysis_mode: textLLMEnabled ? "hybrid" : "rule",
-              external_model_consent: externalTextConsent,
               text_llm_enabled: textLLMEnabled,
               teaching_narrative_llm_enabled: teachingNarrativeLLMEnabled,
               vision_vlm_enabled: visionVLMEnabled,
@@ -190,8 +188,6 @@ export function TaskForm({ onTaskCreated, onError, onOpenSettings }: Props) {
     const formData = new FormData();
     formData.append("zip_file", zipFile);
     formData.append("output_root", "outputs");
-    formData.append("analysis_mode", textLLMEnabled ? "hybrid" : "rule");
-    formData.append("external_model_consent", String(externalTextConsent));
     formData.append("text_llm_enabled", String(textLLMEnabled));
     formData.append("teaching_narrative_llm_enabled", String(teachingNarrativeLLMEnabled));
     formData.append("vision_vlm_enabled", String(visionVLMEnabled));

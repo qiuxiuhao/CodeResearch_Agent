@@ -248,6 +248,36 @@ def test_provider_settings_rejects_async_image_mode(monkeypatch, tmp_path: Path)
     assert "supports_async" in save.json()["detail"]
 
 
+def test_provider_settings_accepts_false_async_compat_without_persisting(monkeypatch, tmp_path: Path):
+    store_path = tmp_path / "secrets.json"
+    monkeypatch.setenv("CODE_RESEARCH_AGENT_SECRET_STORE_PATH", str(store_path))
+
+    with TestClient(app) as client:
+        saved = client.put("/settings/providers/qwen_image", json={
+            "expected_revision": 0,
+            "supports_async": False,
+        })
+
+    assert saved.status_code == 200
+    assert "supports_async" not in saved.json()["fields"]
+    assert "supports_async" not in store_path.read_text(encoding="utf-8")
+
+
+def test_legacy_secret_store_async_value_is_ignored(monkeypatch, tmp_path: Path):
+    store_path = tmp_path / "secrets.json"
+    store_path.write_text(
+        '{"schema_version":1,"revision":4,"providers":{"qwen_image":{"config":{"supports_async":true}}}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODE_RESEARCH_AGENT_SECRET_STORE_PATH", str(store_path))
+
+    with TestClient(app) as client:
+        public = client.get("/settings/providers").json()
+
+    image = next(item for item in public["providers"] if item["id"] == "qwen_image")
+    assert "supports_async" not in image["fields"]
+
+
 def test_provider_settings_rejects_empty_allowed_domains(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("CODE_RESEARCH_AGENT_SECRET_STORE_PATH", str(tmp_path / "secrets.json"))
 

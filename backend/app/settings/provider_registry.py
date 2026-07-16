@@ -75,7 +75,6 @@ PROVIDERS: dict[str, ProviderDefinition] = {
         "allowed_domains": FieldDefinition("QWEN_IMAGE_ALLOWED_DOMAINS", "dashscope.aliyuncs.com,aliyuncs.com,oss-cn-hangzhou.aliyuncs.com,oss-cn-beijing.aliyuncs.com,oss-cn-shanghai.aliyuncs.com,oss-cn-shenzhen.aliyuncs.com", "csv"),
         "endpoint_path": FieldDefinition("QWEN_IMAGE_ENDPOINT_PATH", "/api/v1/services/aigc/multimodal-generation/generation"),
         "workspace": FieldDefinition("QWEN_IMAGE_WORKSPACE", ""),
-        "supports_async": FieldDefinition("QWEN_IMAGE_SUPPORTS_ASYNC", False, "bool"),
     }),
     "seedream": ProviderDefinition("seedream", "Seedream", "image_generation", {
         "enabled": FieldDefinition("SEEDREAM_ENABLED", True, "bool"),
@@ -89,7 +88,6 @@ PROVIDERS: dict[str, ProviderDefinition] = {
         "allowed_domains": FieldDefinition("SEEDREAM_ALLOWED_DOMAINS", "ark.cn-beijing.volces.com", "csv"),
         "endpoint_path": FieldDefinition("SEEDREAM_ENDPOINT_PATH", "/images/generations"),
         "workspace": FieldDefinition(None, ""),
-        "supports_async": FieldDefinition("SEEDREAM_SUPPORTS_ASYNC", False, "bool"),
     }),
 }
 

@@ -90,7 +90,8 @@ test("text and vision AI switches show independent budgets and require independe
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
   const request = fetchMock.mock.calls[2][1];
   if (!request) throw new Error("expected task creation request options");
-  expect(String(request.body)).toContain('"external_model_consent":true');
+  expect(String(request.body)).not.toContain('"external_model_consent"');
+  expect(String(request.body)).not.toContain('"analysis_mode"');
   expect(String(request.body)).toContain('"text_llm_enabled":true');
 
   fireEvent.change(screen.getByLabelText("论文 PDF 路径（可选）"), { target: { value: "paper.pdf" } });

@@ -279,8 +279,6 @@ export type ImageGenerationPublicConfig = {
   max_concurrency: number;
   providers: Record<string, { configured: boolean; model: string }>;
   external_image_notice: string;
-  async_supported?: boolean;
-  async_notice?: string;
 };
 
 export type FigureAnalysis = {
@@ -429,7 +427,6 @@ export type ProviderSettingsPayload = {
   allowed_domains?: string[];
   endpoint_path?: string;
   workspace?: string;
-  supports_async?: boolean;
   supports_json_object?: boolean;
   disable_thinking?: boolean;
   allow_custom_base_url?: boolean;

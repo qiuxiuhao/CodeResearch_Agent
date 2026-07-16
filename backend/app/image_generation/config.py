@@ -17,7 +17,6 @@ class ImageProviderSettings(BaseModel):
     allowed_domains: list[str] = Field(default_factory=list)
     endpoint_path: str = ""
     workspace: str = ""
-    supports_async: bool = False
     request_width: int = Field(default=1280, ge=64, le=4096)
     request_height: int = Field(default=720, ge=64, le=4096)
     min_request_width: int = Field(default=64, ge=1, le=4096)
@@ -57,9 +56,6 @@ class ImageGenerationSettings(BaseModel):
     cache_asset_root: str = "data/image_generation_cache"
     prompt_version: str = "1.3.3"
     schema_version: str = "1.3.3"
-    task_max_poll_seconds: float = Field(default=90, ge=1, le=3600)
-    task_poll_interval_seconds: float = Field(default=2, ge=0.1, le=120)
-    task_max_poll_attempts: int = Field(default=45, ge=1, le=1000)
     teaching_plan_max_llm_requests: int = Field(default=4, ge=0, le=1000)
     teaching_review_max_provider_requests: int = Field(default=8, ge=0, le=1000)
 
@@ -87,7 +83,6 @@ class ImageGenerationSettings(BaseModel):
                 allowed_domains=list(qwen_values["allowed_domains"]),
                 endpoint_path=str(qwen_values["endpoint_path"]),
                 workspace=str(qwen_values["workspace"]),
-                supports_async=False,
                 request_width=int(qwen_values["request_width"]),
                 request_height=int(qwen_values["request_height"]),
                 min_request_width=256,
@@ -104,7 +99,6 @@ class ImageGenerationSettings(BaseModel):
                 max_retries=int(seedream_values["retry"]),
                 allowed_domains=list(seedream_values["allowed_domains"]),
                 endpoint_path=str(seedream_values["endpoint_path"]),
-                supports_async=False,
                 request_width=int(seedream_values["request_width"]),
                 request_height=int(seedream_values["request_height"]),
                 min_request_width=256,
@@ -124,9 +118,6 @@ class ImageGenerationSettings(BaseModel):
             cache_asset_root=os.getenv("IMAGE_GENERATION_CACHE_ASSET_ROOT", "data/image_generation_cache"),
             prompt_version=os.getenv("IMAGE_GENERATION_PROMPT_VERSION", "1.3.3"),
             schema_version=os.getenv("IMAGE_GENERATION_SCHEMA_VERSION", "1.3.3"),
-            task_max_poll_seconds=_float_env("IMAGE_TASK_MAX_POLL_SECONDS", 90),
-            task_poll_interval_seconds=_float_env("IMAGE_TASK_POLL_INTERVAL_SECONDS", 2),
-            task_max_poll_attempts=_int_env("IMAGE_TASK_MAX_POLL_ATTEMPTS", 45),
             teaching_plan_max_llm_requests=_int_env("TEACHING_PLAN_MAX_LLM_REQUESTS", 4),
             teaching_review_max_provider_requests=_int_env("TEACHING_REVIEW_MAX_PROVIDER_REQUESTS", 8),
         )
@@ -147,8 +138,6 @@ class ImageGenerationSettings(BaseModel):
                 "启用 AI 教学图视觉层后，脱敏后的 TeachingDiagramSpec 可能发送到外部图片生成服务商，"
                 "并可能产生费用；不会发送完整源码、完整仓库或完整论文。"
             ),
-            "async_supported": False,
-            "async_notice": "v1.3.4 仅启用同步生图；IMAGE_TASK_* 配置为预留项。",
         }
 
 

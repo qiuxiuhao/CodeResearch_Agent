@@ -9,7 +9,7 @@ from uuid import uuid4
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.app.services.analysis_service import (
     list_task_summaries,
@@ -77,8 +77,8 @@ class AnalysisTaskRequest(BaseModel):
     output_root: str = "outputs"
     library_db_path: str | None = None
     paper_pdf_path: str | None = None
-    analysis_mode: Literal["rule", "hybrid"] | None = None
-    external_model_consent: bool = False
+    analysis_mode: Literal["rule", "hybrid"] | None = Field(default=None, deprecated=True)
+    external_model_consent: bool = Field(default=False, deprecated=True)
     text_llm_enabled: bool | None = None
     teaching_narrative_llm_enabled: bool | None = None
     vision_vlm_enabled: bool | None = None
@@ -101,12 +101,13 @@ def list_analysis_tasks(output_root: str = "outputs") -> dict:
     return {"tasks": list_task_summaries(output_root)}
 
 
-@app.post("/analysis/tasks")
+@app.post("/analysis/tasks", deprecated=True)
 def create_analysis_task(request: AnalysisTaskRequest) -> dict:
+    analysis_mode, legacy_consent = _legacy_task_options(request)
     try:
         state = _run_analysis_with_llm_options(
             request.zip_path, request.output_root, request.library_db_path, request.paper_pdf_path,
-            request.analysis_mode, request.external_model_consent,
+            analysis_mode, legacy_consent,
             request.text_llm_enabled, request.teaching_narrative_llm_enabled, request.vision_vlm_enabled,
             request.external_text_consent, request.external_vision_consent,
             request.teaching_diagrams_enabled, request.image_generation_enabled,
@@ -120,8 +121,9 @@ def create_analysis_task(request: AnalysisTaskRequest) -> dict:
 
 @app.post("/analysis/tasks/async")
 def create_analysis_task_async(request: AnalysisTaskRequest) -> dict:
+    analysis_mode, legacy_consent = _legacy_task_options(request)
     _validate_external_ai_consents(
-        request.analysis_mode, request.external_model_consent, request.text_llm_enabled, request.vision_vlm_enabled,
+        analysis_mode, legacy_consent, request.text_llm_enabled, request.vision_vlm_enabled,
         request.external_text_consent, request.external_vision_consent, request.image_generation_enabled,
         request.external_image_consent, request.teaching_review_vlm_enabled,
         request.teaching_narrative_llm_enabled, request.external_teaching_review_consent,
@@ -135,8 +137,8 @@ def create_analysis_task_async(request: AnalysisTaskRequest) -> dict:
         request.output_root,
         request.library_db_path,
         request.paper_pdf_path,
-        request.analysis_mode,
-        request.external_model_consent,
+        analysis_mode,
+        legacy_consent,
         request.text_llm_enabled,
         request.teaching_narrative_llm_enabled,
         request.vision_vlm_enabled,
@@ -151,14 +153,14 @@ def create_analysis_task_async(request: AnalysisTaskRequest) -> dict:
     return progress
 
 
-@app.post("/analysis/tasks/upload")
+@app.post("/analysis/tasks/upload", deprecated=True)
 async def create_analysis_task_from_upload(
     zip_file: UploadFile = File(...),
     paper_pdf: UploadFile | None = File(None),
     output_root: str = Form("outputs"),
     library_db_path: str | None = Form(None),
-    analysis_mode: Literal["rule", "hybrid"] | None = Form(None),
-    external_model_consent: bool = Form(False),
+    analysis_mode: Literal["rule", "hybrid"] | None = Form(None, deprecated=True),
+    external_model_consent: bool = Form(False, deprecated=True),
     text_llm_enabled: bool | None = Form(None),
     teaching_narrative_llm_enabled: bool | None = Form(None),
     vision_vlm_enabled: bool | None = Form(None),
@@ -209,8 +211,8 @@ async def create_analysis_task_from_upload_async(
     paper_pdf: UploadFile | None = File(None),
     output_root: str = Form("outputs"),
     library_db_path: str | None = Form(None),
-    analysis_mode: Literal["rule", "hybrid"] | None = Form(None),
-    external_model_consent: bool = Form(False),
+    analysis_mode: Literal["rule", "hybrid"] | None = Form(None, deprecated=True),
+    external_model_consent: bool = Form(False, deprecated=True),
     text_llm_enabled: bool | None = Form(None),
     teaching_narrative_llm_enabled: bool | None = Form(None),
     vision_vlm_enabled: bool | None = Form(None),
@@ -487,6 +489,11 @@ def get_library_function_detail(canonical_name: str, library_db_path: str | None
 
 def _library_service(library_db_path: str | None) -> LibraryFunctionService:
     return LibraryFunctionService(library_db_path)
+
+
+def _legacy_task_options(request: AnalysisTaskRequest) -> tuple[str | None, bool]:
+    payload = request.model_dump(include={"analysis_mode", "external_model_consent"})
+    return payload.get("analysis_mode"), bool(payload.get("external_model_consent", False))
 
 
 def _validate_external_ai_consents(

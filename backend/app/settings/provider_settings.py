@@ -72,8 +72,6 @@ class ProviderSettingsService:
         configured = bool(key.strip() and str(values.get("model", "")).strip() and str(values.get("base_url", "")).strip())
         fields = {key_name: value for key_name, value in values.items() if key_name != "api_key"}
         warnings = []
-        if fields.get("supports_async"):
-            warnings.append("v1.3.4 only supports synchronous image generation; async provider mode is disabled.")
         if key_source == "Environment":
             warnings.append("API key comes from Environment and cannot be deleted from the UI.")
         return ProviderPublicSettings(
@@ -158,8 +156,8 @@ class ProviderSettingsService:
                 errors.append("allowed_domains must keep at least one result domain.")
             elif any(not _valid_hostname(item) for item in domains):
                 errors.append("allowed_domains contains an invalid hostname.")
-        if provider_id in {"qwen_image", "seedream"} and effective_values.get("supports_async"):
-            raise ValueError("supports_async=true is not supported in v1.3.4.")
+        if values.get("supports_async") is True:
+            raise ValueError("supports_async=true is no longer supported; use synchronous image generation.")
         base_url = values.get("base_url")
         if base_url:
             try:
@@ -184,7 +182,7 @@ class ProviderSettingsService:
         config = {
             key: value
             for key, value in request.model_dump(exclude_unset=True).items()
-            if key not in {"expected_revision", "api_key"}
+            if key not in {"expected_revision", "api_key", "supports_async"}
         }
         try:
             data = self.store.update_provider(
@@ -290,7 +288,6 @@ class ProviderSettingsService:
             allowed_domains=list(values.get("allowed_domains") or []),
             endpoint_path=str(values.get("endpoint_path", "")),
             workspace=str(values.get("workspace", "")),
-            supports_async=bool(values.get("supports_async", False)),
             request_width=int(values.get("request_width", 512)),
             request_height=int(values.get("request_height", 512)),
         )

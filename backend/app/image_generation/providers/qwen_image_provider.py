@@ -33,7 +33,6 @@ class QwenImageProvider(BaseImageProvider):
         self.endpoint_path = settings.endpoint_path or "/api/v1/services/aigc/multimodal-generation/generation"
         self.workspace = settings.workspace
         self.allowed_domains = settings.allowed_domains
-        self.supports_async = settings.supports_async
         self.request_width = settings.request_width
         self.request_height = settings.request_height
         self._settings = settings
@@ -56,12 +55,6 @@ class QwenImageProvider(BaseImageProvider):
     def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         if not self.configured:
             raise ImageGenerationError("image_provider_unconfigured", f"{self.name} is not configured.")
-        if self.supports_async:
-            raise ImageGenerationError(
-                "image_provider_async_not_supported",
-                "v1.3.4 only supports synchronous teaching-image generation.",
-                recoverable=False,
-            )
         started = time.monotonic()
         try:
             with httpx.Client(timeout=self.timeout_seconds, transport=self._transport) as client:
@@ -127,9 +120,6 @@ class QwenImageProvider(BaseImageProvider):
         }
 
     def _parse_response(self, body: dict[str, Any], latency_ms: int) -> ImageGenerationResponse:
-        task_status = str(body.get("output", {}).get("task_status") or "").upper()
-        if task_status and task_status not in {"SUCCEEDED", "SUCCESS", "COMPLETED"}:
-            raise ImageGenerationError("image_provider_async_unfinished", "Qwen-Image returned an unfinished async task.")
         content = _first_message_content(body)
         for item in content:
             if not isinstance(item, dict):

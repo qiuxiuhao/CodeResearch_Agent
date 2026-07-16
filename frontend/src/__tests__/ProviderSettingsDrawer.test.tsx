@@ -103,8 +103,7 @@ function provider(id: string, display_name: string, group: string, revision: num
       request_width: 1280,
       request_height: 720,
       endpoint_path: "/api/v1/services/aigc/multimodal-generation/generation",
-      allowed_domains: ["dashscope.aliyuncs.com"],
-      supports_async: false
+      allowed_domains: ["dashscope.aliyuncs.com"]
     },
     warnings: []
   };

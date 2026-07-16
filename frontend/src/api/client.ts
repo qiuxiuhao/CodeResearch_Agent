@@ -4,7 +4,6 @@ import type {
   GlobalLibraryListResponse,
   GlobalLibraryStats,
   LLMPublicConfig,
-  AnalysisMode,
   ProviderPublicSettings,
   ProviderSettingsPayload,
   ProviderSettingsResponse,
@@ -19,8 +18,6 @@ export type CreateTaskPayload = {
   output_root?: string;
   library_db_path?: string | null;
   paper_pdf_path?: string | null;
-  analysis_mode?: AnalysisMode;
-  external_model_consent?: boolean;
   text_llm_enabled?: boolean;
   teaching_narrative_llm_enabled?: boolean;
   vision_vlm_enabled?: boolean;

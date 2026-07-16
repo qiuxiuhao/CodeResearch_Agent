@@ -29,7 +29,6 @@ type Draft = {
   allowed_domains: string;
   endpoint_path: string;
   workspace: string;
-  supports_async: boolean;
   supports_json_object: boolean;
   disable_thinking: boolean;
   allow_custom_base_url: boolean;
@@ -422,7 +421,6 @@ function emptyDraft(): Draft {
     allowed_domains: "",
     endpoint_path: "",
     workspace: "",
-    supports_async: false,
     supports_json_object: false,
     disable_thinking: false,
     allow_custom_base_url: false,
@@ -445,7 +443,6 @@ function draftFromProvider(provider: ProviderPublicSettings): Draft {
     allowed_domains: Array.isArray(fields.allowed_domains) ? fields.allowed_domains.join(",") : String(fields.allowed_domains ?? ""),
     endpoint_path: String(fields.endpoint_path ?? ""),
     workspace: String(fields.workspace ?? ""),
-    supports_async: Boolean(fields.supports_async),
     supports_json_object: Boolean(fields.supports_json_object),
     disable_thinking: Boolean(fields.disable_thinking),
     allow_custom_base_url: Boolean(fields.allow_custom_base_url),
@@ -470,7 +467,6 @@ function payloadFromDraft(
     request_height: numberOrUndefined(draft.request_height),
     endpoint_path: draft.endpoint_path.trim() || undefined,
     workspace: draft.workspace.trim() || undefined,
-    supports_async: group === "image_generation" ? false : draft.supports_async,
     supports_json_object: draft.supports_json_object,
     disable_thinking: draft.disable_thinking,
     allow_custom_base_url: draft.allow_custom_base_url,
