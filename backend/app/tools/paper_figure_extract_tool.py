@@ -289,15 +289,18 @@ def _render_preview(page, bbox, path: Path, settings: VisionSettings, warnings: 
         zoom *= (settings.paper_max_render_pixels / pixels) ** 0.5
     try:
         pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=fitz.Rect(bbox), alpha=False)
-        if pixmap.width * pixmap.height > settings.paper_max_render_pixels:
-            warnings.append(_warning("paper_max_render_pixels_exceeded", "Figure preview 像素数超过上限。"))
-            return None
-        data = pixmap.tobytes("png")
-        path.write_bytes(data)
-        return FigurePreview(
-            path=str(path), width=pixmap.width, height=pixmap.height, byte_size=len(data),
-            sha256=hashlib.sha256(data).hexdigest(), render_dpi=max(36, round(72 * zoom)),
-        )
+        try:
+            if pixmap.width * pixmap.height > settings.paper_max_render_pixels:
+                warnings.append(_warning("paper_max_render_pixels_exceeded", "Figure preview 像素数超过上限。"))
+                return None
+            data = pixmap.tobytes("png")
+            path.write_bytes(data)
+            return FigurePreview(
+                path=str(path), width=pixmap.width, height=pixmap.height, byte_size=len(data),
+                sha256=hashlib.sha256(data).hexdigest(), render_dpi=max(36, round(72 * zoom)),
+            )
+        finally:
+            pixmap = None  # type: ignore[assignment]
     except Exception as exc:
         warnings.append(_warning("paper_figure_render_failed", f"{type(exc).__name__}: {exc}"))
         return None

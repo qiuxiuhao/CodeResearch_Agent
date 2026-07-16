@@ -854,11 +854,16 @@ def _prepared_review_context(tmp_path: Path, response=None) -> dict:
 
 def _solid_png(color: tuple[float, float, float]) -> bytes:
     document = fitz.open()
-    page = document.new_page(width=1280, height=720)
-    page.draw_rect(fitz.Rect(0, 0, 1280, 720), fill=color, color=None)
-    data = page.get_pixmap(alpha=False).tobytes("png")
-    document.close()
-    return data
+    try:
+        page = document.new_page(width=1280, height=720)
+        page.draw_rect(fitz.Rect(0, 0, 1280, 720), fill=color, color=None)
+        pixmap = page.get_pixmap(alpha=False)
+        try:
+            return pixmap.tobytes("png")
+        finally:
+            pixmap = None  # type: ignore[assignment]
+    finally:
+        document.close()
 
 
 def _sha256(path: Path) -> str:
@@ -869,12 +874,15 @@ def _sha256(path: Path) -> str:
 
 def _has_dark_overlay_pixel(path: Path) -> bool:
     pixmap = fitz.Pixmap(str(path))
-    # Sample around the first module border; raw test images are bright solids,
-    # so a dark pixel here indicates deterministic overlay drawing is present.
-    for x in range(50, 280, 8):
-        for y in range(168, 260, 8):
-            idx = (y * pixmap.width + x) * pixmap.n
-            rgb = pixmap.samples[idx: idx + 3]
-            if len(rgb) == 3 and max(rgb) < 190:
-                return True
-    return False
+    try:
+        # Sample around the first module border; raw test images are bright solids,
+        # so a dark pixel here indicates deterministic overlay drawing is present.
+        for x in range(50, 280, 8):
+            for y in range(168, 260, 8):
+                idx = (y * pixmap.width + x) * pixmap.n
+                rgb = pixmap.samples[idx: idx + 3]
+                if len(rgb) == 3 and max(rgb) < 190:
+                    return True
+        return False
+    finally:
+        pixmap = None  # type: ignore[assignment]

@@ -241,8 +241,11 @@ class ProviderSettingsService:
             if value is not None and not (64 <= int(value) <= 4096):
                 errors.append(f"{name} must be between 64 and 4096.")
         domains = values.get("allowed_domains")
-        if domains is not None and any(not _valid_hostname(item) for item in domains):
-            errors.append("allowed_domains contains an invalid hostname.")
+        if domains is not None:
+            if provider_id in {"qwen_image", "seedream"} and not domains:
+                errors.append("allowed_domains must keep at least one result domain.")
+            elif any(not _valid_hostname(item) for item in domains):
+                errors.append("allowed_domains contains an invalid hostname.")
         if provider_id in {"qwen_image", "seedream"} and effective_values.get("supports_async"):
             raise ValueError("supports_async=true is not supported in v1.3.4.")
         base_url = values.get("base_url")

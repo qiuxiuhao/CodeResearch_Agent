@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import textwrap
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import fitz
@@ -96,6 +97,15 @@ def _layout_horizontal(spec: TeachingDiagramSpec) -> dict[str, tuple[int, int]]:
 def resolve_font(spec: TeachingDiagramSpec | None = None) -> FontChoice:
     configured_path = os.getenv("TEACHING_DIAGRAM_FONT_PATH", "").strip()
     configured_name = os.getenv("TEACHING_DIAGRAM_FONT_NAME", "").strip()
+    base = _resolve_font_base(configured_path, configured_name)
+    if base.fontfile or configured_name:
+        return base
+    warning = "teaching_diagram_font_unavailable" if spec and _contains_cjk(_spec_text(spec)) else None
+    return FontChoice(base.family, None, warning)
+
+
+@lru_cache(maxsize=16)
+def _resolve_font_base(configured_path: str, configured_name: str) -> FontChoice:
     if configured_path and Path(configured_path).is_file():
         return FontChoice(configured_name or Path(configured_path).stem, configured_path)
     for candidate in _candidate_font_paths():
@@ -103,10 +113,7 @@ def resolve_font(spec: TeachingDiagramSpec | None = None) -> FontChoice:
             return FontChoice(configured_name or candidate.stem, str(candidate))
     if configured_name:
         return FontChoice(configured_name, None)
-    warning = None
-    if spec and _contains_cjk(_spec_text(spec)):
-        warning = "teaching_diagram_font_unavailable"
-    return FontChoice("Arial, Helvetica, sans-serif", None, warning)
+    return FontChoice("Arial, Helvetica, sans-serif", None)
 
 
 def render_svg(spec: TeachingDiagramSpec, layout: dict[str, tuple[int, int]], font: FontChoice) -> str:
@@ -149,7 +156,10 @@ def render_png(spec: TeachingDiagramSpec, layout: dict[str, tuple[int, int]], pa
         page = document.new_page(width=WIDTH, height=HEIGHT)
         draw_deterministic_overlay(page, spec, layout, font, draw_background=True)
         pixmap = page.get_pixmap(alpha=False)
-        pixmap.save(str(path))
+        try:
+            pixmap.save(str(path))
+        finally:
+            pixmap = None  # type: ignore[assignment]
     finally:
         document.close()
 

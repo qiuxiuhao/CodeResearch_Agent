@@ -91,8 +91,11 @@ def normalize_image_bytes_to_png(
     doc = fitz.open(stream=png_bytes, filetype="png")
     try:
         pixmap = doc[0].get_pixmap(alpha=False)
-        info["width"] = pixmap.width
-        info["height"] = pixmap.height
+        try:
+            info["width"] = pixmap.width
+            info["height"] = pixmap.height
+        finally:
+            pixmap = None  # type: ignore[assignment]
     finally:
         doc.close()
     return png_bytes, info
@@ -124,7 +127,10 @@ def _normalize_to_png(image_bytes: bytes, *, max_width: int, max_height: int) ->
             raise ValueError("image dimensions exceed configured limit")
         if pixmap.width * pixmap.height > max_width * max_height:
             raise ValueError("image pixel count exceeds configured limit")
-        return pixmap.tobytes("png")
+        try:
+            return pixmap.tobytes("png")
+        finally:
+            pixmap = None  # type: ignore[assignment]
     finally:
         doc.close()
 

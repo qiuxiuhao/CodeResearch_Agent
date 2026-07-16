@@ -51,6 +51,31 @@ test("disables delete for environment api key", async () => {
   expect(screen.getByRole("button", { name: /删除 Key/ })).toBeDisabled();
 });
 
+test("sends empty allowed domains and shows backend validation error", async () => {
+  let savedPayload: Record<string, unknown> | null = null;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/settings/providers/qwen_image") && init?.method === "PUT") {
+      savedPayload = JSON.parse(String(init.body));
+      return errorResponse("allowed_domains must keep at least one result domain.");
+    }
+    return jsonResponse({
+      revision: 1,
+      providers: [provider("qwen_image", "Qwen-Image", "image_generation", 1)]
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<ProviderSettingsDrawer open onClose={vi.fn()} />);
+
+  fireEvent.click(await screen.findByText("图片生成"));
+  fireEvent.click(screen.getByTitle("移除域名"));
+  fireEvent.click(screen.getByText("保存"));
+
+  await waitFor(() => expect(savedPayload?.allowed_domains).toEqual([]));
+  expect(await screen.findByText("allowed_domains must keep at least one result domain.")).toBeInTheDocument();
+});
+
 function provider(id: string, display_name: string, group: string, revision: number, api_key_source: "UI" | "Environment" | "None" = id === "qwen_image" ? "UI" : "None") {
   return {
     id,
@@ -90,5 +115,14 @@ function jsonResponse(body: unknown) {
     ok: true,
     headers: { get: () => "application/json" },
     json: async () => body
+  };
+}
+
+function errorResponse(detail: string) {
+  return {
+    ok: false,
+    statusText: "Unprocessable Entity",
+    headers: { get: () => "application/json" },
+    json: async () => ({ detail })
   };
 }

@@ -26,9 +26,9 @@ def main() -> None:
         "cache_enabled": False, "max_provider_requests": 1, "max_retries": 0,
     })
     provider = (
-        QwenVLProvider(settings.qwen_vl, settings.timeout_seconds)
+        QwenVLProvider(settings.qwen_vl, settings.qwen_vl.timeout_seconds)
         if args.provider == "qwen_vl"
-        else GLMVProvider(settings.glm_v, settings.timeout_seconds)
+        else GLMVProvider(settings.glm_v, settings.glm_v.timeout_seconds)
     )
     if not provider.configured:
         raise SystemExit(f"{args.provider} API key is not configured.")
@@ -98,16 +98,20 @@ def _synthetic_figure_png() -> bytes:
     import fitz
 
     document = fitz.open()
-    page = document.new_page(width=640, height=240)
-    for x, label in ((40, "Input"), (250, "Encoder"), (480, "Output")):
-        page.draw_rect(fitz.Rect(x, 80, x + 120, 150), color=(0, 0, 0), width=2)
-        page.insert_text((x + 25, 120), label, fontsize=14)
-    page.draw_line(fitz.Point(160, 115), fitz.Point(250, 115), color=(0, 0, 0), width=2)
-    page.draw_line(fitz.Point(370, 115), fitz.Point(480, 115), color=(0, 0, 0), width=2)
-    pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
-    data = pixmap.tobytes("png")
-    document.close()
-    return data
+    try:
+        page = document.new_page(width=640, height=240)
+        for x, label in ((40, "Input"), (250, "Encoder"), (480, "Output")):
+            page.draw_rect(fitz.Rect(x, 80, x + 120, 150), color=(0, 0, 0), width=2)
+            page.insert_text((x + 25, 120), label, fontsize=14)
+        page.draw_line(fitz.Point(160, 115), fitz.Point(250, 115), color=(0, 0, 0), width=2)
+        page.draw_line(fitz.Point(370, 115), fitz.Point(480, 115), color=(0, 0, 0), width=2)
+        pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+        try:
+            return pixmap.tobytes("png")
+        finally:
+            pixmap = None  # type: ignore[assignment]
+    finally:
+        document.close()
 
 
 if __name__ == "__main__":

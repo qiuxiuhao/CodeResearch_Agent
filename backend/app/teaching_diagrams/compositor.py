@@ -52,7 +52,10 @@ class TeachingDiagramCompositor:
             page.insert_image(fitz.Rect(0, 0, WIDTH, HEIGHT), filename=str(generated_raw), keep_proportion=False)
             draw_deterministic_overlay(page, spec, layout_modules(spec), resolve_font(spec), draw_background=False)
             pixmap = page.get_pixmap(alpha=False)
-            pixmap.save(str(styled))
+            try:
+                pixmap.save(str(styled))
+            finally:
+                pixmap = None  # type: ignore[assignment]
         finally:
             document.close()
         validate_image_file(

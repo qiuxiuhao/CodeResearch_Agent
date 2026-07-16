@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
@@ -35,15 +36,6 @@ from backend.app.settings.secret_store import SecretStoreConflictError, SecretSt
 from backend.app.settings.security import require_settings_write_access
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.3.4")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 _analysis_executor: ThreadPoolExecutor | None = None
 
 
@@ -54,12 +46,29 @@ def _get_analysis_executor() -> ThreadPoolExecutor:
     return _analysis_executor
 
 
-@app.on_event("shutdown")
 def _shutdown_analysis_executor() -> None:
     global _analysis_executor
     if _analysis_executor is not None:
         _analysis_executor.shutdown(wait=False, cancel_futures=True)
         _analysis_executor = None
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        yield
+    finally:
+        _shutdown_analysis_executor()
+
+
+app = FastAPI(title="CodeResearch Agent", version="1.3.4", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class AnalysisTaskRequest(BaseModel):

@@ -37,4 +37,7 @@ def _image_size(path: Path, mime_type: str) -> tuple[int, int]:
             return int(match.group(1)), int(match.group(2))
         return 1280, 720
     pixmap = fitz.Pixmap(str(path))
-    return pixmap.width, pixmap.height
+    try:
+        return pixmap.width, pixmap.height
+    finally:
+        pixmap = None  # type: ignore[assignment]

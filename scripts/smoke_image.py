@@ -36,9 +36,9 @@ def main() -> None:
         "max_provider_requests": 1,
     })
     provider = (
-        QwenImageProvider(settings.qwen_image)
+        QwenImageProvider(settings.qwen_image, settings.qwen_image.timeout_seconds)
         if args.provider == "qwen_image"
-        else SeedreamProvider(settings.seedream)
+        else SeedreamProvider(settings.seedream, settings.seedream.timeout_seconds)
     )
     if not provider.configured:
         raise SystemExit(f"{args.provider} is not fully configured (api key, model, and base URL are required).")
@@ -46,9 +46,9 @@ def main() -> None:
     if args.review:
         vision_settings = VisionSettings.from_env(False).model_copy(update={"cache_enabled": False, "max_provider_requests": 1})
         review_provider = (
-            QwenVLProvider(vision_settings.qwen_vl, vision_settings.timeout_seconds)
+            QwenVLProvider(vision_settings.qwen_vl, vision_settings.qwen_vl.timeout_seconds)
             if args.review_provider == "qwen_vl"
-            else GLMVProvider(vision_settings.glm_v, vision_settings.timeout_seconds)
+            else GLMVProvider(vision_settings.glm_v, vision_settings.glm_v.timeout_seconds)
         )
         if not review_provider.configured:
             raise SystemExit(f"{args.review_provider} is not fully configured (api key, model, and base URL are required).")
@@ -58,10 +58,15 @@ def main() -> None:
         "about_to_transfer_image_spec": True,
         "provider": provider.name,
         "model": provider.model,
+        "timeout_seconds": getattr(provider, "timeout_seconds", None),
+        "max_retries": getattr(provider, "max_retries", None),
         "request_size": {"width": request_width, "height": request_height},
         "review_enabled": args.review,
         "review_provider": getattr(review_provider, "name", None),
         "review_model": getattr(review_provider, "model", None),
+        "review_timeout_seconds": getattr(review_provider, "timeout_seconds", None),
+        "review_max_retries": getattr(review_provider, "max_retries", None),
+        "review_max_output_tokens": getattr(review_provider, "max_output_tokens", None),
         "allowed_result_domains": getattr(provider, "allowed_domains", []),
         "review_external_allowlist": "configured provider base URL only; no source code or paper is sent",
     }, ensure_ascii=False, indent=2))
@@ -87,6 +92,7 @@ def main() -> None:
         "warnings": manifest.get("warnings", []),
         "validated_outputs": [
             {
+                "review": _review_summary(item.get("review")),
                 "diagram_id": item.get("diagram_id"),
                 "blueprint_sha256": (item.get("blueprint_png") or {}).get("sha256"),
                 "raw_sha256": (item.get("generated_raw") or {}).get("sha256"),
@@ -139,6 +145,20 @@ def _synthetic_state(output_dir: Path) -> dict:
         "teaching_plan_budget": {"max_provider_requests": 0, "sent_provider_requests": 0},
         "teaching_image_budget": {},
         "teaching_review_budget": {"max_provider_requests": 0, "sent_provider_requests": 0},
+    }
+
+
+def _review_summary(review: dict | None) -> dict | None:
+    if not review:
+        return None
+    metadata = review.get("metadata") or {}
+    return {
+        "provider": metadata.get("provider"),
+        "model": metadata.get("model"),
+        "overall_score": review.get("overall_score"),
+        "latency_ms": metadata.get("latency_ms"),
+        "cache_hit": metadata.get("cache_hit", False),
+        "passed": review.get("passed"),
     }
 
 

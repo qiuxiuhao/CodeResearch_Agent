@@ -479,7 +479,7 @@ function payloadFromDraft(
   const key = draft.api_key.trim();
   if (key) payload.api_key = key;
   const domains = draft.allowed_domains.split(",").map((item) => item.trim()).filter(Boolean);
-  if (domains.length) payload.allowed_domains = domains;
+  if (group === "image_generation" || domains.length) payload.allowed_domains = domains;
   return payload;
 }
 

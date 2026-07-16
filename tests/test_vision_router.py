@@ -271,21 +271,21 @@ def test_real_provider_adapters_default_to_prompt_json_without_response_format()
         captured.append(json.loads(request.content))
         return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({"ok": True})}}]})
 
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    providers = [
-        QwenVLProvider(VisionProviderSettings(
-            name="qwen_vl", api_key="test", base_url="https://qwen.test", model="vision",
-        ), 5, client),
-        GLMVProvider(VisionProviderSettings(
-            name="glm_v", api_key="test", base_url="https://glm.test", model="vision",
-        ), 5, client),
-    ]
-    request = VisionRequest(
-        context_id=FIGURE_ID, system_prompt="system", input_payload={"figure_id": FIGURE_ID},
-        image_bytes=b"png", mime_type="image/png", response_model=FigureAnalysis, max_output_tokens=100,
-    )
-    for provider in providers:
-        provider.analyze_figure(request)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        providers = [
+            QwenVLProvider(VisionProviderSettings(
+                name="qwen_vl", api_key="test", base_url="https://qwen.test", model="vision",
+            ), 5, client),
+            GLMVProvider(VisionProviderSettings(
+                name="glm_v", api_key="test", base_url="https://glm.test", model="vision",
+            ), 5, client),
+        ]
+        request = VisionRequest(
+            context_id=FIGURE_ID, system_prompt="system", input_payload={"figure_id": FIGURE_ID},
+            image_bytes=b"png", mime_type="image/png", response_model=FigureAnalysis, max_output_tokens=100,
+        )
+        for provider in providers:
+            provider.analyze_figure(request)
 
     assert len(captured) == 2
     assert all("response_format" not in payload for payload in captured)
@@ -301,19 +301,19 @@ def test_provider_specific_thinking_disable_parameters_are_isolated():
         captured.append(json.loads(request.content))
         return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({"ok": True})}}]})
 
-    client = httpx.Client(transport=httpx.MockTransport(handler))
     request = VisionRequest(
         context_id=FIGURE_ID, system_prompt="system", input_payload={"figure_id": FIGURE_ID},
         image_bytes=b"png", mime_type="image/png", response_model=FigureAnalysis, max_output_tokens=100,
     )
-    QwenVLProvider(VisionProviderSettings(
-        name="qwen_vl", api_key="test", base_url="https://qwen.test", model="vision",
-        disable_thinking=True,
-    ), 5, client).analyze_figure(request)
-    GLMVProvider(VisionProviderSettings(
-        name="glm_v", api_key="test", base_url="https://glm.test", model="vision",
-        disable_thinking=True,
-    ), 5, client).analyze_figure(request)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        QwenVLProvider(VisionProviderSettings(
+            name="qwen_vl", api_key="test", base_url="https://qwen.test", model="vision",
+            disable_thinking=True,
+        ), 5, client).analyze_figure(request)
+        GLMVProvider(VisionProviderSettings(
+            name="glm_v", api_key="test", base_url="https://glm.test", model="vision",
+            disable_thinking=True,
+        ), 5, client).analyze_figure(request)
 
     assert captured[0]["enable_thinking"] is False
     assert "thinking" not in captured[0]

@@ -176,17 +176,20 @@ def _prepare_request_preview(image_path: Path | None, preview: dict, settings) -
     import fitz
 
     pixmap = fitz.Pixmap(str(image_path))
-    for _ in range(12):
-        if (
-            len(data) <= settings.max_single_image_bytes
-            and pixmap.width <= settings.max_image_width
-            and pixmap.height <= settings.max_image_height
-        ):
-            return data, "image/png", True
-        if pixmap.width <= 1 or pixmap.height <= 1:
-            break
-        pixmap.shrink(1)
-        data = pixmap.tobytes("png")
+    try:
+        for _ in range(12):
+            if (
+                len(data) <= settings.max_single_image_bytes
+                and pixmap.width <= settings.max_image_width
+                and pixmap.height <= settings.max_image_height
+            ):
+                return data, "image/png", True
+            if pixmap.width <= 1 or pixmap.height <= 1:
+                break
+            pixmap.shrink(1)
+            data = pixmap.tobytes("png")
+    finally:
+        pixmap = None  # type: ignore[assignment]
     raise ValueError("Canonical preview cannot be reduced within VLM limits.")
 
 

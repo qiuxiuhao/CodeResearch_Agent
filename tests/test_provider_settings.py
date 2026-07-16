@@ -248,6 +248,31 @@ def test_provider_settings_rejects_async_image_mode(monkeypatch, tmp_path: Path)
     assert "supports_async" in save.json()["detail"]
 
 
+def test_provider_settings_rejects_empty_allowed_domains(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("CODE_RESEARCH_AGENT_SECRET_STORE_PATH", str(tmp_path / "secrets.json"))
+
+    with TestClient(app) as client:
+        validate = client.post("/settings/providers/qwen_image/validate", json={
+            "api_key": "key",
+            "base_url": "https://dashscope.aliyuncs.com",
+            "model": "qwen-image",
+            "allowed_domains": [],
+        })
+        save = client.put("/settings/providers/qwen_image", json={
+            "expected_revision": 0,
+            "api_key": "key",
+            "base_url": "https://dashscope.aliyuncs.com",
+            "model": "qwen-image",
+            "allowed_domains": [],
+        })
+
+    assert validate.status_code == 200
+    assert validate.json()["ok"] is False
+    assert "allowed_domains" in validate.json()["errors"][0]
+    assert save.status_code == 422
+    assert "allowed_domains" in save.json()["detail"]
+
+
 def test_corrupt_secret_store_is_not_overwritten_and_env_remains_readonly(monkeypatch, tmp_path: Path):
     store_path = tmp_path / "secrets.json"
     store_path.write_text("{bad json", encoding="utf-8")
