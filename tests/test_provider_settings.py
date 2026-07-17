@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import json
+import logging
 import os
 import stat
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.main import app
 from backend.app.image_generation.config import ImageGenerationSettings
 from backend.app.llm.config import LLMSettings
 from backend.app.settings.provider_settings import ProviderSettingsService
+from backend.app.settings.provider_registry import provider_definition
 from backend.app.services.analysis_service import run_analysis
 from backend.app.vision.config import VisionSettings
 
@@ -325,6 +329,105 @@ def test_corrupt_secret_store_is_not_overwritten_and_env_remains_readonly(monkey
     assert "damaged" in save.json()["detail"] or "unreadable" in save.json()["detail"]
     assert store_path.read_text(encoding="utf-8") == "{bad json"
     assert store_path.with_suffix(".json.corrupt").read_text(encoding="utf-8") == "{bad json"
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "field_name", "invalid_value", "environment", "expected", "expected_source"),
+    [
+        ("deepseek", "retry", "abc", {"DEEPSEEK_MAX_RETRIES": "4"}, 4, "Environment"),
+        ("deepseek", "timeout_seconds", "bad", {}, 45.0, "Default"),
+        ("deepseek", "enabled", "not-a-bool", {"DEEPSEEK_ENABLED": "false"}, False, "Environment"),
+        (
+            "qwen_image",
+            "allowed_domains",
+            "not-a-list",
+            {"QWEN_IMAGE_ALLOWED_DOMAINS": "fallback.example"},
+            ["fallback.example"],
+            "Environment",
+        ),
+        (
+            "qwen_image",
+            "allowed_domains",
+            ["https://invalid.example"],
+            {"QWEN_IMAGE_ALLOWED_DOMAINS": "fallback.example"},
+            ["fallback.example"],
+            "Environment",
+        ),
+        ("qwen", "max_output_tokens", 999999, {"QWEN_MAX_OUTPUT_TOKENS": "777"}, 777, "Environment"),
+        ("qwen_image", "request_width", 12, {}, 1280, "Default"),
+        ("seedream", "timeout_seconds", 0, {"IMAGE_GENERATION_TIMEOUT_SECONDS": "75"}, 75.0, "Environment"),
+    ],
+)
+def test_semantically_invalid_stored_provider_fields_fall_back_without_secret_exposure(
+    monkeypatch,
+    tmp_path: Path,
+    caplog,
+    provider_id: str,
+    field_name: str,
+    invalid_value,
+    environment: dict[str, str],
+    expected,
+    expected_source: str,
+):
+    store_path = tmp_path / "secrets.json"
+    secret = "sk-sensitive-provider-secret-123456"
+    store_path.write_text(
+        json.dumps({
+            "schema_version": 1,
+            "revision": 7,
+            "providers": {
+                provider_id: {
+                    "config": {field_name: invalid_value},
+                    "api_key": secret,
+                    "api_key_source": "file",
+                }
+            },
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODE_RESEARCH_AGENT_SECRET_STORE_PATH", str(store_path))
+    field_env = provider_definition(provider_id).fields[field_name].env
+    for name in ((field_env,) if isinstance(field_env, str) else (field_env or ())):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    with caplog.at_level(logging.WARNING, logger="backend.app.settings.provider_registry"):
+        with TestClient(app) as client:
+            response = client.get("/settings/providers")
+
+    assert response.status_code == 200
+    assert secret not in response.text
+    assert secret not in caplog.text
+    public = next(item for item in response.json()["providers"] if item["id"] == provider_id)
+    assert public["fields"][field_name] == expected
+    assert public["source"][field_name] == expected_source
+    assert any(field_name in warning and str(invalid_value) not in warning for warning in public["warnings"])
+    assert field_name in caplog.text
+    assert ProviderSettingsService().runtime_provider_values(provider_id)[field_name] == expected
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "payload"),
+    [
+        ("deepseek", {"retry": "abc"}),
+        ("deepseek", {"timeout_seconds": "bad"}),
+        ("deepseek", {"enabled": "not-a-bool"}),
+        ("deepseek", {"retry": 6}),
+        ("deepseek", {"timeout_seconds": 0}),
+        ("qwen_image", {"allowed_domains": "not-a-list"}),
+        ("qwen_image", {"allowed_domains": []}),
+        ("qwen_image", {"allowed_domains": ["https://invalid.example"]}),
+        ("qwen_image", {"request_width": 12}),
+    ],
+)
+def test_provider_save_still_rejects_invalid_types_and_ranges(monkeypatch, tmp_path: Path, provider_id: str, payload: dict):
+    monkeypatch.setenv("CODE_RESEARCH_AGENT_SECRET_STORE_PATH", str(tmp_path / "secrets.json"))
+
+    with TestClient(app) as client:
+        response = client.put(f"/settings/providers/{provider_id}", json={"expected_revision": 0, **payload})
+
+    assert response.status_code == 422
 
 
 def test_provider_settings_delete_key_clears_ui_key_without_exposing_secret(monkeypatch, tmp_path: Path):

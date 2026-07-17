@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import logging
+import math
 import os
 from dataclasses import dataclass
 from typing import Any
 
 from backend.app.settings.secret_store import SecretStore
+
+
+LOGGER = logging.getLogger(__name__)
+_INVALID = object()
 
 
 @dataclass(frozen=True)
@@ -102,6 +108,8 @@ def provider_definition(provider_id: str) -> ProviderDefinition:
 def resolve_provider_values(
     provider_id: str,
     store: SecretStore | None = None,
+    *,
+    warnings: list[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """Resolve UI > Environment > Default without constructing a provider runtime."""
     definition = provider_definition(provider_id)
@@ -117,40 +125,138 @@ def resolve_provider_values(
                 sources[field_name] = "UI"
                 continue
         if field_name in ui_config:
-            values[field_name] = coerce_provider_value(ui_config[field_name], field_def.kind)
-            sources[field_name] = "UI"
-        elif (env_value := first_env_value(field_def.env)) is not None:
-            values[field_name] = coerce_provider_value(env_value, field_def.kind)
-            sources[field_name] = "Environment"
-        else:
-            values[field_name] = coerce_provider_value(field_def.default, field_def.kind)
-            sources[field_name] = "Default"
+            value = _safe_candidate(
+                provider_id,
+                field_name,
+                ui_config[field_name],
+                field_def.kind,
+                "UI",
+                warnings,
+            )
+            if value is not _INVALID:
+                values[field_name] = value
+                sources[field_name] = "UI"
+                continue
+        if (env_value := first_env_value(field_def.env)) is not None:
+            value = _safe_candidate(
+                provider_id,
+                field_name,
+                env_value,
+                field_def.kind,
+                "Environment",
+                warnings,
+            )
+            if value is not _INVALID:
+                values[field_name] = value
+                sources[field_name] = "Environment"
+                continue
+        values[field_name] = _validated_provider_value(
+            provider_id,
+            field_name,
+            coerce_provider_value(field_def.default, field_def.kind, source="Default"),
+        )
+        sources[field_name] = "Default"
     for extra_name in ("allow_custom_base_url", "allow_local_endpoint"):
         if extra_name in ui_config:
-            values[extra_name] = coerce_provider_value(ui_config[extra_name], "bool")
-            sources[extra_name] = "UI"
-        else:
-            values[extra_name] = False
-            sources[extra_name] = "Default"
+            value = _safe_candidate(
+                provider_id,
+                extra_name,
+                ui_config[extra_name],
+                "bool",
+                "UI",
+                warnings,
+            )
+            if value is not _INVALID:
+                values[extra_name] = value
+                sources[extra_name] = "UI"
+                continue
+        values[extra_name] = False
+        sources[extra_name] = "Default"
     if values.get("enabled") is False:
         values["api_key"] = ""
     return values, sources
 
 
-def coerce_provider_value(value: Any, kind: str) -> Any:
+def coerce_provider_value(value: Any, kind: str, *, source: str = "Environment") -> Any:
     if kind == "bool":
         if isinstance(value, bool):
             return value
-        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+        if source == "UI":
+            raise TypeError("UI bool values must be JSON booleans.")
+        normalized = str(value).strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+        raise ValueError("Invalid boolean value.")
     if kind == "int":
+        if source == "UI" and (isinstance(value, bool) or not isinstance(value, int)):
+            raise TypeError("UI int values must be JSON integers.")
         return int(value)
     if kind == "float":
-        return float(value)
+        if source == "UI" and (isinstance(value, bool) or not isinstance(value, (int, float))):
+            raise TypeError("UI float values must be JSON numbers.")
+        result = float(value)
+        if not math.isfinite(result):
+            raise ValueError("Float values must be finite.")
+        return result
     if kind == "csv":
         if isinstance(value, list):
-            return [str(item).strip().lower() for item in value if str(item).strip()]
+            if any(not isinstance(item, str) for item in value):
+                raise TypeError("CSV list items must be strings.")
+            return [item.strip().lower() for item in value if item.strip()]
+        if source == "UI":
+            raise TypeError("UI CSV values must be JSON lists.")
         return [item.strip().lower() for item in str(value).split(",") if item.strip()]
     return str(value)
+
+
+def _safe_candidate(
+    provider_id: str,
+    field_name: str,
+    raw_value: Any,
+    kind: str,
+    source: str,
+    warnings: list[str] | None,
+) -> Any:
+    try:
+        value = coerce_provider_value(raw_value, kind, source=source)
+        return _validated_provider_value(provider_id, field_name, value)
+    except (TypeError, ValueError, OverflowError):
+        message = (
+            f"Ignored invalid {source} setting '{field_name}' for provider "
+            f"'{provider_id}'; using the next configured source."
+        )
+        LOGGER.warning(message)
+        if warnings is not None:
+            warnings.append(message)
+        return _INVALID
+
+
+def _validated_provider_value(provider_id: str, field_name: str, value: Any) -> Any:
+    ranges: dict[str, tuple[float, float]] = {
+        "retry": (0, 5),
+        "max_output_tokens": (128, 16000),
+        "request_width": (64, 4096),
+        "request_height": (64, 4096),
+    }
+    if field_name == "timeout_seconds":
+        ranges[field_name] = (1, 600 if provider_id in {"qwen_image", "seedream"} else 300)
+    if field_name in ranges:
+        minimum, maximum = ranges[field_name]
+        if isinstance(value, bool) or not minimum <= value <= maximum:
+            raise ValueError("Provider setting is outside its supported range.")
+    if field_name == "allowed_domains":
+        if not isinstance(value, list) or not value or any(not _valid_hostname(item) for item in value):
+            raise ValueError("Provider allowed domains are invalid.")
+    return value
+
+
+def _valid_hostname(value: str) -> bool:
+    if not value or len(value) > 253 or "/" in value or ":" in value:
+        return False
+    labels = value.strip(".").split(".")
+    return all(label and len(label) <= 63 and label.replace("-", "").isalnum() for label in labels)
 
 
 def first_env_value(names: str | tuple[str, ...] | None) -> str | None:

@@ -117,6 +117,16 @@ GET /analysis/tasks/{task_id}/report
 
 `analysis_mode`、`external_model_consent` 和同步创建路由已在 OpenAPI 标记 deprecated，前端只发送独立能力开关与授权字段。Provider 请求中的 `supports_async` 也只保留到 v1.4：未传或 false 被接受并忽略，true 返回 422；该值不会持久化或进入运行时。
 
+## Provider 设置
+
+```text
+GET /settings/providers
+PUT /settings/providers/{provider_id}
+POST /settings/providers/{provider_id}/validate
+```
+
+GET 响应只包含脱敏 Key 状态和非敏感字段。如果 Secret Store JSON 可读但某个 UI 字段的类型、有限数值、范围或 domain 列表非法，该字段会被忽略并按 Environment、Default 顺序回退。响应和日志 warning 只记录 Provider/字段名和回退事实，不包含无效原值或 Secret。PUT/validate 的新请求仍会对非法类型和范围返回 422 或显式 validation error，不会将其写入 Secret Store。
+
 ### Figure Preview
 
 ```text

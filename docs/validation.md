@@ -77,3 +77,13 @@ http://127.0.0.1:8000/health
 ```bash
 bash scripts/clean.sh
 ```
+
+该命令只清理 Python 缓存/egg-info 与前端依赖、构建和 typecheck 产物。它不删除 `data/*.sqlite3`、`outputs/task_*`、用户报告、教学图、全局函数知识库或 Provider Secret。
+
+破坏性运行数据重置与日常清理分离：
+
+```bash
+bash scripts/reset_runtime_data.sh --confirm-delete-runtime-data
+```
+
+`reset_runtime_data.sh` 只有在收到上述完整参数时才会删除 `data/*.sqlite3*` 和 `outputs/task_*`。执行前会列出目标并警告全局函数知识库、任务报告和教学图将丢失；Provider Secret 不会被删除。

@@ -65,13 +65,13 @@ class ProviderSettingsService:
 
     def get_public_settings(self, provider_id: str, *, revision: int | None = None) -> ProviderPublicSettings:
         definition = provider_definition(provider_id)
-        values, source = self._resolved_values(provider_id)
+        warnings: list[str] = []
+        values, source = self._resolved_values(provider_id, warnings=warnings)
         key = str(values.pop("api_key", "") or "")
         key_source = source.get("api_key")
         api_key_source = "UI" if key_source == "UI" else "Environment" if key_source == "Environment" else "None"
         configured = bool(key.strip() and str(values.get("model", "")).strip() and str(values.get("base_url", "")).strip())
         fields = {key_name: value for key_name, value in values.items() if key_name != "api_key"}
-        warnings = []
         if key_source == "Environment":
             warnings.append("API key comes from Environment and cannot be deleted from the UI.")
         return ProviderPublicSettings(
@@ -240,8 +240,13 @@ class ProviderSettingsService:
         except Exception as exc:
             return ProviderTestResponse(success=False, provider=provider_id, model=values.get("model"), warning=type(exc).__name__)
 
-    def _resolved_values(self, provider_id: str) -> tuple[dict[str, Any], dict[str, str]]:
-        return resolve_provider_values(provider_id, self.store)
+    def _resolved_values(
+        self,
+        provider_id: str,
+        *,
+        warnings: list[str] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        return resolve_provider_values(provider_id, self.store, warnings=warnings)
 
     def _send_minimal_test(self, provider_id: str, values: dict[str, Any]) -> None:
         if provider_id in {"deepseek", "qwen"}:

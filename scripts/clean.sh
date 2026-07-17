@@ -5,16 +5,13 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 echo "Cleaning Python caches..."
-find . -name __pycache__ -type d -prune -exec rm -rf {} +
-find . -name '*.pyc' -type f -delete
-rm -rf .pytest_cache code_research_agent.egg-info
+find . \( -path './.git' -o -path './data' -o -path './outputs' \) -prune -o -name __pycache__ -type d -prune -exec rm -rf {} +
+find . \( -path './.git' -o -path './data' -o -path './outputs' \) -prune -o -name '*.pyc' -type f -exec rm -f {} +
+rm -rf .pytest_cache
+find . \( -path './.git' -o -path './data' -o -path './outputs' \) -prune -o -name '*.egg-info' -type d -prune -exec rm -rf {} +
 
 echo "Cleaning frontend build artifacts and dependencies..."
 rm -rf frontend/node_modules frontend/dist frontend/.vite
-find frontend -maxdepth 1 -name '*.tsbuildinfo' -type f -delete
+find frontend -name '*.tsbuildinfo' -type f -delete
 
-echo "Cleaning local runtime data..."
-find data -maxdepth 1 \( -name '*.sqlite3' -o -name '*.sqlite3-*' \) -type f -delete
-find outputs -mindepth 1 -maxdepth 1 -type d -name 'task_*' -exec rm -rf {} +
-
-echo "Clean completed."
+echo "Clean completed. Runtime databases, task outputs, reports, diagrams, and Provider Secrets were preserved."
