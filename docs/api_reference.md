@@ -41,7 +41,10 @@ POST /analysis/tasks
   "teaching_diagrams_enabled": true,
   "image_generation_enabled": false,
   "external_image_consent": false,
-  "teaching_review_vlm_enabled": false
+  "teaching_review_vlm_enabled": false,
+  "structured_index_enabled": false,
+  "repository_key": null,
+  "structured_index_db_path": null
 }
 ```
 
@@ -66,6 +69,9 @@ Multipart 字段：
 - `external_image_consent`：AI 教学图视觉层启用时必须为 true
 - `teaching_review_vlm_enabled`：可选，默认 false，启用时需要 `external_vision_consent`
 - `analysis_mode` / `external_model_consent`：仅用于兼容旧文本能力客户端
+- `structured_index_enabled`：可选，默认 false；开启确定性结构化索引
+- `repository_key`：可选；提供时跨任务复用同一显式仓库身份，不提供时严格 task-scoped
+- `structured_index_db_path`：可选，覆盖独立索引 SQLite 路径
 
 任一外部能力未获得对应授权时返回 HTTP 400，且不会创建分析任务或发送外部请求。
 
@@ -92,6 +98,8 @@ GET /analysis/tasks/{task_id}
 ```
 
 返回 summary、各类 JSON 产物、报告文本和缺失文件错误。
+
+开启结构化索引的任务额外返回 `index_manifest`，summary 增加 `repo_id`、`index_version_id`、`index_status` 和 manifest 路径。旧任务没有 manifest 时返回空对象。v1.4 不新增实体查询 API，前端也不依赖索引数据库。
 
 ### 读取报告
 

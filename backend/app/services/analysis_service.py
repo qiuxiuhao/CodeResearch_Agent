@@ -39,6 +39,7 @@ TASK_RESULT_FILES = {
     "ai_usage": "ai_usage.json",
     "paper_figure_analysis": "paper_figure_analysis.json",
     "teaching_diagrams": "teaching_diagrams/manifest.json",
+    "index_manifest": "index_manifest.json",
 }
 
 
@@ -65,6 +66,9 @@ def run_analysis(
     image_runtime: ImageGenerationRuntime | None = None,
     task_id: str | None = None,
     progress_callback: ProgressCallback | None = None,
+    structured_index_enabled: bool | None = None,
+    repository_key: str | None = None,
+    structured_index_db_path: str | Path | None = None,
 ) -> AgentState:
     ensure_output_root(output_root)
     options, provider_settings = resolve_analysis_options(
@@ -83,6 +87,9 @@ def run_analysis(
         llm_settings=llm_runtime.settings if llm_runtime else None,
         vision_settings=vision_runtime.settings if vision_runtime else None,
         image_settings=image_runtime.settings if image_runtime else None,
+        structured_index_enabled=structured_index_enabled,
+        repository_key=repository_key,
+        structured_index_db_path=str(structured_index_db_path) if structured_index_db_path else None,
     )
     runtime_context = create_provider_runtime_context(
         provider_settings,
@@ -183,6 +190,8 @@ def load_task_result(task_id: str, output_root: str | Path = "outputs") -> dict[
             result[key] = {
                 "version": "1.3.3", "status": "disabled", "diagrams": [], "warnings": [],
             }
+        elif key == "index_manifest" and not (task_dir / filename).exists():
+            result[key] = {}
         else:
             result[key] = _read_json(task_dir / filename, key, errors)
     return result
@@ -217,6 +226,14 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
         "library_function_docs_path": str(Path(output_dir) / "library_function_docs.json") if output_dir else None,
         "report_path": str(Path(output_dir) / "report.md") if output_dir else None,
         "library_db_path": state.get("library_db_path"),
+        "structured_index_enabled": state.get("structured_index_enabled", False),
+        "structured_index_db_path": state.get("structured_index_db_path"),
+        "repo_id": state.get("repo_id"),
+        "index_version_id": state.get("index_version_id"),
+        "index_manifest_path": (
+            str(Path(output_dir) / "index_manifest.json") if output_dir and state.get("index_manifest") else None
+        ),
+        "index_status": state.get("index_manifest", {}).get("status", "disabled"),
         "paper_pdf_path": state.get("paper_pdf_path"),
         "paper_provided": bool(state.get("paper_analysis", {}).get("paper_provided")),
         "python_file_count": len(state.get("python_files", [])),
@@ -283,6 +300,9 @@ def main() -> None:
     parser.add_argument("--external-image-consent", action="store_true")
     parser.add_argument("--teaching-review-vlm-enabled", action="store_true", default=None)
     parser.add_argument("--external-teaching-review-consent", action="store_true")
+    parser.add_argument("--structured-index-enabled", action="store_true", default=None)
+    parser.add_argument("--repository-key", default=None)
+    parser.add_argument("--structured-index-db-path", default=None)
     args = parser.parse_args()
 
     state = run_analysis(
@@ -298,6 +318,9 @@ def main() -> None:
         external_image_consent=args.external_image_consent,
         teaching_review_vlm_enabled=args.teaching_review_vlm_enabled,
         external_teaching_review_consent=args.external_teaching_review_consent,
+        structured_index_enabled=args.structured_index_enabled,
+        repository_key=args.repository_key,
+        structured_index_db_path=args.structured_index_db_path,
     )
     print(json.dumps(summarize_state(state), ensure_ascii=False, indent=2))
 
@@ -344,6 +367,7 @@ def _summarize_output_dir(task_id: str, task_dir: Path) -> dict[str, Any]:
     figures = _safe_json(task_dir / "paper_figure_analysis.json")
     teaching = _safe_json(task_dir / "teaching_diagrams" / "manifest.json")
     ai_usage = _safe_json(task_dir / "ai_usage.json")
+    index_manifest = _safe_json(task_dir / "index_manifest.json")
     return {
         "task_id": task_id,
         "output_dir": str(task_dir),
@@ -377,6 +401,10 @@ def _summarize_output_dir(task_id: str, task_dir: Path) -> dict[str, Any]:
         "teaching_diagram_count": len(teaching.get("diagrams", [])),
         "teaching_image_budget": (teaching.get("budget", {}) or {}).get("teaching_image", {}),
         "teaching_review_budget": (teaching.get("budget", {}) or {}).get("teaching_review", {}),
+        "structured_index_enabled": bool(index_manifest),
+        "repo_id": index_manifest.get("repo_id"),
+        "index_version_id": index_manifest.get("index_version_id"),
+        "index_status": index_manifest.get("status", "disabled"),
         "ai_usage": ai_usage or build_ai_usage_from_outputs(llm, figures, teaching),
     }
 

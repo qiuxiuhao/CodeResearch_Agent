@@ -27,6 +27,12 @@ class AgentState(TypedDict, total=False):
     diagrams: list[dict]
     diagram_warnings: list[str]
     library_db_path: str
+    structured_index_enabled: bool
+    structured_index_db_path: str
+    index_repository_identity: str | None
+    repo_id: str
+    index_version_id: str
+    index_manifest: dict
     library_function_docs: list[dict]
     new_library_functions: list[dict]
     skipped_low_confidence_library_calls: list[dict]

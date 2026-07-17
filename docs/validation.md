@@ -29,6 +29,8 @@ python scripts/smoke_image.py --provider qwen_image --i-understand-cost
 
 Vision 自动测试使用 MockVisionProvider，并覆盖 Figure 提取、稳定 ID、bbox、独立 consent、结构化校验、预算、缓存和 fallback。`smoke_vlm.py` 默认只发送无敏感信息的合成架构图；`--probe-json-object` 仅用于手动验证供应商能力，不会自动修改配置。
 
+v1.4 索引测试位于 `tests/indexing/`，覆盖 Entity/Edge ID、完整 input hash、路径与模块根、重复符号、alias/from/relative import、循环/多候选保留、调用图、unresolved call、Symbol Chunk、indexed_files、幂等、文件修改/删除、短事务、并发、busy 退避、stale lease、失败重试、迁移和显式版本回滚。测试全部使用临时目录和 SQLite，不访问网络。
+
 教学图自动测试使用本地 Skeleton/Blueprint、MockImageProvider 和 MockVisionProvider，不访问真实图片生成或 VLM 服务。`smoke_image.py` 只发送无敏感合成 TeachingDiagramSpec，并要求显式费用确认。
 
 ## 手动命令

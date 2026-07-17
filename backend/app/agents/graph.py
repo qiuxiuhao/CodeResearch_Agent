@@ -19,6 +19,7 @@ from backend.app.agents.nodes.paper_figure_extract_node import paper_figure_extr
 from backend.app.agents.nodes.paper_code_align_node import paper_code_align_node
 from backend.app.agents.nodes.paper_code_align_llm_node import paper_code_align_llm_node
 from backend.app.agents.nodes.report_generate_node import report_generate_node
+from backend.app.agents.nodes.structured_index_build_node import structured_index_build_node
 from backend.app.agents.nodes.repo_scan_node import repo_scan_node
 from backend.app.agents.nodes.teaching_diagram_generate_node import teaching_diagram_generate_node
 from backend.app.agents.nodes.teaching_diagram_plan_node import teaching_diagram_plan_node
@@ -42,6 +43,7 @@ ANALYSIS_GRAPH_STEPS: list[dict[str, str]] = [
     {"id": "paper_analyze", "label": "论文解析"},
     {"id": "paper_figure_extract", "label": "提取论文 Figure"},
     {"id": "paper_code_align", "label": "论文代码对齐"},
+    {"id": "structured_index_build", "label": "构建结构化索引"},
     {"id": "file_explain_llm", "label": "文件 AI 解释"},
     {"id": "function_explain_llm", "label": "函数 AI 解释"},
     {"id": "model_explain_llm", "label": "模型 AI 解释"},
@@ -89,6 +91,7 @@ def build_analysis_graph(
             "paper_analyze": paper_analyze_node,
             "paper_figure_extract": figure_extract,
             "paper_code_align": paper_code_align_node,
+            "structured_index_build": structured_index_build_node,
             "file_explain_llm": file_llm,
             "function_explain_llm": function_llm,
             "model_explain_llm": model_llm,
@@ -114,6 +117,7 @@ def build_analysis_graph(
         "paper_analyze": paper_analyze_node,
         "paper_figure_extract": figure_extract,
         "paper_code_align": paper_code_align_node,
+        "structured_index_build": structured_index_build_node,
         "file_explain_llm": file_llm,
         "function_explain_llm": function_llm,
         "model_explain_llm": model_llm,
@@ -139,7 +143,8 @@ def build_analysis_graph(
     workflow.add_edge("model_analyze", "paper_analyze")
     workflow.add_edge("paper_analyze", "paper_figure_extract")
     workflow.add_edge("paper_figure_extract", "paper_code_align")
-    workflow.add_edge("paper_code_align", "file_explain_llm")
+    workflow.add_edge("paper_code_align", "structured_index_build")
+    workflow.add_edge("structured_index_build", "file_explain_llm")
     workflow.add_edge("file_explain_llm", "function_explain_llm")
     workflow.add_edge("function_explain_llm", "model_explain_llm")
     workflow.add_edge("model_explain_llm", "paper_figure_analyze_vlm")

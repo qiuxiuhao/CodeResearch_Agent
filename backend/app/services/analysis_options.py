@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -37,8 +38,11 @@ class ResolvedAnalysisOptions(BaseModel):
     teaching_review_vlm_enabled: bool
     external_image_consent: bool
     external_teaching_review_consent: bool
+    structured_index_enabled: bool
+    index_repository_identity: str | None
+    structured_index_db_path: str
 
-    def state_dump(self) -> dict[str, bool | str]:
+    def state_dump(self) -> dict[str, bool | str | None]:
         return self.model_dump(mode="json")
 
 
@@ -72,6 +76,9 @@ def resolve_analysis_options(
     external_image_consent: bool = False,
     teaching_review_vlm_enabled: bool | None = None,
     external_teaching_review_consent: bool = False,
+    structured_index_enabled: bool | None = None,
+    repository_key: str | None = None,
+    structured_index_db_path: str | None = None,
     llm_settings: LLMSettings | None = None,
     vision_settings: VisionSettings | None = None,
     image_settings: ImageGenerationSettings | None = None,
@@ -133,6 +140,14 @@ def resolve_analysis_options(
         teaching_review_vlm_enabled=image.teaching_review_vlm_enabled,
         external_image_consent=external_image_consent,
         external_teaching_review_consent=external_teaching_review_consent,
+        structured_index_enabled=(
+            _bool_env("STRUCTURED_INDEX_ENABLED", False)
+            if structured_index_enabled is None else structured_index_enabled
+        ),
+        index_repository_identity=repository_key,
+        structured_index_db_path=(
+            structured_index_db_path or os.getenv("STRUCTURED_INDEX_DB_PATH") or "data/structured_index.sqlite3"
+        ),
     )
     return options, ResolvedProviderSettings(llm=llm, vision=vision, image=image)
 
@@ -171,3 +186,10 @@ def _resolve_teaching_review_enabled(
     if teaching_review_enabled is not None:
         return teaching_review_enabled
     return None if teaching_review_consent else False
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}

@@ -15,6 +15,7 @@ model_analyze
 paper_analyze
 paper_figure_extract
 paper_code_align
+structured_index_build
 file_explain_llm
 function_explain_llm
 model_explain_llm
@@ -40,6 +41,7 @@ report_generate
 - `paper_analyze`：可选解析本地论文 PDF，提取标题、摘要、贡献点、关键词和模块名。
 - `paper_figure_extract`：本地提取 Figure caption、页码、bbox、引用次数、原始资产和 canonical preview。
 - `paper_code_align`：把论文贡献点对齐到文件、类、函数和模型模块，并标注置信度。
+- `structured_index_build`：可选的确定性影子节点；消费 AST、规则分析和规则论文对齐，构建稳定实体/关系/证据/Chunk 并版本化写入独立 SQLite。该节点位于规则对齐之后、所有 LLM/VLM 增强之前，失败不阻断旧报告。
 - 三个普通 `*_llm` 节点：仅在文本 LLM 开关和文本 consent 通过时生成独立教学解释。
 - `paper_figure_analyze_vlm`：在图片 consent 通过后分析筛选 Figure，不读取整个 PDF，也不生成代码目标。
 - `paper_code_align_llm`：在文本 LLM 开启时读取规则对齐和可用 FigureAnalysis，并仅从代码 evidence catalog 生成建议关联。
@@ -56,5 +58,7 @@ report_generate
 - 不执行用户项目代码。
 - 分析流程中不做网络检索。
 - 重要结论尽量带 evidence 和 confidence。
+- 规则实体和关系不消费 LLM/VLM 解释；unresolved/ambiguous 符号必须保留，不能通过猜测补全。
+- 长时间索引计算与 staging 不持有 SQLite 写事务；激活使用短事务并保持每个仓库最多一个 active 版本。
 - 论文 PDF 等可选输入缺失时，输出空结构，不影响代码分析主流程。
 - 默认纯规则模式零外部调用；文本、论文视觉、教学图图片生成和教学图审查具有独立 consent、预算、缓存和 retry/fallback 计数。

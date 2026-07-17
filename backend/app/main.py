@@ -62,7 +62,7 @@ async def lifespan(_app: FastAPI):
         _shutdown_analysis_executor()
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.3.5", lifespan=lifespan)
+app = FastAPI(title="CodeResearch Agent", version="1.4.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -89,6 +89,9 @@ class AnalysisTaskRequest(BaseModel):
     external_image_consent: bool = False
     teaching_review_vlm_enabled: bool | None = None
     external_teaching_review_consent: bool = False
+    structured_index_enabled: bool | None = None
+    repository_key: str | None = Field(default=None, min_length=1, max_length=500)
+    structured_index_db_path: str | None = None
 
 
 @app.get("/health")
@@ -113,6 +116,7 @@ def create_analysis_task(request: AnalysisTaskRequest) -> dict:
             request.teaching_diagrams_enabled, request.image_generation_enabled,
             request.external_image_consent, request.teaching_review_vlm_enabled,
             request.external_teaching_review_consent,
+            request.structured_index_enabled, request.repository_key, request.structured_index_db_path,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -149,6 +153,9 @@ def create_analysis_task_async(request: AnalysisTaskRequest) -> dict:
         request.external_image_consent,
         request.teaching_review_vlm_enabled,
         request.external_teaching_review_consent,
+        request.structured_index_enabled,
+        request.repository_key,
+        request.structured_index_db_path,
     )
     return progress
 
@@ -171,6 +178,9 @@ async def create_analysis_task_from_upload(
     external_image_consent: bool = Form(False),
     teaching_review_vlm_enabled: bool | None = Form(None),
     external_teaching_review_consent: bool = Form(False),
+    structured_index_enabled: bool | None = Form(None),
+    repository_key: str | None = Form(None, min_length=1, max_length=500),
+    structured_index_db_path: str | None = Form(None),
 ) -> dict:
     if not zip_file.filename or not zip_file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="zip_file must be a .zip file.")
@@ -201,6 +211,7 @@ async def create_analysis_task_from_upload(
         external_text_consent, external_vision_consent,
         teaching_diagrams_enabled, image_generation_enabled, external_image_consent, teaching_review_vlm_enabled,
         external_teaching_review_consent,
+        structured_index_enabled, repository_key, structured_index_db_path,
     )
     return summarize_state(state)
 
@@ -223,6 +234,9 @@ async def create_analysis_task_from_upload_async(
     external_image_consent: bool = Form(False),
     teaching_review_vlm_enabled: bool | None = Form(None),
     external_teaching_review_consent: bool = Form(False),
+    structured_index_enabled: bool | None = Form(None),
+    repository_key: str | None = Form(None, min_length=1, max_length=500),
+    structured_index_db_path: str | None = Form(None),
 ) -> dict:
     if not zip_file.filename or not zip_file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="zip_file must be a .zip file.")
@@ -268,6 +282,9 @@ async def create_analysis_task_from_upload_async(
         external_image_consent,
         teaching_review_vlm_enabled,
         external_teaching_review_consent,
+        structured_index_enabled,
+        repository_key,
+        structured_index_db_path,
     )
     return progress
 
@@ -530,6 +547,9 @@ def _run_analysis_with_llm_options(
     teaching_diagrams_enabled: bool = True, image_enabled: bool | None = None,
     image_consent: bool = False, teaching_review_enabled: bool | None = None,
     teaching_review_consent: bool = False,
+    structured_index_enabled: bool | None = None,
+    repository_key: str | None = None,
+    structured_index_db_path: str | None = None,
     task_id: str | None = None,
     progress_callback: ProgressCallback | None = None,
 ):
@@ -544,6 +564,7 @@ def _run_analysis_with_llm_options(
         and teaching_narrative_enabled is None
         and image_enabled is None and not image_consent and teaching_review_enabled is None
         and not teaching_review_consent and task_id is None and progress_callback is None
+        and structured_index_enabled is None and repository_key is None and structured_index_db_path is None
     ):
         return run_analysis(zip_path, output_root, library_db_path, paper_pdf_path)
     return run_analysis(
@@ -557,6 +578,9 @@ def _run_analysis_with_llm_options(
         external_image_consent=image_consent,
         teaching_review_vlm_enabled=teaching_review_enabled,
         external_teaching_review_consent=teaching_review_consent,
+        structured_index_enabled=structured_index_enabled,
+        repository_key=repository_key,
+        structured_index_db_path=structured_index_db_path,
         task_id=task_id,
         progress_callback=progress_callback,
     )
@@ -580,6 +604,9 @@ def _run_background_analysis(
     image_consent: bool,
     teaching_review_enabled: bool | None,
     teaching_review_consent: bool,
+    structured_index_enabled: bool | None,
+    repository_key: str | None,
+    structured_index_db_path: str | None,
 ) -> None:
     progress_store.mark_running(task_id)
     try:
@@ -588,6 +615,7 @@ def _run_background_analysis(
             text_enabled, teaching_narrative_enabled, vision_enabled,
             text_consent, vision_consent, teaching_diagrams_enabled,
             image_enabled, image_consent, teaching_review_enabled, teaching_review_consent,
+            structured_index_enabled, repository_key, structured_index_db_path,
             task_id=task_id,
             progress_callback=_progress_callback_for(task_id),
         )
