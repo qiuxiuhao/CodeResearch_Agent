@@ -6,6 +6,8 @@ from uuid import uuid4
 
 from backend.app.alignment.alignment_service import AlignmentService
 from backend.app.persistence.alignment_store import AlignmentLease, AlignmentStore, AlignmentStoreError
+from backend.app.observability.context import start_span_or_root
+from backend.app.services.observability_runtime import get_observability_runtime
 
 
 class AlignmentRunCoordinator:
@@ -72,6 +74,37 @@ class AlignmentRunCoordinator:
         self._reap()
 
     async def _execute(self, lease: AlignmentLease) -> None:
+        run = self.store.get_run(lease.run_id)
+        runtime = get_observability_runtime()
+        handle = start_span_or_root(
+            operation="alignment.run",
+            trace_type="alignment",
+            component="alignment",
+            force_root=True,
+            run_id=lease.run_id,
+            repo_id=run["repo_id"],
+            index_version_id=run["index_version_id"],
+            attributes={
+                "cra.run.id": lease.run_id,
+                "cra.repo.id": run["repo_id"],
+                "cra.index.version_id": run["index_version_id"],
+                "cra.model.profile": run["model_profile_id"],
+                "cra.scorer.profile": run["model_profile_id"],
+            },
+        )
+        async with handle:
+            queued_from = runtime.consume_enqueue_link(lease.run_id)
+            if queued_from:
+                handle.link(
+                    queued_from[0], linked_span_id=queued_from[1], relation=queued_from[2]
+                )
+            handle.artifact(
+                "run", lease.run_id, role="alignment_run",
+                repo_id=run["repo_id"], index_version_id=run["index_version_id"],
+            )
+            await self._execute_impl(lease, handle)
+
+    async def _execute_impl(self, lease: AlignmentLease, trace_handle) -> None:
         finished = asyncio.Event()
         heartbeat = asyncio.create_task(
             self._heartbeat(lease, finished), name=f"alignment-heartbeat-{lease.run_id}"
@@ -89,6 +122,20 @@ class AlignmentRunCoordinator:
             with suppress(asyncio.CancelledError):
                 await heartbeat
             self.store.release_lease(lease)
+            final = self.store.get_run(lease.run_id)
+            trace_handle.event(
+                "alignment.terminal",
+                attributes={
+                    "cra.status": final["status"],
+                    "cra.alignment.status": final["status"],
+                    "cra.candidate.count": int(final.get("candidate_count") or 0),
+                },
+            )
+            if final["status"] in {"failed", "cancelled"}:
+                trace_handle.end(
+                    status="error" if final["status"] == "failed" else "cancelled",
+                    completion_status=final["status"],
+                )
 
     async def _heartbeat(self, lease: AlignmentLease, finished: asyncio.Event) -> None:
         current = lease

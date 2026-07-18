@@ -21,6 +21,7 @@ from backend.app.services.analysis_options import (
 from backend.app.services.storage_service import ensure_output_root
 from backend.app.vision.config import VisionSettings
 from backend.app.vision.runtime import VisionRuntime
+from backend.app.observability.context import start_span_or_root
 
 
 TASK_ID_PATTERN = re.compile(r"^task_[A-Za-z0-9]+$")
@@ -43,7 +44,22 @@ TASK_RESULT_FILES = {
 }
 
 
-def run_analysis(
+def run_analysis(*args, **kwargs) -> AgentState:
+    task_id = kwargs.get("task_id")
+    handle = start_span_or_root(
+        operation="analysis.run",
+        trace_type="analysis",
+        component="analysis_graph",
+        task_id=str(task_id) if task_id else None,
+        attributes={"cra.task.id": str(task_id)} if task_id else {},
+    )
+    with handle:
+        if task_id:
+            handle.artifact("task", str(task_id), role="analysis_task")
+        return _run_analysis_impl(*args, **kwargs)
+
+
+def _run_analysis_impl(
     zip_path: str | Path,
     output_root: str | Path = "outputs",
     library_db_path: str | Path | None = None,

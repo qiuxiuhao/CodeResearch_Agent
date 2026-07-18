@@ -8,6 +8,7 @@ import { TaskForm } from "./components/TaskForm";
 import { ProviderSettingsDrawer } from "./components/ProviderSettingsDrawer";
 import { getTaskResult, listTasks } from "./api/client";
 import type { AnalysisResult, LibraryCall, Mode, ResultTab, TaskSummary } from "./types/analysis";
+import { TraceExplorer } from "./features/observability/TraceExplorer";
 
 export default function App() {
   const [mode, setMode] = useState<Mode>("normal");
@@ -18,6 +19,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [selectedLibraryCall, setSelectedLibraryCall] = useState<LibraryCall | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [observabilityOpen, setObservabilityOpen] = useState(false);
 
   useEffect(() => {
     void refreshTasks();
@@ -59,7 +61,16 @@ export default function App() {
   }
 
   return (
-    <AppShell mode={mode} onModeChange={setMode} onOpenSettings={() => setSettingsOpen(true)}>
+    <AppShell
+      mode={mode}
+      onModeChange={setMode}
+      onOpenSettings={() => setSettingsOpen(true)}
+      onOpenObservability={() => setObservabilityOpen(true)}
+    >
+      {observabilityOpen ? (
+        <TraceExplorer onClose={() => setObservabilityOpen(false)} />
+      ) : (
+        <>
       <aside className="sidebar">
         <TaskForm onTaskCreated={handleTaskCreated} onError={setError} onOpenSettings={() => setSettingsOpen(true)} />
         <section className="panel">
@@ -99,6 +110,8 @@ export default function App() {
         />
       )}
       <ProviderSettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        </>
+      )}
     </AppShell>
   );
 }

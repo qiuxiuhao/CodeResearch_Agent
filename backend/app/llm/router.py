@@ -16,6 +16,7 @@ from backend.app.llm.privacy import sanitize_payload, truncate_payload
 from backend.app.llm.providers.base_provider import BaseLLMProvider
 from backend.app.llm.types import LLMTaskType, ProviderRequest, RouterResult
 from backend.app.schemas.llm_explanation import EvidenceItem, LLMCallMetadata
+from backend.app.observability.context import current_trace_context, start_span_or_root
 
 
 class ModelRouter:
@@ -32,6 +33,45 @@ class ModelRouter:
         self.cache = cache
 
     def generate_structured(
+        self,
+        *,
+        task_type: LLMTaskType,
+        context_id: str,
+        system_prompt: str,
+        input_payload: dict,
+        response_model: type[BaseModel],
+        evidence_catalog: list[EvidenceItem],
+        prompt_version: str = "1.1",
+        identity_validator: Callable[[BaseModel], bool] | None = None,
+        result_validator: Callable[[BaseModel], None] | None = None,
+    ) -> RouterResult:
+        parent = current_trace_context()
+        handle = start_span_or_root(
+            operation="provider.generate",
+            trace_type=parent.trace_type if parent is not None else "analysis",
+            component="provider",
+            kind="client",
+            attributes={
+                "cra.provider.task_type": task_type,
+                "cra.prompt.version": prompt_version,
+            },
+        )
+        with handle:
+            result = self._generate_structured_impl(
+                task_type=task_type,
+                context_id=context_id,
+                system_prompt=system_prompt,
+                input_payload=input_payload,
+                response_model=response_model,
+                evidence_catalog=evidence_catalog,
+                prompt_version=prompt_version,
+                identity_validator=identity_validator,
+                result_validator=result_validator,
+            )
+            _record_provider_result(handle, result)
+            return result
+
+    def _generate_structured_impl(
         self,
         *,
         task_type: LLMTaskType,
@@ -153,6 +193,36 @@ class ModelRouter:
     @property
     def has_available_provider(self) -> bool:
         return any(provider.configured for provider in self.providers)
+
+
+def _record_provider_result(handle, result: RouterResult) -> None:
+    metadata = getattr(result.value, "metadata", None) if result.value is not None else None
+    attributes: dict[str, object] = {}
+    if metadata is not None:
+        for source, target in (
+            ("provider", "cra.provider.name"),
+            ("model", "cra.provider.model"),
+            ("input_tokens", "cra.token.input"),
+            ("output_tokens", "cra.token.output"),
+            ("total_tokens", "cra.token.total"),
+            ("cache_hit", "cra.cache.hit"),
+            ("status", "cra.status"),
+        ):
+            value = getattr(metadata, source, None)
+            if value is not None:
+                attributes[target] = value
+    handle.event(
+        "provider.completed" if result.value is not None else "provider.unavailable",
+        severity="info" if result.value is not None else "warning",
+        attributes=attributes,
+    )
+    if "cra.cache.hit" in attributes:
+        handle.completed_child(
+            "cache.get",
+            component="cache",
+            duration_ms=0.0,
+            attributes={"cra.cache.hit": attributes["cra.cache.hit"]},
+        )
 
 
 def _metadata(

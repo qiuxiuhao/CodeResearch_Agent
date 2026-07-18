@@ -14,6 +14,7 @@ from backend.app.vision.config import VisionSettings
 from backend.app.vision.exceptions import VisionProviderError
 from backend.app.vision.providers.base_provider import BaseVisionProvider
 from backend.app.vision.types import VisionRequest, VisionRouterResult
+from backend.app.observability.context import current_trace_context, start_span_or_root
 
 
 class VisionModelRouter:
@@ -28,6 +29,29 @@ class VisionModelRouter:
         return any(provider.configured for provider in self.providers)
 
     def analyze(
+        self,
+        *,
+        context_id: str,
+        system_prompt: str,
+        input_payload: dict,
+        image_bytes: bytes,
+        mime_type: str,
+        evidence_catalog: list[VisionEvidenceItem],
+    ) -> VisionRouterResult:
+        return self._observed(
+            "paper_figure_analyze",
+            self.settings.prompt_version,
+            lambda: self._analyze_impl(
+                context_id=context_id,
+                system_prompt=system_prompt,
+                input_payload=input_payload,
+                image_bytes=image_bytes,
+                mime_type=mime_type,
+                evidence_catalog=evidence_catalog,
+            ),
+        )
+
+    def _analyze_impl(
         self,
         *,
         context_id: str,
@@ -155,6 +179,35 @@ class VisionModelRouter:
         prompt_version: str,
         validator: Callable[[BaseModel], None] | None = None,
     ) -> VisionRouterResult:
+        return self._observed(
+            task_type,
+            prompt_version,
+            lambda: self._analyze_structured_image_impl(
+                context_id=context_id,
+                system_prompt=system_prompt,
+                input_payload=input_payload,
+                image_bytes=image_bytes,
+                mime_type=mime_type,
+                response_model=response_model,
+                task_type=task_type,
+                prompt_version=prompt_version,
+                validator=validator,
+            ),
+        )
+
+    def _analyze_structured_image_impl(
+        self,
+        *,
+        context_id: str,
+        system_prompt: str,
+        input_payload: dict,
+        image_bytes: bytes,
+        mime_type: str,
+        response_model: type[BaseModel],
+        task_type: str,
+        prompt_version: str,
+        validator: Callable[[BaseModel], None] | None = None,
+    ) -> VisionRouterResult:
         image_hash = hashlib.sha256(image_bytes).hexdigest()
         warnings: list[dict] = []
         available = [(index, provider) for index, provider in enumerate(self.providers) if provider.configured]
@@ -230,6 +283,50 @@ class VisionModelRouter:
                     ))
         warnings.append(_warning_for_task(task_type, "vlm_all_providers_failed", context_id))
         return VisionRouterResult(None, warnings)
+
+    @staticmethod
+    def _observed(task_type: str, prompt_version: str, callback) -> VisionRouterResult:
+        parent = current_trace_context()
+        handle = start_span_or_root(
+            operation="provider.generate",
+            trace_type=parent.trace_type if parent is not None else "analysis",
+            component="provider",
+            kind="client",
+            attributes={
+                "cra.provider.task_type": task_type,
+                "cra.prompt.version": prompt_version,
+            },
+        )
+        with handle:
+            result = callback()
+            metadata = getattr(result.value, "metadata", None) if result.value is not None else None
+            attributes: dict[str, object] = {}
+            if metadata is not None:
+                for source, target in (
+                    ("provider", "cra.provider.name"),
+                    ("model", "cra.provider.model"),
+                    ("input_tokens", "cra.token.input"),
+                    ("output_tokens", "cra.token.output"),
+                    ("total_tokens", "cra.token.total"),
+                    ("cache_hit", "cra.cache.hit"),
+                    ("status", "cra.status"),
+                ):
+                    value = metadata.get(source) if isinstance(metadata, dict) else getattr(metadata, source, None)
+                    if value is not None:
+                        attributes[target] = value
+            handle.event(
+                "provider.completed" if result.value is not None else "provider.unavailable",
+                severity="info" if result.value is not None else "warning",
+                attributes=attributes,
+            )
+            if "cra.cache.hit" in attributes:
+                handle.completed_child(
+                    "cache.get",
+                    component="cache",
+                    duration_ms=0.0,
+                    attributes={"cra.cache.hit": attributes["cra.cache.hit"]},
+                )
+            return result
 
 
 def _validate_value(value: FigureAnalysis, context_id: str, valid_evidence: set[str], valid_contributions: set[str]) -> None:

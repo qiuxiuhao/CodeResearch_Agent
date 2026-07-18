@@ -20,6 +20,8 @@ from backend.app.llm.runtime import create_llm_runtime
 from backend.app.persistence.alignment_store import AlignmentStore, AlignmentStoreError, alignment_run_model
 from backend.app.persistence.retrieval_read_store import RetrievalReadError
 from backend.app.services.alignment_run_coordinator import AlignmentRunCoordinator
+from backend.app.observability.context import current_trace_context
+from backend.app.services.observability_runtime import get_observability_runtime
 
 
 router = APIRouter()
@@ -92,6 +94,11 @@ async def create_alignment_run(
             idempotency_key=idempotency_key,
             retry_of_run_id=payload.retry_of_run_id,
         )
+        context = current_trace_context()
+        if context is not None and not reused:
+            get_observability_runtime().register_enqueue_link(
+                run["run_id"], context.trace_id, context.span_id
+            )
         if _coordinator:
             _coordinator.notify()
         return {"run": alignment_run_model(run), "reused": reused}
@@ -316,6 +323,7 @@ def _value_error_code(exc: Exception) -> str:
 
 
 def _error(error_code: str, message: str, retryable: bool) -> JSONResponse:
+    context = current_trace_context()
     if error_code == "idempotency_key_conflict":
         status = 409
     elif error_code in {"alignment_disabled", "alignment_busy"}:
@@ -337,7 +345,7 @@ def _error(error_code: str, message: str, retryable: bool) -> JSONResponse:
                 "message": message,
                 "retryable": retryable,
                 "context": {},
-                "trace_id": None,
+                "trace_id": context.trace_id if context else None,
             }
         },
     )

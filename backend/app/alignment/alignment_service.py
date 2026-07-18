@@ -15,6 +15,8 @@ from backend.app.alignment.verifier import (
 from backend.app.persistence.alignment_store import AlignmentLease, AlignmentStore, AlignmentStoreError
 from backend.app.schemas.paper import PaperAnalysis, PaperContribution
 from backend.app.retrieval.schemas import PublicRetrievalFilter, RetrievalSearchRequest
+from backend.app.observability.context import start_span_or_root
+from backend.app.observability.instrumentation import observe_child_call
 
 
 DEFAULT_MODEL_PROFILE_CONFIG = {
@@ -125,41 +127,37 @@ class AlignmentService:
             stage = run["status"]
             if stage == "ready":
                 self._stage_commit_guard(lease, run_id, "ready")
-                return self.store.mark_ready_and_activate(run_id)
+                return self._persist("activate", lambda: self.store.mark_ready_and_activate(run_id))
 
             if stage in {"queued", "profiling"}:
                 self.store.update_status(run_id, "profiling", allowed_from=[stage])
-                profiles = extract_paper_module_profiles(
-                    alignment_run_id=run_id,
-                    repo_id=run["repo_id"],
-                    index_version_id=run["index_version_id"],
-                    paper_id=run["paper_id"],
-                    paper_analysis=_paper_analysis(facts),
-                    paper_entities=facts.paper_entities,
+                profiles = self._observed(
+                    "alignment.profile",
+                    lambda: extract_paper_module_profiles(
+                        alignment_run_id=run_id,
+                        repo_id=run["repo_id"],
+                        index_version_id=run["index_version_id"],
+                        paper_id=run["paper_id"],
+                        paper_analysis=_paper_analysis(facts),
+                        paper_entities=facts.paper_entities,
+                    ),
                 )
                 self._stage_commit_guard(lease, run_id, "profiling")
-                self.store.save_profiles(run_id, profiles)
+                self._persist("save_profiles", lambda: self.store.save_profiles(run_id, profiles))
                 stage = "profiling"
             else:
                 profiles = self.store.load_profiles(run_id)
 
             if stage in {"profiling", "recalling"}:
                 self.store.update_status(run_id, "recalling", allowed_from=[stage])
-                all_candidates = []
-                legacy = _legacy_targets(facts, profiles)
-                for profile in profiles:
-                    external_hits = self._retrieval_hits(profile)
-                    all_candidates.extend(
-                        generate_alignment_candidates(
-                            profile=profile,
-                            code_entities=facts.code_entities,
-                            edges=facts.edges,
-                            external_hits=external_hits,
-                            legacy_entity_ids=legacy.get(profile.profile_id, []),
-                        )
-                    )
+                all_candidates = self._observed(
+                    "alignment.candidate_recall",
+                    lambda: self._generate_candidates(facts, profiles),
+                )
                 self._stage_commit_guard(lease, run_id, "recalling")
-                self.store.save_candidates(run_id, all_candidates)
+                self._persist(
+                    "save_candidates", lambda: self.store.save_candidates(run_id, all_candidates)
+                )
                 stage = "recalling"
             else:
                 all_candidates = self.store.load_candidates(run_id)
@@ -168,27 +166,33 @@ class AlignmentService:
             profile_map = {item.profile_id: item for item in profiles}
             if stage in {"recalling", "featurizing"}:
                 self.store.update_status(run_id, "featurizing", allowed_from=[stage])
-                vectors = [
-                    extract_feature_vector(
-                        profile=profile_map[item.profile_id],
-                        candidate=item,
-                        entity=entities[item.code_entity_id],
-                        chunks=facts.chunks_by_entity.get(item.code_entity_id, []),
-                    )
-                    for item in all_candidates
-                    if item.code_entity_id in entities
-                ]
+                vectors = self._observed(
+                    "alignment.feature_extract",
+                    lambda: [
+                        extract_feature_vector(
+                            profile=profile_map[item.profile_id],
+                            candidate=item,
+                            entity=entities[item.code_entity_id],
+                            chunks=facts.chunks_by_entity.get(item.code_entity_id, []),
+                        )
+                        for item in all_candidates
+                        if item.code_entity_id in entities
+                    ],
+                )
                 self._stage_commit_guard(lease, run_id, "featurizing")
-                self.store.save_features(run_id, vectors)
+                self._persist("save_features", lambda: self.store.save_features(run_id, vectors))
                 stage = "featurizing"
             else:
                 vectors = self.store.load_features(run_id)
 
             if stage in {"featurizing", "scoring"}:
                 self.store.update_status(run_id, "scoring", allowed_from=[stage])
-                scores = [score_feature_vector(item) for item in vectors]
+                scores = self._observed(
+                    "alignment.score", lambda: [score_feature_vector(item) for item in vectors]
+                )
+                scores = self._observed("alignment.calibrate", lambda: scores)
                 self._stage_commit_guard(lease, run_id, "scoring")
-                self.store.save_scores(run_id, scores)
+                self._persist("save_scores", lambda: self.store.save_scores(run_id, scores))
             else:
                 scores = self.store.load_scores(run_id)
             candidates_by_profile: dict[str, list] = {}
@@ -198,53 +202,50 @@ class AlignmentService:
             for item in scores:
                 scores_by_profile.setdefault(item.profile_id, []).append(item)
             if stage in {"featurizing", "scoring"}:
-                decisions = [
-                    build_profile_decision(
-                        profile=profile,
-                        candidates=candidates_by_profile.get(profile.profile_id, []),
-                        scores=scores_by_profile.get(profile.profile_id, []),
-                    )
-                    for profile in profiles
-                ]
+                decisions = self._observed(
+                    "alignment.set_decision",
+                    lambda: [
+                        build_profile_decision(
+                            profile=profile,
+                            candidates=candidates_by_profile.get(profile.profile_id, []),
+                            scores=scores_by_profile.get(profile.profile_id, []),
+                        )
+                        for profile in profiles
+                    ],
+                )
                 self._stage_commit_guard(lease, run_id, "scoring")
-                self.store.save_decisions(run_id, decisions)
+                self._persist(
+                    "save_decisions", lambda: self.store.save_decisions(run_id, decisions)
+                )
                 stage = "scoring"
             else:
                 decisions = self.store.load_decisions(run_id)
 
             if request.get("verifier_enabled"):
                 self.store.update_status(run_id, "verifying", allowed_from=[stage])
-                decision_by_profile = {item.profile_id: item for item in decisions}
-                verifications = []
-                final_decisions = []
-                for profile in profiles:
-                    profile_candidates = candidates_by_profile.get(profile.profile_id, [])
-                    scorer_decision = decision_by_profile[profile.profile_id]
-                    if request.get("external_text_consent") and self.verifier is not None:
-                        try:
-                            verification, selections = self.verifier.verify(
-                                profile=profile,
-                                candidates=profile_candidates,
-                                candidate_scores=scores_by_profile.get(profile.profile_id, []),
-                                scorer_decision=scorer_decision,
-                                entities=entities,
-                            )
-                            final_decisions.append(
-                                apply_verifier_decision(scorer_decision, verification, selections)
-                            )
-                        except Exception:
-                            verification = fallback_verification(profile, profile_candidates)
-                            final_decisions.append(scorer_decision)
-                    else:
-                        verification = fallback_verification(profile, profile_candidates)
-                        final_decisions.append(scorer_decision)
-                    verifications.append(verification)
+                final_decisions, verifications = self._observed(
+                    "alignment.verify",
+                    lambda: self._verify(
+                        request=request,
+                        profiles=profiles,
+                        decisions=decisions,
+                        candidates_by_profile=candidates_by_profile,
+                        scores_by_profile=scores_by_profile,
+                        entities=entities,
+                    ),
+                )
                 self._stage_commit_guard(lease, run_id, "verifying")
-                self.store.save_decisions(run_id, final_decisions)
-                self.store.save_verifications(run_id, verifications)
+                self._persist(
+                    "save_decisions",
+                    lambda: self.store.save_decisions(run_id, final_decisions),
+                )
+                self._persist(
+                    "save_verifications",
+                    lambda: self.store.save_verifications(run_id, verifications),
+                )
                 stage = "verifying"
             self._stage_commit_guard(lease, run_id, stage)
-            return self.store.mark_ready_and_activate(run_id)
+            return self._persist("activate", lambda: self.store.mark_ready_and_activate(run_id))
         except AlignmentStoreError:
             raise
         except Exception as exc:
@@ -299,6 +300,80 @@ class AlignmentService:
                     )
                 )
         return hits
+
+    def _generate_candidates(self, facts: AlignmentFacts, profiles: list) -> list:
+        candidates = []
+        legacy = _legacy_targets(facts, profiles)
+        for profile in profiles:
+            candidates.extend(
+                generate_alignment_candidates(
+                    profile=profile,
+                    code_entities=facts.code_entities,
+                    edges=facts.edges,
+                    external_hits=self._retrieval_hits(profile),
+                    legacy_entity_ids=legacy.get(profile.profile_id, []),
+                )
+            )
+        return candidates
+
+    def _verify(
+        self,
+        *,
+        request: dict,
+        profiles: list,
+        decisions: list,
+        candidates_by_profile: dict[str, list],
+        scores_by_profile: dict[str, list],
+        entities: dict,
+    ) -> tuple[list, list]:
+        decision_by_profile = {item.profile_id: item for item in decisions}
+        verifications = []
+        final_decisions = []
+        for profile in profiles:
+            profile_candidates = candidates_by_profile.get(profile.profile_id, [])
+            scorer_decision = decision_by_profile[profile.profile_id]
+            if request.get("external_text_consent") and self.verifier is not None:
+                try:
+                    verification, selections = self.verifier.verify(
+                        profile=profile,
+                        candidates=profile_candidates,
+                        candidate_scores=scores_by_profile.get(profile.profile_id, []),
+                        scorer_decision=scorer_decision,
+                        entities=entities,
+                    )
+                    final_decisions.append(
+                        apply_verifier_decision(scorer_decision, verification, selections)
+                    )
+                except Exception:
+                    verification = fallback_verification(profile, profile_candidates)
+                    final_decisions.append(scorer_decision)
+            else:
+                verification = fallback_verification(profile, profile_candidates)
+                final_decisions.append(scorer_decision)
+            verifications.append(verification)
+        return final_decisions, verifications
+
+    @staticmethod
+    def _observed(operation: str, callback):
+        handle = start_span_or_root(
+            operation=operation,
+            trace_type="alignment",
+            component="alignment",
+        )
+        with handle:
+            result = callback()
+            if isinstance(result, list):
+                handle.event(f"{operation}.completed", attributes={"cra.count": len(result)})
+            return result
+
+    @staticmethod
+    def _persist(operation: str, callback):
+        return observe_child_call(
+            f"database.alignment.{operation}",
+            component="database",
+            callback=callback,
+            attributes={"cra.database.operation": operation},
+        )
 
     def _cancel_guard(self, run_id: str, stage: str) -> None:
         if self.store.is_cancel_requested(run_id):

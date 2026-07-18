@@ -19,6 +19,8 @@ from backend.app.persistence.retrieval_read_store import RetrievalReadError
 from backend.app.retrieval.api import get_retrieval_service
 from backend.app.services.research_run_coordinator import ResearchRunCoordinator
 from backend.app.agents.research.tool_registry import shutdown_sync_tool_executor
+from backend.app.observability.context import current_trace_context
+from backend.app.services.observability_runtime import get_observability_runtime
 
 
 router = APIRouter()
@@ -75,13 +77,18 @@ async def create_agent_run(
         version_id = get_retrieval_service().read_store.resolve_version(
             repo_id, payload.index_version_id
         )
-        run, _reused = _coordinator.run_store.create_run(
+        run, reused = _coordinator.run_store.create_run(
             repo_id=repo_id,
             index_version_id=version_id,
             request=payload.model_copy(update={"index_version_id": version_id}),
             caller_scope=_caller_scope(request),
             idempotency_key=idempotency_key,
         )
+        context = current_trace_context()
+        if context is not None and not reused:
+            get_observability_runtime().register_enqueue_link(
+                run["run_id"], context.trace_id, context.span_id
+            )
         _coordinator.notify()
         return ResearchRunAccepted(
             run_id=run["run_id"], thread_id=run["thread_id"], status=run["status"],
@@ -112,6 +119,11 @@ async def resume_agent_run(run_id: str, _payload: ResearchRunResumeRequest, requ
         return unavailable
     try:
         _coordinator.run_store.get_run_for_caller(run_id, _caller_scope(request))
+        context = current_trace_context()
+        if context is not None:
+            get_observability_runtime().register_enqueue_link(
+                run_id, context.trace_id, context.span_id
+            )
         run = await _coordinator.resume(run_id)
         return _run_view(run)
     except ResearchRunStoreError as exc:
@@ -163,6 +175,7 @@ def _unavailable() -> JSONResponse | None:
 
 
 def _error(error_code: str, message: str, *, retryable: bool) -> JSONResponse:
+    context = current_trace_context()
     status = 409 if error_code == "idempotency_key_conflict" else 404
     if error_code in {
         "research_agent_disabled", "research_agent_unavailable", "checkpoint_dependency_missing",
@@ -175,7 +188,8 @@ def _error(error_code: str, message: str, *, retryable: bool) -> JSONResponse:
         status = 403
     return JSONResponse(status_code=status, content={"error": {
         "error_code": error_code, "component": "research_agent", "message": message,
-        "retryable": retryable, "context": {}, "trace_id": None,
+        "retryable": retryable, "context": {},
+        "trace_id": context.trace_id if context else None,
     }})
 
 

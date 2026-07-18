@@ -5,6 +5,7 @@ from pathlib import Path
 
 from backend.app.agents.research import schemas as agent_schemas
 from backend.app.retrieval import schemas as retrieval_schemas
+from backend.app.observability.context import current_trace_context, get_default_recorder, start_span_or_root
 
 
 MIN_LANGGRAPH_VERSION = (1, 0, 10)
@@ -56,13 +57,33 @@ class ResearchCheckpointRuntime:
     async def checkpoint_exists(self, thread_id: str) -> bool:
         if self.saver is None:
             return False
-        config = {"configurable": {"thread_id": thread_id}}
-        return await self.saver.aget_tuple(config) is not None
+        handle = _checkpoint_span("checkpoint.read")
+        async with handle:
+            config = {"configurable": {"thread_id": thread_id}}
+            exists = await self.saver.aget_tuple(config) is not None
+            handle.event("checkpoint.read.completed", attributes={"cra.status": "hit" if exists else "miss"})
+            if exists:
+                handle.artifact("checkpoint", thread_id, role="langgraph_checkpoint")
+            return exists
 
     async def delete_thread(self, thread_id: str) -> None:
         if self.saver is None:
             raise ResearchCheckpointError("checkpoint_unavailable", "Checkpoint runtime is not started.")
-        await self.saver.adelete_thread(thread_id)
+        handle = _checkpoint_span("checkpoint.delete")
+        async with handle:
+            await self.saver.adelete_thread(thread_id)
+
+
+def _checkpoint_span(operation: str):
+    context = current_trace_context()
+    if context is None:
+        return get_default_recorder().noop_span()
+    return start_span_or_root(
+        operation=operation,
+        trace_type=context.trace_type,
+        component="checkpoint",
+        attributes={"cra.checkpoint.operation": operation},
+    )
 
 
 def _require_safe_versions() -> None:

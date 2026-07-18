@@ -11,6 +11,7 @@ from backend.app.alignment.schemas import (
 )
 from backend.app.alignment.stable_ids import review_id
 from backend.app.persistence.alignment_store import AlignmentStore
+from backend.app.observability.context import start_span_or_root
 
 
 class AlignmentReviewService:
@@ -18,6 +19,32 @@ class AlignmentReviewService:
         self.store = store
 
     def add_review(
+        self,
+        decision_id: str,
+        request: AlignmentReviewRequest,
+        *,
+        reviewer_scope: str,
+    ) -> EffectiveAlignmentDecision:
+        handle = start_span_or_root(
+            operation="alignment.review",
+            trace_type="alignment",
+            component="alignment",
+        )
+        with handle:
+            result = self._add_review_impl(
+                decision_id, request, reviewer_scope=reviewer_scope
+            )
+            handle.event(
+                "alignment.review.completed",
+                attributes={
+                    "cra.alignment.status": result.status,
+                    "cra.authority.level": result.authority_level,
+                },
+            )
+            handle.artifact("decision", decision_id, role="alignment_review_decision")
+            return result
+
+    def _add_review_impl(
         self,
         decision_id: str,
         request: AlignmentReviewRequest,

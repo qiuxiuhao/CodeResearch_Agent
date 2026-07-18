@@ -5,6 +5,7 @@ from pathlib import Path
 from backend.app.indexing.index_service import build_structured_index
 from backend.app.persistence.index_store import IndexBusyError
 from backend.app.schemas.state import AgentState
+from backend.app.observability.context import current_trace_context
 from backend.app.utils.json_utils import save_json
 
 
@@ -31,7 +32,9 @@ def structured_index_build_node(state: AgentState) -> AgentState:
             "message": str(exc),
             "retryable": retryable,
             "context": {"task_id": state.get("task_id")},
-            "trace_id": None,
+            "trace_id": (
+                current_trace_context().trace_id if current_trace_context() else None
+            ),
         }
         output_dir = state.get("output_dir")
         if output_dir:

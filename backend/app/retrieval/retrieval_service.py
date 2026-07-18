@@ -26,6 +26,7 @@ from backend.app.retrieval.schemas import (
 from backend.app.retrieval.sparse_retriever import SparseRetriever
 from backend.app.retrieval.qdrant_sparse_retriever import QdrantSparseRetriever
 from backend.app.retrieval.sync_service import VectorSyncService
+from backend.app.observability.context import start_span_or_root
 
 
 class RetrievalService:
@@ -49,6 +50,47 @@ class RetrievalService:
         self.context_builder = ContextBuilder()
 
     def search(
+        self,
+        repo_id: str,
+        request: RetrievalSearchRequest,
+        *,
+        execution: "RetrievalExecutionOverrides | None" = None,
+    ) -> RetrievalResult:
+        handle = start_span_or_root(
+            operation="retrieval.search",
+            trace_type="retrieval",
+            component="retrieval",
+            repo_id=repo_id,
+            index_version_id=request.index_version_id,
+            attributes={
+                "cra.repo.id": repo_id,
+                **(
+                    {"cra.index.version_id": request.index_version_id}
+                    if request.index_version_id else {}
+                ),
+            },
+        )
+        with handle:
+            result = self._search_impl(repo_id, request, execution=execution)
+            handle.event(
+                "retrieval.completed",
+                attributes={
+                    "cra.candidate.count": len(result.candidates),
+                    "cra.retrieval.empty": not result.candidates,
+                },
+            )
+            for phase, duration_ms in result.latency_ms.items():
+                if phase == "total":
+                    continue
+                handle.completed_child(
+                    _retrieval_operation(phase),
+                    component="retrieval",
+                    duration_ms=duration_ms,
+                    attributes={"cra.latency.phase": phase},
+                )
+            return result
+
+    def _search_impl(
         self,
         repo_id: str,
         request: RetrievalSearchRequest,
@@ -198,6 +240,19 @@ class RetrievalService:
             latency_ms=latency,
             warnings=warnings,
         )
+
+
+def _retrieval_operation(phase: str) -> str:
+    return {
+        "profile": "retrieval.profile",
+        "vector_sync": "retrieval.vector_sync",
+        "sparse_sync": "retrieval.fts_sync",
+        "sparse": "retrieval.sparse",
+        "dense": "retrieval.dense",
+        "preliminary_rrf": "retrieval.preliminary_rrf",
+        "graph": "retrieval.graph",
+        "final_rrf_and_reranker": "retrieval.final_rrf_rerank",
+    }.get(phase, f"retrieval.{phase}"[:160])
 
 
 def _internal_filters(

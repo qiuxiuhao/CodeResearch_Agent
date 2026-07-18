@@ -13,6 +13,10 @@ from backend.app.agents.research.argument_resolver import (
 from backend.app.agents.research.budget import AgentBudget
 from backend.app.agents.research.schemas import PlanStep, PlanStepRuntime, ToolObservation
 from backend.app.agents.research.tool_registry import ToolExecutionContext, ToolRegistry
+from backend.app.observability.context import start_span_or_root
+
+
+_TOOL_SPAN_INDEX: dict[str, tuple[str, str]] = {}
 
 
 class AgentBudgetExceeded(RuntimeError):
@@ -82,24 +86,39 @@ class ResearchExecutor:
         )
         started = datetime.now(UTC)
         if reusable is not None:
-            observation = reusable.model_copy(update={
-                "observation_id": f"obs_{uuid4().hex}",
-                "step_id": step.step_id,
-                "plan_version": plan_version,
-                "step_execution_id": execution_id,
-                "reused": True,
-                "reused_observation_id": reusable.observation_id,
-                "reused_from_plan_version": reusable.plan_version,
-                "latency_ms": 0.0,
-            })
-            return StepExecutionOutcome(
-                observation=observation,
-                runtime=_runtime(step, plan_version, execution_id, observation, started),
-                resolved=resolved,
-                actual_tool_calls=0,
-                reused_tool_calls=1,
-                tool_failures=0,
+            reuse_span = start_span_or_root(
+                operation="tool.reuse",
+                trace_type="research_agent",
+                component="tool",
+                run_id=run_id,
+                repo_id=repo_id,
+                index_version_id=index_version_id,
+                attributes={"cra.tool.name": step.tool_name, "cra.tool.reused": True},
             )
+            async with reuse_span:
+                source_span = _TOOL_SPAN_INDEX.get(reusable.observation_id)
+                if source_span:
+                    reuse_span.link(
+                        source_span[0], linked_span_id=source_span[1], relation="reused_from"
+                    )
+                observation = reusable.model_copy(update={
+                    "observation_id": f"obs_{uuid4().hex}",
+                    "step_id": step.step_id,
+                    "plan_version": plan_version,
+                    "step_execution_id": execution_id,
+                    "reused": True,
+                    "reused_observation_id": reusable.observation_id,
+                    "reused_from_plan_version": reusable.plan_version,
+                    "latency_ms": 0.0,
+                })
+                return StepExecutionOutcome(
+                    observation=observation,
+                    runtime=_runtime(step, plan_version, execution_id, observation, started),
+                    resolved=resolved,
+                    actual_tool_calls=0,
+                    reused_tool_calls=1,
+                    tool_failures=0,
+                )
         if not self.budget.can_call_tool(state):
             raise AgentBudgetExceeded("tool_call_budget_exhausted")
         invocation = await self.registry.invoke(
@@ -133,6 +152,12 @@ class ResearchExecutor:
             latency_ms=invocation.latency_ms,
             error=invocation.error,
         )
+        if invocation.trace_id and invocation.span_id:
+            if len(_TOOL_SPAN_INDEX) >= 4_096:
+                _TOOL_SPAN_INDEX.pop(next(iter(_TOOL_SPAN_INDEX)))
+            _TOOL_SPAN_INDEX[observation.observation_id] = (
+                invocation.trace_id, invocation.span_id
+            )
         return StepExecutionOutcome(
             observation=observation,
             runtime=_runtime(step, plan_version, execution_id, observation, started),

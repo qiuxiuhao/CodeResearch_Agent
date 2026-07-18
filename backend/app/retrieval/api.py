@@ -19,6 +19,7 @@ from backend.app.retrieval.reranker import FastEmbedCrossEncoderReranker
 from backend.app.retrieval.sparse_vector import QdrantBM25SparseProvider
 from backend.app.retrieval.sync_service import VectorSyncService
 from backend.app.retrieval.vector_store import QdrantLocalVectorStore
+from backend.app.observability.context import current_trace_context
 
 
 router = APIRouter()
@@ -163,6 +164,7 @@ def _error_response(
     retryable: bool,
     repo_id: str | None = None,
 ) -> JSONResponse:
+    context = current_trace_context()
     status = 503 if error_code in {"retrieval_disabled", "retrieval_busy"} else 404
     return JSONResponse(
         status_code=status,
@@ -173,7 +175,7 @@ def _error_response(
                 "message": message,
                 "retryable": retryable,
                 "context": {"repo_id": repo_id} if repo_id else {},
-                "trace_id": None,
+                "trace_id": context.trace_id if context else None,
             }
         },
     )

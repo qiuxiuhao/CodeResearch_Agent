@@ -13,6 +13,7 @@ from backend.app.image_generation.providers.base_provider import BaseImageProvid
 from backend.app.image_generation.safety import validate_image_file, write_validated_image
 from backend.app.image_generation.types import ImageGenerationRequest, ImageRouterResult
 from backend.app.llm.budget import BudgetManager
+from backend.app.observability.context import current_trace_context, start_span_or_root
 
 
 class ImageGenerationRouter:
@@ -33,6 +34,44 @@ class ImageGenerationRouter:
         return any(provider.configured for provider in self.providers)
 
     def generate(self, request: ImageGenerationRequest, *, provider_names: list[str] | None = None) -> ImageRouterResult:
+        parent = current_trace_context()
+        handle = start_span_or_root(
+            operation="provider.generate",
+            trace_type=parent.trace_type if parent is not None else "analysis",
+            component="provider",
+            kind="client",
+            attributes={
+                "cra.provider.task_type": "teaching_image_generate",
+                "cra.prompt.version": request.prompt_version,
+            },
+        )
+        with handle:
+            result = self._generate_impl(request, provider_names=provider_names)
+            metadata = result.metadata or {}
+            attributes: dict[str, object] = {}
+            if metadata.get("provider"):
+                attributes["cra.provider.name"] = metadata["provider"]
+            if metadata.get("model"):
+                attributes["cra.provider.model"] = metadata["model"]
+            if "cache_hit" in metadata:
+                attributes["cra.cache.hit"] = bool(metadata["cache_hit"])
+            handle.event(
+                "provider.completed" if result.image_path is not None else "provider.unavailable",
+                severity="info" if result.image_path is not None else "warning",
+                attributes=attributes,
+            )
+            if "cra.cache.hit" in attributes:
+                handle.completed_child(
+                    "cache.get",
+                    component="cache",
+                    duration_ms=0.0,
+                    attributes={"cra.cache.hit": attributes["cra.cache.hit"]},
+                )
+            return result
+
+    def _generate_impl(
+        self, request: ImageGenerationRequest, *, provider_names: list[str] | None = None
+    ) -> ImageRouterResult:
         warnings: list[dict] = []
         providers = [item for item in self.providers if item.configured]
         if provider_names is not None:

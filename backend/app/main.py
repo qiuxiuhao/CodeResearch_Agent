@@ -46,6 +46,10 @@ from backend.app.alignment.api import (
     start_alignment_runtime,
     stop_alignment_runtime,
 )
+from backend.app.observability.api import router as observability_router
+from backend.app.observability.context import current_trace_context, start_span_or_root
+from backend.app.observability.middleware import ObservabilityMiddleware
+from backend.app.services.observability_runtime import get_observability_runtime
 
 
 _analysis_executor: ThreadPoolExecutor | None = None
@@ -67,6 +71,8 @@ def _shutdown_analysis_executor() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    observability = get_observability_runtime()
+    observability.start()
     await start_alignment_runtime()
     await start_research_agent_runtime()
     try:
@@ -75,9 +81,10 @@ async def lifespan(_app: FastAPI):
         await stop_research_agent_runtime()
         await stop_alignment_runtime()
         _shutdown_analysis_executor()
+        observability.stop()
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.7.0", lifespan=lifespan)
+app = FastAPI(title="CodeResearch Agent", version="1.8.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -85,9 +92,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(ObservabilityMiddleware)
 app.include_router(retrieval_router)
 app.include_router(research_agent_router)
 app.include_router(alignment_router)
+app.include_router(observability_router)
 
 
 class AnalysisTaskRequest(BaseModel):
@@ -152,6 +161,7 @@ def create_analysis_task_async(request: AnalysisTaskRequest) -> dict:
     )
     task_id = new_task_id()
     progress = progress_store.create(task_id=task_id, output_root=request.output_root)
+    _register_background_trace(task_id)
     _get_analysis_executor().submit(
         _run_background_analysis,
         task_id,
@@ -281,6 +291,7 @@ async def create_analysis_task_from_upload_async(
 
     task_id = new_task_id()
     progress = progress_store.create(task_id=task_id, output_root=output_root)
+    _register_background_trace(task_id)
     _get_analysis_executor().submit(
         _run_background_analysis,
         task_id,
@@ -626,20 +637,47 @@ def _run_background_analysis(
     repository_key: str | None,
     structured_index_db_path: str | None,
 ) -> None:
-    progress_store.mark_running(task_id)
-    try:
-        state = _run_analysis_with_llm_options(
-            zip_path, output_root, library_db_path, paper_pdf_path, analysis_mode, consent,
-            text_enabled, teaching_narrative_enabled, vision_enabled,
-            text_consent, vision_consent, teaching_diagrams_enabled,
-            image_enabled, image_consent, teaching_review_enabled, teaching_review_consent,
-            structured_index_enabled, repository_key, structured_index_db_path,
-            task_id=task_id,
-            progress_callback=_progress_callback_for(task_id),
+    runtime = get_observability_runtime()
+    trace = start_span_or_root(
+        operation="analysis.run",
+        trace_type="analysis",
+        component="analysis_graph",
+        parent_context=None,
+        force_root=True,
+        task_id=task_id,
+        attributes={"cra.task.id": task_id},
+    )
+    with trace:
+        queued_from = runtime.consume_enqueue_link(task_id)
+        if queued_from:
+            trace.link(
+                queued_from[0], linked_span_id=queued_from[1], relation=queued_from[2]
+            )
+        trace.artifact("task", task_id, role="analysis_task")
+        progress_store.mark_running(task_id)
+        try:
+            state = _run_analysis_with_llm_options(
+                zip_path, output_root, library_db_path, paper_pdf_path, analysis_mode, consent,
+                text_enabled, teaching_narrative_enabled, vision_enabled,
+                text_consent, vision_consent, teaching_diagrams_enabled,
+                image_enabled, image_consent, teaching_review_enabled, teaching_review_consent,
+                structured_index_enabled, repository_key, structured_index_db_path,
+                task_id=task_id,
+                progress_callback=_progress_callback_for(task_id),
+            )
+            progress_store.complete(task_id, summarize_state(state))
+        except Exception as exc:
+            trace.event("analysis.failed", severity="error")
+            trace.end(status="error", error=exc, completion_status="failed")
+            progress_store.fail(task_id, str(exc))
+
+
+def _register_background_trace(business_id: str) -> None:
+    context = current_trace_context()
+    if context is not None:
+        get_observability_runtime().register_enqueue_link(
+            business_id, context.trace_id, context.span_id
         )
-        progress_store.complete(task_id, summarize_state(state))
-    except Exception as exc:
-        progress_store.fail(task_id, str(exc))
 
 
 def _progress_callback_for(task_id: str) -> ProgressCallback:

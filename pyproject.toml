@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "code-research-agent"
-version = "1.7.0"
+version = "1.8.0"
 description = "LangGraph-based minimal code repository analysis agent."
 requires-python = ">=3.11"
 dependencies = [
@@ -30,6 +30,11 @@ retrieval = [
 ]
 agent = [
   "langgraph-checkpoint-sqlite>=3.1.0,<3.2.0",
+]
+observability = [
+  "opentelemetry-api>=1.44.0,<1.45.0",
+  "opentelemetry-sdk>=1.44.0,<1.45.0",
+  "opentelemetry-exporter-otlp-proto-http>=1.44.0,<1.45.0",
 ]
 
 [tool.setuptools.packages.find]

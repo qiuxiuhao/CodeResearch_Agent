@@ -5,13 +5,14 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from threading import BoundedSemaphore
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from time import perf_counter
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from backend.app.agents.research.schemas import AgentError, ToolName
 from backend.app.retrieval.schemas import PublicRetrievalFilter, QueryType
+from backend.app.observability.context import start_span_or_root
 
 
 _SYNC_CAPACITY = max(1, int(os.getenv("RESEARCH_AGENT_SYNC_TOOL_CAPACITY", "4")))
@@ -149,6 +150,8 @@ class ToolInvocationResult:
     result: ToolResult
     latency_ms: float
     error: AgentError | None = None
+    trace_id: str | None = None
+    span_id: str | None = None
 
 
 class ToolRegistry:
@@ -170,6 +173,41 @@ class ToolRegistry:
         return name in self._specs
 
     async def invoke(
+        self,
+        name: ToolName,
+        tool_input: BaseModel,
+        context: ToolExecutionContext,
+    ) -> ToolInvocationResult:
+        handle = start_span_or_root(
+            operation="tool.execute",
+            trace_type="research_agent",
+            component="tool",
+            run_id=context.run_id,
+            repo_id=context.repo_id,
+            index_version_id=context.index_version_id,
+            attributes={
+                "cra.tool.name": name,
+                "cra.run.id": context.run_id,
+                "cra.repo.id": context.repo_id,
+                "cra.index.version_id": context.index_version_id,
+            },
+        )
+        async with handle:
+            invocation = await self._invoke_impl(name, tool_input, context)
+            event_attributes: dict[str, object] = {
+                "cra.status": invocation.status,
+                "cra.count": invocation.result.result_count,
+            }
+            if invocation.error is not None:
+                event_attributes["cra.error.code"] = invocation.error.error_code
+            handle.event(
+                "tool.completed",
+                severity="error" if invocation.status in {"failed", "timeout"} else "info",
+                attributes=event_attributes,
+            )
+            return replace(invocation, trace_id=handle.trace_id, span_id=handle.span_id)
+
+    async def _invoke_impl(
         self,
         name: ToolName,
         tool_input: BaseModel,

@@ -15,6 +15,10 @@ from backend.app.agents.research.graph import GRAPH_VERSION, STATE_SCHEMA_VERSIO
 from backend.app.agents.research.schemas import TERMINAL_STATUSES
 from backend.app.persistence.research_checkpoint import ResearchCheckpointRuntime
 from backend.app.persistence.research_run_store import ResearchRunStore, ResearchRunStoreError, RunLease
+from backend.app.observability.context import start_span_or_root
+from backend.app.observability.instrumentation import observe_child_call
+from backend.app.observability.schemas import TraceFilter
+from backend.app.services.observability_runtime import get_observability_runtime
 
 
 ACTIVE_STATUSES = {
@@ -130,6 +134,64 @@ class ResearchRunCoordinator:
             await asyncio.sleep(self.poll_seconds)
 
     async def _execute_run(self, run_id: str, lease: RunLease) -> None:
+        run = self.run_store.get_run(run_id)
+        runtime = get_observability_runtime()
+        handle = start_span_or_root(
+            operation="agent.run",
+            trace_type="research_agent",
+            component="agent",
+            force_root=True,
+            run_id=run_id,
+            repo_id=run["repo_id"],
+            index_version_id=run["index_version_id"],
+            attributes={
+                "cra.run.id": run_id,
+                "cra.repo.id": run["repo_id"],
+                "cra.index.version_id": run["index_version_id"],
+                "cra.graph.version": run["graph_version"],
+            },
+        )
+        async with handle:
+            queued_from = runtime.consume_enqueue_link(run_id)
+            if queued_from:
+                handle.link(
+                    queued_from[0], linked_span_id=queued_from[1], relation=queued_from[2]
+                )
+            if int(run.get("resume_count") or 0) > 0 and handle.trace_id:
+                previous = runtime.store.list_traces(
+                    TraceFilter(run_id=run_id, trace_type="research_agent"), limit=2
+                )
+                previous = [item for item in previous if item.trace_id != handle.trace_id]
+                if previous:
+                    handle.link(
+                        previous[0].trace_id,
+                        linked_span_id=previous[0].root_span_id,
+                        relation="resume_of",
+                    )
+            handle.artifact(
+                "run", run_id, role="research_run",
+                repo_id=run["repo_id"], index_version_id=run["index_version_id"],
+            )
+            try:
+                await self._execute_run_impl(run_id, lease)
+            except asyncio.CancelledError:
+                handle.end(status="cancelled", completion_status="interrupted")
+                raise
+            final = self.run_store.get_run(run_id)
+            handle.event(
+                "agent.terminal",
+                attributes={
+                    "cra.status": final["status"],
+                    **({"cra.route": final["route"]} if final.get("route") else {}),
+                },
+            )
+            if final["status"] in {"failed", "cancelled", "partial", "interrupted"}:
+                status = "error" if final["status"] == "failed" else (
+                    "cancelled" if final["status"] in {"cancelled", "interrupted"} else "ok"
+                )
+                handle.end(status=status, completion_status=final["status"])
+
+    async def _execute_run_impl(self, run_id: str, lease: RunLease) -> None:
         execution_task = asyncio.current_task()
         heartbeat = asyncio.create_task(self._heartbeat(lease), name=f"research-lease-{run_id}")
         heartbeat.add_done_callback(
@@ -196,14 +258,31 @@ class ResearchRunCoordinator:
         status = str(state.get("status", "executing"))
         if status in TERMINAL_STATUSES:
             return
+        state_span = start_span_or_root(
+            operation=f"agent.{status}"[:160],
+            trace_type="research_agent",
+            component="agent",
+            run_id=run_id,
+            attributes={
+                "cra.status": status,
+                **({"cra.route": str(state["route"])} if state.get("route") else {}),
+            },
+        )
+        async with state_span:
+            pass
         current = self.run_store.get_run(run_id)
         if current["status"] == "cancelling":
             return
         with suppress(ResearchRunStoreError):
-            self.run_store.update_status(
-                run_id, status, allowed_from=[current["status"]], route=state.get("route"),
-                result=_result_view(state), budget=AgentBudget().snapshot(state).model_dump(mode="json"),
-                errors=jsonable_encoder(state.get("errors", [])),
+            observe_child_call(
+                "database.research.update_status",
+                component="database",
+                attributes={"cra.database.operation": "update_status"},
+                callback=lambda: self.run_store.update_status(
+                    run_id, status, allowed_from=[current["status"]], route=state.get("route"),
+                    result=_result_view(state), budget=AgentBudget().snapshot(state).model_dump(mode="json"),
+                    errors=jsonable_encoder(state.get("errors", [])),
+                ),
             )
 
     async def _publish_terminal(self, run_id: str, state: dict) -> None:
@@ -215,11 +294,16 @@ class ResearchRunCoordinator:
             target = "partial"
         result = _result_view(state)
         budget = AgentBudget().snapshot(state).model_dump(mode="json")
-        self.run_store.update_status(
-            run_id, target, allowed_from=[current["status"]],
-            route=state.get("route"), stop_reason=state.get("stop_reason"),
-            result=result, budget=budget,
-            errors=jsonable_encoder(state.get("errors", [])),
+        observe_child_call(
+            "database.research.finalize",
+            component="database",
+            attributes={"cra.database.operation": "finalize"},
+            callback=lambda: self.run_store.update_status(
+                run_id, target, allowed_from=[current["status"]],
+                route=state.get("route"), stop_reason=state.get("stop_reason"),
+                result=result, budget=budget,
+                errors=jsonable_encoder(state.get("errors", [])),
+            ),
         )
 
     async def _heartbeat(self, lease: RunLease) -> None:

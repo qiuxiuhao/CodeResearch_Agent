@@ -38,6 +38,8 @@ from backend.app.indexing.symbol_table_builder import build_symbol_table
 from backend.app.persistence.index_store import IndexArtifacts, StructuredIndexStore
 from backend.app.utils.file_utils import DEFAULT_MAX_FILE_SIZE_BYTES
 from backend.app.utils.path_utils import SKIP_DIR_NAMES
+from backend.app.observability.context import start_span_or_root
+from backend.app.observability.instrumentation import observe_child_call
 
 
 MANIFEST_VERSION = "1.4.0"
@@ -45,6 +47,46 @@ DEFAULT_INDEX_DB_PATH = "data/structured_index.sqlite3"
 
 
 def build_structured_index(
+    state: dict[str, Any],
+    *,
+    repository_key: str | None = None,
+    index_db_path: str | Path | None = None,
+) -> IndexManifest:
+    handle = start_span_or_root(
+        operation="indexing.build",
+        trace_type="indexing",
+        component="indexing",
+        task_id=str(state.get("task_id") or "") or None,
+        attributes={
+            **(
+                {"cra.task.id": str(state.get("task_id"))}
+                if state.get("task_id") else {}
+            )
+        },
+    )
+    with handle:
+        manifest = _build_structured_index_impl(
+            state, repository_key=repository_key, index_db_path=index_db_path
+        )
+        handle.event(
+            "indexing.completed",
+            attributes={
+                "cra.repo.id": manifest.repo_id,
+                "cra.index.version_id": manifest.index_version_id,
+                "cra.status": manifest.status,
+            },
+        )
+        handle.artifact(
+            "manifest",
+            manifest.index_version_id,
+            role="structured_index_manifest",
+            repo_id=manifest.repo_id,
+            index_version_id=manifest.index_version_id,
+        )
+        return manifest
+
+
+def _build_structured_index_impl(
     state: dict[str, Any],
     *,
     repository_key: str | None = None,
@@ -80,12 +122,17 @@ def build_structured_index(
     )
     fingerprint = input_hash(payload)
     store = StructuredIndexStore(index_db_path or os.getenv("STRUCTURED_INDEX_DB_PATH") or DEFAULT_INDEX_DB_PATH)
-    lease = store.begin_version(
-        repo_id=repo_id,
-        identity_mode=identity_mode,
-        repository_key=normalized_key,
-        display_name=repo_path.name,
-        input_hash=fingerprint,
+    lease = observe_child_call(
+        "database.index.begin_version",
+        component="database",
+        attributes={"cra.database.operation": "begin_version"},
+        callback=lambda: store.begin_version(
+            repo_id=repo_id,
+            identity_mode=identity_mode,
+            repository_key=normalized_key,
+            display_name=repo_path.name,
+            input_hash=fingerprint,
+        ),
     )
     if lease.reused:
         manifest = _manifest_from_store(store, lease.index_version_id, repo_id, identity_mode, fingerprint, "reused")
@@ -103,8 +150,18 @@ def build_structured_index(
             paper_digest=paper_digest,
         )
         _write_staging(staging_path, artifacts)
-        store.mark_ready(lease)
-        activated_at = store.activate(lease, artifacts)
+        observe_child_call(
+            "database.index.mark_ready",
+            component="database",
+            attributes={"cra.database.operation": "mark_ready"},
+            callback=lambda: store.mark_ready(lease),
+        )
+        activated_at = observe_child_call(
+            "database.index.activate",
+            component="database",
+            attributes={"cra.database.operation": "activate"},
+            callback=lambda: store.activate(lease, artifacts),
+        )
         manifest = _manifest_from_artifacts(
             artifacts, lease.index_version_id, lease.sequence, repo_id, identity_mode,
             fingerprint, "active", activated_at,

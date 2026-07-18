@@ -28,6 +28,7 @@ from backend.app.agents.nodes.unzip_node import unzip_node
 from backend.app.image_generation.runtime import ImageGenerationRuntime
 from backend.app.schemas.state import AgentState
 from backend.app.llm.runtime import LLMRuntime
+from backend.app.observability.context import start_span_or_root
 from backend.app.vision.runtime import VisionRuntime
 
 ProgressCallback = Callable[[str, str, str, int, int, AgentState | None, BaseException | None], None]
@@ -200,14 +201,21 @@ def _wrap_progress_node(
     callback: ProgressCallback | None,
 ) -> Callable[[AgentState], AgentState]:
     def wrapped(state: AgentState) -> AgentState:
-        _notify_progress(callback, "start", node_id, label, index, total, state, None)
-        try:
-            next_state = node(state)
-        except BaseException as exc:
-            _notify_progress(callback, "error", node_id, label, index, total, state, exc)
-            raise
-        _notify_progress(callback, "finish", node_id, label, index, total, next_state, None)
-        return next_state
+        handle = start_span_or_root(
+            operation=f"analysis.node.{node_id}"[:160],
+            trace_type="analysis",
+            component="analysis_graph",
+            attributes={"cra.count": index},
+        )
+        with handle:
+            _notify_progress(callback, "start", node_id, label, index, total, state, None)
+            try:
+                next_state = node(state)
+            except BaseException as exc:
+                _notify_progress(callback, "error", node_id, label, index, total, state, exc)
+                raise
+            _notify_progress(callback, "finish", node_id, label, index, total, next_state, None)
+            return next_state
 
     return wrapped
 
