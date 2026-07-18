@@ -26,6 +26,7 @@ from backend.app.retrieval.schemas import PublicRetrievalFilter, RetrievalFilter
 def build_default_tool_registry(
     retrieval_service: RetrievalService,
     read_store: RetrievalReadStore,
+    alignment_read_service=None,
 ) -> ToolRegistry:
     registry = ToolRegistry()
 
@@ -152,7 +153,7 @@ def build_default_tool_registry(
 
     async def get_alignment(tool_input, context: ToolExecutionContext) -> ToolResult:
         value = GetAlignmentInput.model_validate(tool_input)
-        return await get_graph_neighbors(
+        legacy = await get_graph_neighbors(
             GetGraphNeighborsInput(
                 entity_ids=[value.entity_id],
                 edge_types=["ALIGNS_WITH"],
@@ -160,6 +161,56 @@ def build_default_tool_registry(
                 max_results=value.max_results,
             ),
             context,
+        )
+        legacy_items = [
+            {
+                "entity_id": entity_id,
+                "source": "legacy",
+                "authority_level": "legacy_heuristic",
+                "evidence_role": "alignment_hypothesis",
+                "evidence_ids": legacy.evidence_ids,
+            }
+            for entity_id in legacy.entity_ids
+            if entity_id != value.entity_id
+        ]
+        derived_items: list[dict] = []
+        warnings = list(legacy.warnings)
+        if alignment_read_service is not None:
+            try:
+                items = await run_sync_tool(
+                    alignment_read_service.get_for_entity,
+                    repo_id=context.repo_id,
+                    index_version_id=context.index_version_id,
+                    entity_id=value.entity_id,
+                    max_results=value.max_results,
+                )
+                derived_items = [item.model_dump(mode="json") for item in items]
+            except Exception:
+                warnings.append("v1.7_alignment_unavailable_fallback_legacy")
+        combined = [*legacy_items, *derived_items][: value.max_results]
+        summaries = [legacy.summary, *[str(item.get("summary", "")) for item in derived_items]]
+        derived_entity_ids = [
+            str(item["entity_id"])
+            for item in derived_items
+            if item.get("entity_id")
+        ]
+        derived_evidence_ids = [
+            str(evidence_id)
+            for item in derived_items
+            for evidence_id in item.get("evidence_ids", [])
+        ]
+        return legacy.model_copy(
+            update={
+                "alignment_items": combined,
+                "entity_ids": list(dict.fromkeys([*legacy.entity_ids, *derived_entity_ids]))[
+                    : value.max_results
+                ],
+                "evidence_ids": list(
+                    dict.fromkeys([*legacy.evidence_ids, *derived_evidence_ids])
+                ),
+                "warnings": warnings,
+                "summary": "\n".join(item for item in summaries if item)[:2_000],
+            }
         )
 
     async def inspect_config(tool_input, context: ToolExecutionContext) -> ToolResult:

@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from time import perf_counter
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from backend.app.agents.research.schemas import AgentError, ToolName
 from backend.app.retrieval.schemas import PublicRetrievalFilter, QueryType
@@ -114,6 +114,7 @@ class ToolResult(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list, max_length=100)
     summary: str = Field(default="", max_length=2_000)
     warnings: list[str] = Field(default_factory=list, max_length=50)
+    alignment_items: list[dict[str, JsonValue]] = Field(default_factory=list, max_length=20)
 
     @property
     def result_count(self) -> int:

@@ -1,4 +1,4 @@
-# v1.5 / v1.6 依赖、模型权重与人工准备清单
+# v1.5 / v1.6 / v1.7 依赖、模型权重与人工准备清单
 
 最后核对：2026-07-18
 
@@ -256,3 +256,22 @@ BAAI/bge-reranker-base
 ```
 
 Qdrant BM25、Jina code 和轻量英文 Reranker 都属于可选消融，不应作为当前启动阻塞项。
+
+## 八、v1.7 论文代码对齐 2.0
+
+v1.7 本地规则 Profile、Candidate、Feature、Scorer、Calibration、Store、Coordinator、API 和
+Review 不新增必需 Python 依赖，也不需要下载新权重。Constrained Verifier 复用现有 DeepSeek/
+Qwen 文本 Provider；只有请求同时启用 Verifier、提供外发授权且 Provider 已配置时才调用。
+
+当前发布质量门禁缺少的不是软件依赖，而是人工数据：
+
+```text
+6 个已授权且固定版本的 repo-paper pair
+4 Dev + 2 Locked Test
+72 个正例 + 20 个 unalignable/hard negative
+双人标注、adjudication、不可变 repo/index/paper/profile/evidence ID
+```
+
+`evaluation/alignment/fixture_catalog_v1.json` 只冻结了 6 个槽位，未伪造仓库、论文或 Gold。
+在补齐上述数据前，可以验收所有合同、持久化、API 和 Mock Provider 行为，但不能宣称已经达到
+Candidate Recall、F1、Calibration、Abstention 或 Locked Test 的质量门槛。

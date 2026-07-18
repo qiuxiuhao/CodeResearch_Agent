@@ -41,6 +41,11 @@ from backend.app.agents.research.api import (
     start_research_agent_runtime,
     stop_research_agent_runtime,
 )
+from backend.app.alignment.api import (
+    router as alignment_router,
+    start_alignment_runtime,
+    stop_alignment_runtime,
+)
 
 
 _analysis_executor: ThreadPoolExecutor | None = None
@@ -62,15 +67,17 @@ def _shutdown_analysis_executor() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    await start_alignment_runtime()
     await start_research_agent_runtime()
     try:
         yield
     finally:
         await stop_research_agent_runtime()
+        await stop_alignment_runtime()
         _shutdown_analysis_executor()
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.6.0", lifespan=lifespan)
+app = FastAPI(title="CodeResearch Agent", version="1.7.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -80,6 +87,7 @@ app.add_middleware(
 )
 app.include_router(retrieval_router)
 app.include_router(research_agent_router)
+app.include_router(alignment_router)
 
 
 class AnalysisTaskRequest(BaseModel):

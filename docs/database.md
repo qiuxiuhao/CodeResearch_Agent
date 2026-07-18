@@ -92,3 +92,26 @@ superseded → active  # 仅显式 rollback_to_version
 repo 级 lease 在短事务中创建。AST、符号解析、关系和 Chunk 构建在写事务外进行，必要时写到任务目录 `.index_staging/`。激活阶段在一个短 `BEGIN IMMEDIATE` 事务中批量写入、校验并切换 active；提交失败保留原 active。相同 repo/input 可有限等待并复用完成版本，不同 input 返回可重试 `index_busy`；SQLite busy 最多重试三次并指数退避。
 
 旧 superseded 快照默认保留，当前版本不自动物理清理历史。显式版本回滚会在一个事务中与当前 active 原子交换；运行数据删除仍必须使用明确的 retention/reset 操作。
+
+## v1.7 论文代码对齐派生数据库
+
+对齐 2.0 使用独立数据库，默认路径：
+
+```text
+data/paper_code_alignment.sqlite3
+```
+
+可通过 `ALIGNMENT_DB_PATH` 覆盖。`backend/app/persistence/alignment_migrations/001_alignment.sql`
+设置 `PRAGMA user_version=1`，主要表包括：
+
+- `alignment_runs`、`alignment_run_leases`：Run、attempt、阶段 manifest、取消和单执行者 Lease。
+- `alignment_model_profiles`、`alignment_deployments`：完整结果 provenance 和显式默认部署。
+- `paper_module_profiles`：类型/粒度/source group 明确的论文对齐单元。
+- `alignment_candidates`、`alignment_feature_values`、`alignment_candidate_scores`：不可变候选、特征和 Candidate 概率。
+- `alignment_decisions`、`alignment_selections`、`alignment_verifications`：Profile 集合决策与逐 Candidate relation。
+- `alignment_reviews`：Append-only 人工复核事件和 effective revision。
+
+每个阶段用短事务写入 staging rows；默认 API 和 Agent 只读取 Deployment 指向的 active Run。
+failed/cancelled rows 不会暴露为 active，可使用相同输入创建递增 attempt。新 active Run 的最终
+切换在短事务中 supersede 旧 active；失败不会修改 `structured_index.sqlite3`、Legacy JSON 或旧
+`ALIGNS_WITH` Edge。

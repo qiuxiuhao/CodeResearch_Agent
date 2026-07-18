@@ -1,0 +1,12 @@
+{
+  "dataset_version": "alignment-v1",
+  "status": "human_gold_required",
+  "pairs": [
+    {"pair_id": "dev-pair-01", "split": "dev", "repo_fixture": null, "paper_fixture": null},
+    {"pair_id": "dev-pair-02", "split": "dev", "repo_fixture": null, "paper_fixture": null},
+    {"pair_id": "dev-pair-03", "split": "dev", "repo_fixture": null, "paper_fixture": null},
+    {"pair_id": "dev-pair-04", "split": "dev", "repo_fixture": null, "paper_fixture": null},
+    {"pair_id": "locked-pair-01", "split": "locked_test", "repo_fixture": null, "paper_fixture": null},
+    {"pair_id": "locked-pair-02", "split": "locked_test", "repo_fixture": null, "paper_fixture": null}
+  ]
+}

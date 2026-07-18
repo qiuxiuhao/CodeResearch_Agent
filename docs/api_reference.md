@@ -225,3 +225,26 @@ curl -X POST http://127.0.0.1:8000/analysis/tasks \
 curl http://127.0.0.1:8000/library/stats
 curl "http://127.0.0.1:8000/library/functions?query=torch&sort=updated_at"
 ```
+
+## v1.7 Alignment API
+
+路由始终注册；`ALIGNMENT_ENABLED=false` 时统一返回 HTTP 503 `alignment_disabled`。
+
+```text
+POST /repositories/{repo_id}/alignments/runs
+GET  /alignments/runs/{run_id}
+POST /alignments/runs/{run_id}/cancel
+GET  /repositories/{repo_id}/alignments
+GET  /alignments/{decision_id}
+POST /alignments/{decision_id}/reviews
+GET  /alignments/reviews/pending
+PUT  /repositories/{repo_id}/alignments/deployments/{deployment_name}
+```
+
+创建接口返回 202。Coordinator 通过 SQLite Lease 领取 queued Run，并按 profiling、recalling、
+featurizing、scoring、verifying 阶段持久化；失败或取消可显式创建新 attempt。调用方身份通过
+`X-Caller-Scope` 隔离，`Idempotency-Key` 只保存 hash；相同 Key 不同请求返回 409。
+
+默认查询必须存在显式 Deployment。多个 active Model Profile 不会隐式合并；响应回显实际
+deployment、model profile 和 run。Review 使用 `based_on_effective_revision` 乐观锁，只能选择
+当前 Run 已有 Candidate，不能写任意 Entity、路径或 Evidence。
