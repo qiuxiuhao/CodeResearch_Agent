@@ -1,0 +1,19 @@
+{
+  "repo_ids": ["repo_benchmark_code", "repo_benchmark_isolation"],
+  "index_version_ids": ["idx_7bc582eed041869978b46574bb38d1aa333013bf9c7bd4f48fa20e534db42c9b", "idx_0237045e0a0169d2020208497ca3f78a61051e901b4bf7a11cd314821eb43d69", "idx_9f13664771cd1aa009deeaac023d4f28740b255a5f5f8982599c090eb7e1a777"],
+  "entity_ids": [
+    "ent_repository", "ent_model_file", "ent_simple_net", "ent_init", "ent_forward",
+    "ent_fc1", "ent_fc2", "ent_train_file", "ent_train", "ent_main", "ent_config",
+    "ent_dataset", "ent_getitem", "ent_paper_method", "ent_paper_figure"
+  ],
+  "chunk_ids": [
+    "chunk_repository", "chunk_model_file", "chunk_simple_net", "chunk_init", "chunk_forward",
+    "chunk_fc1", "chunk_fc2", "chunk_train_file", "chunk_train", "chunk_main", "chunk_config",
+    "chunk_dataset", "chunk_getitem", "chunk_paper_method", "chunk_paper_figure"
+  ],
+  "edge_ids": [
+    "edge_repo_model", "edge_model_class", "edge_class_forward", "edge_forward_fc1",
+    "edge_forward_fc2", "edge_main_train", "edge_main_model", "edge_train_unresolved",
+    "edge_paper_forward", "edge_cycle_a", "edge_cycle_b"
+  ]
+}

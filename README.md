@@ -229,6 +229,32 @@ python -m backend.app.services.analysis_service examples/small_pytorch_project.z
 `--repository-key` 可省略，此时索引使用 task-scoped 身份。数据库可用
 `STRUCTURED_INDEX_DB_PATH` 或 `--structured-index-db-path` 覆盖。
 
+## v1.5 Hybrid RAG
+
+检索路由始终注册，但默认关闭；关闭时稳定返回 `503 retrieval_disabled`。启用基于
+SQLite FTS5 的离线 Sparse 检索：
+
+```bash
+export RETRIEVAL_ENABLED=true
+export STRUCTURED_INDEX_DB_PATH=data/structured_index.sqlite3
+export RETRIEVAL_FTS_DB_PATH=data/retrieval_fts.sqlite3
+```
+
+可选 Dense/Qdrant Local 必须先安装 `retrieval` extra 并显式预缓存模型。应用请求不会
+隐式下载模型；默认 `RETRIEVAL_OFFLINE=true`，模型不可用时降级到 FTS5 + Graph：
+
+```bash
+pip install -e '.[retrieval]'
+export RETRIEVAL_DENSE_ENABLED=true
+export RETRIEVAL_MODEL_CACHE_DIR=data/models
+export QDRANT_LOCAL_PATH=data/qdrant
+```
+
+固定单轮研究回答只有在请求同时设置 `answer_enabled=true` 和
+`external_text_consent=true` 时才可调用已配置文本 Provider。模型输出还会经过 Citation
+Validator；无 Provider、调用失败或非法引用时返回 evidence-only 结果。详细配置、API 和
+评测格式见 [docs/retrieval_v1.5.0.md](docs/retrieval_v1.5.0.md)。
+
 ## 测试与验收
 
 运行完整验收脚本：
@@ -301,6 +327,8 @@ scripts/         本地启动和验收脚本
 - [数据库说明](docs/database.md)
 - [评测说明](docs/evaluation.md)
 - [v1.4.0 实施与验收结果](docs/v1.4.0_results.md)
+- [v1.5.0 Hybrid RAG](docs/retrieval_v1.5.0.md)
+- [v1.5.0 实施与验收结果](docs/v1.5.0_results.md)
 - [演示指南](docs/demo_guide.md)
 - [前端指南](docs/frontend_guide.md)
 - [截图说明](docs/screenshots.md)

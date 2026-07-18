@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "code-research-agent"
-version = "1.4.0"
+version = "1.5.0"
 description = "LangGraph-based minimal code repository analysis agent."
 requires-python = ">=3.11"
 dependencies = [
@@ -23,6 +23,9 @@ dev = [
 ]
 secrets = [
   "keyring>=25.0.0",
+]
+retrieval = [
+  "qdrant-client[fastembed]>=1.9.0,<2.0",
 ]
 
 [tool.setuptools.packages.find]

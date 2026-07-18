@@ -12,6 +12,7 @@ LLMTaskType = Literal[
     "model_explain",
     "paper_code_align",
     "teaching_diagram_narrative",
+    "research_answer",
 ]
 
 
