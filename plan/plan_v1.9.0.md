@@ -1,14 +1,14 @@
 # CodeResearch Agent v1.9.0：Evaluation、Bad Case 与 Regression Loop 开发计划
 
-状态：v1.8 工作树验收完成、评测资产审计完成、v1.9 开工前设计冻结
-事实基线：分支 `upgrade/v1.7-paper-code-alignment`，HEAD `25edd020e533baa90bee432f4a6251fc0fac531b`；v1.8 为未提交工作树，HEAD 无 tag
+状态：v1.8 正式基线冻结、评测资产审计完成、v1.9 开工前设计冻结
+事实基线：v1.8 implementation commit `0bbba875082e9964bae3b7b9e4056c077ec8b1ad`；正式 release identity 为 annotated tag `v1.8.0`
 优先技术债：`ALIGNMENT_BENCHMARK_PENDING`
 实施范围：v1.9.0-a 至 v1.9.0-f
 
 ## 0. 开工前置条件
 
-1. 正式编码前必须把当前已验收 v1.8 工作树整理为独立 commit，建议创建受保护的 `v1.8.0` tag，并把完整 SHA 写入本计划和 Dataset provenance。当前 `25edd02` 是 v1.7 commit，不能代表 v1.8。
-2. 基线 commit 必须工作树干净，并重新执行后端、前端、build、`scripts/validate.sh` 与 Observability benchmark；真实结果写入 v1.8 验收文档。
+1. v1.8 独立 implementation commit 与 `v1.8.0` release tag 已建立；v1.9 Dataset/Evaluation provenance必须记录实际运行的完整 commit SHA和Dataset/config hash，不能只保存可移动的分支名。
+2. v1.8 基线已在干净提交边界完成后端、前端、build、`scripts/validate.sh` 与 Observability benchmark验收；若v1.9开工前HEAD变化，必须在新commit上重新验收并更新基线。
 3. 当前 Alignment 实际为 0 case/0 pair。`ALIGNMENT_BENCHMARK_PENDING` 是 v1.9-a 优先任务；在真实 Gold 冻结前，所有 Alignment Accuracy/F1/Calibration Gate 必须显示 `not_evaluable`，不得使用 Legacy、Scorer、LLM 或 Trace 输出填充。
 4. Retrieval 40 case 和 Agent 30 case 都是 synthetic/contract fixture，不得描述成 5 个真实开源仓库的人工质量集。v1.9 必须保存其来源类型并与 human-authored 结果分组报告。
 5. 自动 CI 只能运行 `offline_recompute` 与 `deterministic_fixture`，禁止网络、真实 Provider、模型下载、Gold 写回和业务状态修改。
@@ -991,7 +991,7 @@ docs/evaluation_v1.9.0.md
 
 | 风险 | 影响 | 缓解/待决策 |
 | -- | -- | -- |
-| v1.8未提交 | Evaluation provenance指向错误代码 | v1.9编码前阻断：独立commit/tag、干净验收 |
+| v1.8基线后继续漂移 | Evaluation provenance指向错误代码 | 每次Run固定完整commit SHA/config hash；HEAD变化重新验收，不只记录分支/tag |
 | Gold错误 | 错误Gate和错误修复方向 | 双标/adjudication、Evidence、版本化、disputed不进主Gate |
 | Benchmark泄漏 | Locked失去意义 | split权限、访问审计、fit配置禁止Locked、变更升版本 |
 | Dataset过拟合 | 只优化小fixture | source/repo subgroup、未来真实多仓库扩展、Locked一次性策略 |
