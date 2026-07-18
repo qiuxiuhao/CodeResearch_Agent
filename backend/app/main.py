@@ -36,6 +36,11 @@ from backend.app.settings.provider_settings import ProviderSettingsService
 from backend.app.settings.secret_store import SecretStoreConflictError, SecretStoreError
 from backend.app.settings.security import require_settings_write_access
 from backend.app.retrieval.api import router as retrieval_router
+from backend.app.agents.research.api import (
+    router as research_agent_router,
+    start_research_agent_runtime,
+    stop_research_agent_runtime,
+)
 
 
 _analysis_executor: ThreadPoolExecutor | None = None
@@ -57,13 +62,15 @@ def _shutdown_analysis_executor() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    await start_research_agent_runtime()
     try:
         yield
     finally:
+        await stop_research_agent_runtime()
         _shutdown_analysis_executor()
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.5.0", lifespan=lifespan)
+app = FastAPI(title="CodeResearch Agent", version="1.6.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -72,6 +79,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(retrieval_router)
+app.include_router(research_agent_router)
 
 
 class AnalysisTaskRequest(BaseModel):

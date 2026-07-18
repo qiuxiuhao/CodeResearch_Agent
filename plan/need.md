@@ -1,13 +1,78 @@
-# v1.5.0 本地模型与依赖准备清单
+# v1.5 / v1.6 依赖、模型权重与人工准备清单
 
-本文记录完成 v1.5.0 真实 Dense、Qdrant Sparse 和 Reranker 手工验收时需要准备的内容。
-自动测试、SQLite FTS5 和 evidence-only 检索不依赖这些模型，也不得在测试过程中自动下载。
+最后核对：2026-07-18
 
-## 一、最小必需内容
+环境：Conda `code-research-agent`
+项目：`/Users/qiu_star/Desktop/own_project/CodeResearch_Agent`
 
-### 1. 可选 Retrieval Python 依赖
+本文只记录项目当前仍需人工安装、下载或配置的内容。自动测试不得下载真实模型，也不得调用
+真实 Provider。
 
-在项目指定 Conda 环境中安装：
+## 一、当前实际状态
+
+### 已安装
+
+当前 Conda 环境已经具备 v1.6 Research Agent 的持久化依赖：
+
+```text
+langgraph                         1.2.8
+langgraph-checkpoint-sqlite       3.1.0
+aiosqlite                         0.22.1（传递依赖）
+sqlite-vec                        0.1.9（传递依赖）
+```
+
+`pyproject.toml` 已提供：
+
+```text
+agent extra: langgraph-checkpoint-sqlite>=3.1.0,<3.2.0
+dev extra:   langgraph-checkpoint-sqlite>=3.1.0,<3.2.0
+```
+
+因此当前环境不需要再次补装 v1.6 Checkpointer。新建环境时仍需执行：
+
+```bash
+conda activate code-research-agent
+cd /Users/qiu_star/Desktop/own_project/CodeResearch_Agent
+pip install -e '.[agent]'
+```
+
+### 当前未发现
+
+实际检查中，当前 Conda 环境未发现以下可选 Retrieval 包：
+
+```text
+qdrant-client
+fastembed
+onnxruntime
+```
+
+项目目录中也未发现已经准备好的：
+
+```text
+data/models 下的模型缓存
+data/qdrant 下的 Qdrant Local 数据
+```
+
+这里只能确认项目指定目录中没有资源；不代表用户机器上的其他 Hugging Face/FastEmbed 全局
+缓存一定不存在。
+
+## 二、按使用目标判断是否需要补充
+
+| 使用目标 | 还需要安装/下载 | 是否阻塞 |
+| -- | -- | -- |
+| SQLite FTS5 + Graph 检索 | 无模型 | 不阻塞 |
+| v1.6 本地确定性 Planner/Answer fallback | 无模型 | 不阻塞 |
+| v1.6 SQLite checkpoint、恢复和取消 | 当前环境已安装 | 不阻塞 |
+| Dense Retrieval | `retrieval` extra + 默认 Embedding 权重 | 尚未准备 |
+| 真实 Reranker | `retrieval` extra + Reranker 权重 | 尚未准备，可选 |
+| Qdrant BM25 Sparse | `retrieval` extra + `Qdrant/bm25` | 当前代码问题未修复前不要启用 |
+| 外部 LLM Planner/Answer | Provider 凭据、授权和预算配置 | 不需要下载本地权重 |
+
+如果只使用 FTS5、Graph、Evidence-only 回答和本地确定性 Agent，不需要下载任何模型。
+
+## 三、Dense Retrieval 最小准备
+
+### 1. 安装 Retrieval extra
 
 ```bash
 conda activate code-research-agent
@@ -15,30 +80,40 @@ cd /Users/qiu_star/Desktop/own_project/CodeResearch_Agent
 pip install -e '.[retrieval]'
 ```
 
-该 extra 当前定义为：
+该 extra 当前为：
 
 ```text
 qdrant-client[fastembed]>=1.9.0,<2.0
 ```
 
-它会安装 Qdrant Client、FastEmbed、ONNX Runtime 及其必要的传递依赖。当前使用 Qdrant
-Local，不需要单独安装或下载 Qdrant Server。
+它会带入 Qdrant Client、FastEmbed、ONNX Runtime 等传递依赖。当前采用 Qdrant Local，不需要
+单独安装 Qdrant Server。
 
-### 2. 默认 Dense Embedding 模型
+### 2. 默认 Dense Embedding 权重
 
 ```text
 sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
 ```
 
-- 作用：默认 Dense Retrieval，重点覆盖中文查询英文代码。
+- 用途：默认 Dense Retrieval，重点支持中文问题检索英文代码。
 - 向量维度：384。
 - 近似下载大小：220 MB。
-- 默认缓存目录：`data/models`。
-- 可通过 `RETRIEVAL_MODEL_CACHE_DIR` 修改缓存目录。
+- 项目默认缓存目录：`data/models`。
+- 覆盖变量：`RETRIEVAL_MODEL_CACHE_DIR`。
 
-这是完成最小 Dense 手工验收必须准备的模型。
+完成默认 Dense 手工验收时，这是唯一必需的模型权重。
 
-## 二、按功能选择的模型
+项目目前没有专用的模型 prefetch CLI。应在受控、允许联网的准备步骤中通过 FastEmbed 完成
+一次预缓存，确认文件进入 `RETRIEVAL_MODEL_CACHE_DIR` 后，再设置：
+
+```bash
+export RETRIEVAL_OFFLINE=true
+export RETRIEVAL_DENSE_ENABLED=true
+```
+
+不得依赖 API 请求期间隐式下载模型。
+
+## 四、按需准备的其他权重
 
 ### 1. 默认 Reranker
 
@@ -46,10 +121,11 @@ sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
 BAAI/bge-reranker-base
 ```
 
-- 作用：中英文 Cross Encoder Reranker 验收。
+- 用途：中英文 Cross-Encoder Reranker。
 - 近似下载大小：1 GB。
-- 只有启用 `RETRIEVAL_RERANKER_ENABLED=true` 时才需要。
-- 未缓存、离线或推理失败时，系统必须无损回退到 Final RRF。
+- 仅在 `RETRIEVAL_RERANKER_ENABLED=true` 时需要。
+- 缺失、离线或推理失败时，系统回退到 Final RRF。
+- 当前不是 v1.6 Agent 主链路启动的必需项。
 
 ### 2. Qdrant BM25 Sparse
 
@@ -57,82 +133,115 @@ BAAI/bge-reranker-base
 Qdrant/bm25
 ```
 
-- 作用：Qdrant named sparse vector 消融实验。
-- 只有启用 `RETRIEVAL_QDRANT_SPARSE_ENABLED=true` 时才需要。
-- SQLite FTS5 已提供独立 Sparse baseline，因此该模型不阻塞 Dense 主链路或 v1.5 发布。
+- 用途：Qdrant named sparse vector 消融实验。
+- 仅在 `RETRIEVAL_QDRANT_SPARSE_ENABLED=true` 时需要。
+- SQLite FTS5 已提供零模型 Sparse baseline，因此它不阻塞发布。
 
-当前已知限制：`backend/app/retrieval/api.py` 创建 `QdrantBM25SparseProvider` 时尚未传入
-构造函数要求的 `cache_dir`。在修正并补充专项测试前，不应启用该 Flag，也不需要提前下载
-此模型；当前行为会降级到 FTS5。
+当前仍存在实际代码问题：`backend/app/retrieval/api.py` 实例化
+`QdrantBM25SparseProvider()` 时没有传入构造函数必需的 `cache_dir`。由于 optional factory 会
+捕获异常，当前表现通常是该向量服务不可用并回退，而不是成功启用 Qdrant Sparse。
 
-## 三、仅用于消融实验的候选模型
+在修复该参数、补充专项测试并重新验收前：
 
-### 1. 代码专用 Dense 候选
+```text
+不要启用 RETRIEVAL_QDRANT_SPARSE_ENABLED
+不需要提前下载 Qdrant/bm25
+```
+
+### 3. 代码专用 Dense 消融候选
 
 ```text
 jinaai/jina-embeddings-v2-base-code
 ```
 
-- 作用：与默认多语言 Dense 模型进行代码检索消融。
 - 向量维度：768。
 - 近似下载大小：640 MB。
-- 不作为默认中文查询模型。
-- 切换该模型必须生成新的 `vector_profile_hash`、Collection 和 Vector Generation，不能复用
-  384 维默认模型的向量索引。
+- 仅用于与默认多语言模型进行消融。
+- 切换后必须创建新的 `vector_profile_hash`、Collection 和 Vector Generation。
+- 不能复用默认 384 维模型的向量索引。
 
-### 2. 轻量英文 Reranker 候选
+### 4. 轻量英文 Reranker 消融候选
 
 ```text
 Xenova/ms-marco-MiniLM-L-6-v2
 ```
 
-- 作用：轻量 Reranker 延迟和英文检索消融。
 - 近似下载大小：80 MB。
+- 主要用于英文检索延迟对照。
 - 不作为默认中英文 Reranker。
 
-## 四、不需要下载的内容
+## 五、v1.6 Research Agent 不需要新增的权重
 
-- 不需要 Qdrant Server，当前使用 Qdrant Local。
-- 不需要为 SQLite FTS5 下载模型或分词器。
-- 不需要本地 LLM；固定研究回答复用现有外部文本 Provider。
-- 不需要为 evidence-only 检索配置或调用外部 Provider。
-- 不需要论文解析模型。
-- 自动测试只使用 Fake Embedder、Fake VectorStore、Mock Reranker 和 Mock Provider，不得下载
-  真实模型。
+v1.6 没有新增本地 Planner、Answer Generator 或 Claim Verifier 权重。
 
-## 五、推荐准备顺序
+- 未授权外部文本时，Router、fallback Planner、Evidence Checker 和 Finalizer 都在本地运行。
+- 需要更自然的 Planner/Answer 时，复用现有 DeepSeek/Qwen 等外部文本 Provider。
+- 外部 Provider 需要配置凭据、预算与 `external_text_consent=true`，但不需要下载本地模型。
+- Provider 不可用时仍可返回受证据约束的本地 fallback/evidence-only 结果。
+- Checkpoint、Run Store、Tool Registry 和 30 条自动 Benchmark 都不依赖模型权重。
 
-### 最小 Dense 验收
+启用 v1.6 Agent 的基础开关：
 
-```text
-1. 安装项目的 retrieval extra
-2. 下载 paraphrase-multilingual-MiniLM-L12-v2
-3. 将模型放入 data/models 或 RETRIEVAL_MODEL_CACHE_DIR
-4. 保持 RETRIEVAL_OFFLINE=true，确认离线加载成功
-5. 运行 Dense-only、Dense+Sparse 和 Dense+Sparse+Graph 消融
+```bash
+export RETRIEVAL_ENABLED=true
+export RESEARCH_AGENT_ENABLED=true
 ```
 
-### 完整 Reranker 验收
-
-在最小 Dense 验收基础上增加：
+默认数据库路径：
 
 ```text
-6. 下载 BAAI/bge-reranker-base
-7. 启用 RETRIEVAL_RERANKER_ENABLED=true
-8. 运行 full_reranker 消融并记录 Locked Test 的质量和 P95 延迟
+STRUCTURED_INDEX_DB_PATH=data/structured_index.sqlite3
+RESEARCH_RUN_DB_PATH=data/research_runs.sqlite3
+RESEARCH_CHECKPOINT_DB_PATH=data/research_checkpoints.sqlite3
 ```
 
-### 可选扩展消融
+## 六、推荐准备顺序
+
+### A. 只验收无模型主链路
 
 ```text
-9. 下载 jinaai/jina-embeddings-v2-base-code，重建独立 Vector Generation
-10. 修正 QdrantBM25SparseProvider cache_dir 后再准备 Qdrant/bm25
-11. 如需轻量英文 Reranker 对照，再下载 Xenova/ms-marco-MiniLM-L-6-v2
+1. 保留当前已安装的 agent extra
+2. 构建或准备 structured index
+3. 启用 RETRIEVAL_ENABLED 和 RESEARCH_AGENT_ENABLED
+4. 保持 Dense、Reranker、Qdrant Sparse 关闭
+5. 验收 FTS5 + Graph + Agent checkpoint/恢复/evidence-only
 ```
 
-## 六、最小下载结论
+该路径当前不需要额外下载。
 
-只完成默认 Dense Retrieval 手工验收时，最小组合为：
+### B. 最小 Dense 验收
+
+```text
+1. 安装 retrieval extra
+2. 预缓存 paraphrase-multilingual-MiniLM-L12-v2
+3. 确认模型位于 data/models 或 RETRIEVAL_MODEL_CACHE_DIR
+4. 恢复 RETRIEVAL_OFFLINE=true
+5. 启用 RETRIEVAL_DENSE_ENABLED=true
+6. 运行 Dense-only、Dense+Sparse 和 Dense+Sparse+Graph 消融
+```
+
+### C. 完整 Reranker 验收
+
+```text
+1. 完成最小 Dense 验收
+2. 预缓存 BAAI/bge-reranker-base
+3. 启用 RETRIEVAL_RERANKER_ENABLED=true
+4. 记录 Locked Test 的质量、平均延迟和 P95 延迟
+```
+
+### D. 可选消融
+
+```text
+1. Jina code 模型使用独立 Vector Generation
+2. 修复 BM25 cache_dir 后再准备 Qdrant/bm25
+3. 需要轻量英文对照时再准备 Xenova Reranker
+```
+
+## 七、当前最小缺口结论
+
+当前 v1.6 无模型 Agent 主链路没有缺失的必需依赖或权重。
+
+如果要补做默认 Dense Retrieval 的真实手工验收，当前最小缺口是：
 
 ```text
 qdrant-client[fastembed] 依赖
@@ -140,8 +249,10 @@ qdrant-client[fastembed] 依赖
 sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
 ```
 
-如果还要完成默认 Reranker 验收，再增加：
+如果还要验收默认 Reranker，再增加：
 
 ```text
 BAAI/bge-reranker-base
 ```
+
+Qdrant BM25、Jina code 和轻量英文 Reranker 都属于可选消融，不应作为当前启动阻塞项。

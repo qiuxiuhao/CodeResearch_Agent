@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "code-research-agent"
-version = "1.5.0"
+version = "1.6.0"
 description = "LangGraph-based minimal code repository analysis agent."
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.111.0",
   "uvicorn[standard]>=0.30.0",
-  "langgraph>=0.2.0",
+  "langgraph>=1.0.10,<2.0",
   "pymupdf>=1.24.0",
   "pydantic>=2.7.0",
   "python-multipart>=0.0.9",
@@ -20,12 +20,16 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0.0",
+  "langgraph-checkpoint-sqlite>=3.1.0,<3.2.0",
 ]
 secrets = [
   "keyring>=25.0.0",
 ]
 retrieval = [
   "qdrant-client[fastembed]>=1.9.0,<2.0",
+]
+agent = [
+  "langgraph-checkpoint-sqlite>=3.1.0,<3.2.0",
 ]
 
 [tool.setuptools.packages.find]

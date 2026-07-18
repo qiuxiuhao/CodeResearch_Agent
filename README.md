@@ -255,6 +255,23 @@ export QDRANT_LOCAL_PATH=data/qdrant
 Validator；无 Provider、调用失败或非法引用时返回 evidence-only 结果。详细配置、API 和
 评测格式见 [docs/retrieval_v1.5.0.md](docs/retrieval_v1.5.0.md)。
 
+## v1.6 动态 Research Agent
+
+v1.6 在 v1.5 固定检索之上新增独立 Research Agent Graph，不修改离线 Analysis Graph。
+Agent API 始终注册，默认关闭；启用前安装安全版本的 SQLite Checkpointer：
+
+```bash
+pip install -e '.[agent]'
+export RESEARCH_AGENT_ENABLED=true
+export RETRIEVAL_ENABLED=true
+```
+
+运行控制面和 checkpoint 分别使用 `data/research_runs.sqlite3` 与
+`data/research_checkpoints.sqlite3`。工具只读取固定的 repository/index version，最多六个
+Plan Step、十次实际工具调用和两次 Replan；未授权外部文本时使用确定性计划与
+evidence-first 回答，不向 Provider 发送代码。配置、状态机、恢复和 API 示例见
+[docs/research_agent_v1.6.0.md](docs/research_agent_v1.6.0.md)。
+
 ## 测试与验收
 
 运行完整验收脚本：
@@ -329,6 +346,8 @@ scripts/         本地启动和验收脚本
 - [v1.4.0 实施与验收结果](docs/v1.4.0_results.md)
 - [v1.5.0 Hybrid RAG](docs/retrieval_v1.5.0.md)
 - [v1.5.0 实施与验收结果](docs/v1.5.0_results.md)
+- [v1.6.0 动态 Research Agent](docs/research_agent_v1.6.0.md)
+- [v1.6.0 实施与验收结果](docs/v1.6.0_results.md)
 - [演示指南](docs/demo_guide.md)
 - [前端指南](docs/frontend_guide.md)
 - [截图说明](docs/screenshots.md)

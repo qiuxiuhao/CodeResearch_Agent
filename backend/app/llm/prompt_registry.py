@@ -13,6 +13,7 @@ PROMPT_REGISTRY = MappingProxyType({
     "paper_code_align": "paper_code_align_llm.md",
     "paper_figure_analyze": "paper_figure_analyze_vlm.md",
     "research_answer": "research_answer_llm.md",
+    "research_plan": "research_plan_llm.md",
 })
 
 

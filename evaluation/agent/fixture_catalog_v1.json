@@ -1,0 +1,32 @@
+{
+  "repo_id": "fixture_repo_v1",
+  "index_version_id": "fixture_index_v1",
+  "evidence_ids": [
+    "fixture:forward",
+    "fixture:config",
+    "fixture:attention",
+    "fixture:shape",
+    "fixture:data",
+    "fixture:trainer-init",
+    "fixture:batch",
+    "fixture:layernorm",
+    "fixture:dropout"
+  ],
+  "edge_ids": [
+    "fixture:train-path",
+    "fixture:architecture",
+    "fixture:training",
+    "fixture:inference",
+    "fixture:alignment",
+    "fixture:encoder-path",
+    "fixture:model-graph",
+    "fixture:data-flow",
+    "fixture:attention-align",
+    "fixture:config-flow",
+    "fixture:cli-forward",
+    "fixture:enc-dec",
+    "fixture:shared",
+    "fixture:ablation-align",
+    "fixture:output-flow"
+  ]
+}
