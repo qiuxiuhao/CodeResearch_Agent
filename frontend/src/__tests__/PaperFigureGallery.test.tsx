@@ -1,7 +1,17 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { PaperFigureGallery } from "../components/PaperFigureGallery";
+import { setActiveScope } from "../api/v2Client";
 
-test("renders canonical preview and keeps contribution links explicitly suggestive", () => {
+beforeEach(() => {
+  setActiveScope("workspace-a", "project-a");
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(new Blob(["preview"], {type: "image/png"}))));
+  Object.defineProperty(URL, "createObjectURL", {configurable: true, value: vi.fn(() => "blob:protected-preview")});
+  Object.defineProperty(URL, "revokeObjectURL", {configurable: true, value: vi.fn()});
+});
+
+afterEach(() => vi.unstubAllGlobals());
+
+test("renders canonical preview through the authenticated v2 asset route", async () => {
   render(<PaperFigureGallery taskId="task_demo" figures={[{
     figure_id: "fig_1234567890abcdef1234",
     page_number: 2,
@@ -22,7 +32,11 @@ test("renders canonical preview and keeps contribution links explicitly suggesti
   }]} />);
 
   const image = screen.getByRole("img", { name: /Figure 1/ });
-  expect(image).toHaveAttribute("src", "/analysis/tasks/task_demo/figures/fig_1234567890abcdef1234/preview");
+  await waitFor(() => expect(image).toHaveAttribute("src", "blob:protected-preview"));
+  expect(fetch).toHaveBeenCalledWith(
+    "/api/v2/workspaces/workspace-a/projects/project-a/analysis-jobs/task_demo/figures/fig_1234567890abcdef1234/preview",
+    expect.objectContaining({credentials: "include"}),
+  );
   expect(screen.getByText(/AI Figure 类型：architecture/)).toBeInTheDocument();
   expect(screen.getByText(/C1（medium，AI 建议）/)).toBeInTheDocument();
 });

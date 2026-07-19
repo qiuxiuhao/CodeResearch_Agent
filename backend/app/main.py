@@ -62,7 +62,9 @@ from backend.app.services.observability_runtime import get_observability_runtime
 from backend.app.control_plane.api import router as platform_v2_router
 from backend.app.control_plane.runtime import ControlPlaneRuntime
 from backend.app.control_plane.config import DeploymentProfile
-from backend.app.control_plane.middleware import TeamLegacyApiGuardMiddleware
+from backend.app.control_plane.middleware import (
+    TeamLegacyApiGuardMiddleware, mark_legacy_scheduling_routes_deprecated,
+)
 
 
 _analysis_executor: ThreadPoolExecutor | None = None
@@ -88,19 +90,20 @@ async def lifespan(_app: FastAPI):
     control_plane = ControlPlaneRuntime.build()
     _app.state.control_plane_runtime = control_plane
     observability.start()
-    if control_plane.settings.profile is DeploymentProfile.LOCAL:
-        await start_evaluation_runtime()
-        await start_alignment_runtime()
-        await start_research_agent_runtime()
     try:
+        if control_plane.settings.profile is DeploymentProfile.LOCAL:
+            await start_evaluation_runtime()
+            await start_alignment_runtime()
+            await start_research_agent_runtime()
+            await control_plane.start()
         yield
     finally:
+        await control_plane.shutdown()
         if control_plane.settings.profile is DeploymentProfile.LOCAL:
             await stop_research_agent_runtime()
             await stop_alignment_runtime()
             await stop_evaluation_runtime()
         shutdown_retrieval_runtime()
-        await control_plane.shutdown()
         _shutdown_analysis_executor()
         observability.stop()
 
@@ -746,6 +749,8 @@ async def _save_upload_limited(
         destination.unlink(missing_ok=True)
         raise
 
+
+mark_legacy_scheduling_routes_deprecated(app)
 
 _frontend_dist = Path(os.getenv("CRA_FRONTEND_DIST", "frontend/dist")).resolve()
 if os.getenv("CRA_SERVE_FRONTEND", "false").strip().casefold() == "true" and _frontend_dist.is_dir():

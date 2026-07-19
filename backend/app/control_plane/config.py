@@ -52,7 +52,7 @@ class PlatformSettings(BaseModel):
     def from_env(cls) -> "PlatformSettings":
         config_path = os.getenv("CRA_CONFIG_PATH")
         if config_path:
-            return cls.from_application(ApplicationConfig.load(config_path).apply_legacy_environment())
+            return cls.from_application(ApplicationConfig.load(config_path))
         profile = DeploymentProfile(os.getenv("CRA_DEPLOYMENT_PROFILE", "local").strip().lower())
         return cls(
             profile=profile,
@@ -89,4 +89,4 @@ def sqlite_path(database_url: str) -> Path:
     prefix = "sqlite:///"
     if not database_url.startswith(prefix):
         raise ValueError("database URL is not SQLite")
-    return Path(database_url[len(prefix):])
+    return Path(database_url[len(prefix):]).expanduser().resolve()

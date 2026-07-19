@@ -67,15 +67,26 @@ export type ArtifactView = {
 };
 
 let accessToken: string | null = null;
+let refreshInFlight: Promise<boolean> | null = null;
+let activeScope: {workspaceId: string; projectId: string} | null = null;
 
 export function setAccessToken(token: string | null): void {
   accessToken = token;
 }
 
-export async function v2Request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export function setActiveScope(workspaceId: string, projectId: string): void {
+  activeScope = workspaceId && projectId ? {workspaceId, projectId} : null;
+}
+
+export async function v2Request<T>(
+  path: string, init: RequestInit = {}, allowRefresh = true
+): Promise<T> {
   const headers = new Headers(init.headers);
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
   const response = await fetch(`/api/v2${path}`, {...init, headers, credentials: "include"});
+  if (response.status === 401 && allowRefresh && await restoreSession()) {
+    return v2Request<T>(path, init, false);
+  }
   if (!response.ok) {
     const body = await response.json().catch(() => null) as {detail?: {error_code?: string}} | null;
     throw new Error(body?.detail?.error_code ?? `request_failed_${response.status}`);
@@ -93,8 +104,43 @@ export async function login(username: string, password: string): Promise<void> {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({username, password}),
-  });
+  }, false);
   setAccessToken(response.access_token);
+}
+
+export function restoreSession(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = refreshSession().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+
+async function refreshSession(): Promise<boolean> {
+  const csrf = readCookie("cra_csrf");
+  if (!csrf) {
+    setAccessToken(null);
+    return false;
+  }
+  const response = await fetch("/api/v2/auth/refresh", {
+    method: "POST",
+    credentials: "include",
+    headers: {"X-CSRF-Token": csrf},
+  });
+  if (!response.ok) {
+    setAccessToken(null);
+    return false;
+  }
+  const body = await response.json() as {access_token: string};
+  setAccessToken(body.access_token);
+  return true;
+}
+
+function readCookie(name: string): string | null {
+  const prefix = `${encodeURIComponent(name)}=`;
+  for (const part of document.cookie.split(";")) {
+    const value = part.trim();
+    if (value.startsWith(prefix)) return decodeURIComponent(value.slice(prefix.length));
+  }
+  return null;
 }
 
 export function listWorkspaces(): Promise<{items: WorkspaceView[]}> {
@@ -118,6 +164,34 @@ export function listArtifacts(
 ): Promise<{items: ArtifactView[]}> {
   return v2Request<{items: ArtifactView[]}>(
     `/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}/artifacts`
+  );
+}
+
+export async function uploadArtifact(
+  workspaceId: string, projectId: string, file: File
+): Promise<ArtifactView> {
+  const form = new FormData();
+  form.append("artifact", file);
+  return v2Request<ArtifactView>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}/artifacts`,
+    {method: "POST", body: form}
+  );
+}
+
+export function submitJob(
+  workspaceId: string,
+  projectId: string,
+  jobType: string,
+  payload: Record<string, unknown>,
+  idempotencyKey: string,
+): Promise<{job_id: string; attempt_id: string; domain_run_id: string}> {
+  return v2Request(
+    `/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}/jobs`,
+    {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({job_type: jobType, payload, idempotency_key: idempotencyKey}),
+    }
   );
 }
 
@@ -169,4 +243,31 @@ export function getJob(
   return v2Request<JobView>(
     `/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}`
   );
+}
+
+export function getAnalysisJobResult<T>(
+  workspaceId: string, projectId: string, jobId: string
+): Promise<T> {
+  return v2Request<T>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}` +
+      `/analysis-jobs/${encodeURIComponent(jobId)}/result`
+  );
+}
+
+export async function fetchActiveAnalysisAsset(jobId: string, suffix: string): Promise<Blob> {
+  if (!activeScope) throw new Error("project_scope_required");
+  const {workspaceId, projectId} = activeScope;
+  const headers = new Headers();
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  const url =
+    `/api/v2/workspaces/${encodeURIComponent(workspaceId)}` +
+    `/projects/${encodeURIComponent(projectId)}/analysis-jobs/${encodeURIComponent(jobId)}/${suffix}`;
+  let response = await fetch(url, {headers, credentials: "include"});
+  if (response.status === 401 && await restoreSession()) {
+    const retryHeaders = new Headers();
+    if (accessToken) retryHeaders.set("Authorization", `Bearer ${accessToken}`);
+    response = await fetch(url, {headers: retryHeaders, credentials: "include"});
+  }
+  if (!response.ok) throw new Error(`request_failed_${response.status}`);
+  return response.blob();
 }

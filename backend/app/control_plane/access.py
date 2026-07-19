@@ -8,8 +8,19 @@ from .schemas import ProjectRole, WorkspaceRole
 
 SENSITIVE_PERMISSIONS = {
     "gold.read", "gold.freeze", "audit.read", "provider.manage",
-    "trace.diagnostic", "backup.manage", "restore.manage",
+    "trace.diagnostic", "backup.manage", "restore.manage", "maintenance.manage",
 }
+
+JOB_TYPE_PERMISSIONS: dict[str, str] = {
+    "backup": "backup.manage",
+    "restore": "restore.manage",
+    "maintenance": "maintenance.manage",
+}
+
+
+def permission_for_job_type(job_type: str) -> str:
+    """Return the permission checked before any job payload is inspected."""
+    return JOB_TYPE_PERMISSIONS.get(job_type, "job.create")
 
 WORKSPACE_PERMISSIONS: dict[WorkspaceRole, set[str]] = {
     "owner": {"*"},

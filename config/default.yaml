@@ -3,9 +3,9 @@ profile: local
 host: 127.0.0.1
 port: 8000
 database:
-  control_url: sqlite:///data/control_plane.sqlite3
-  observability_url: sqlite:///data/observability.sqlite3
-  checkpoint_url: sqlite:///data/research_checkpoints.sqlite3
+  control_url: sqlite:///../data/control_plane.sqlite3
+  observability_url: sqlite:///../data/observability.sqlite3
+  checkpoint_url: sqlite:///../data/research_checkpoints.sqlite3
 artifacts:
   local_root: ../data/artifacts
   s3_endpoint_url: null

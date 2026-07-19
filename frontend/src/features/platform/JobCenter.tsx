@@ -1,7 +1,7 @@
 import {FormEvent, useCallback, useEffect, useState} from "react";
 import {
   cancelJob, getPlatformHealth, listAttempts, listJobs, listProjects, listWorkspaces,
-  login, retryJob, type AttemptView, type JobView, type PlatformHealth,
+  login, restoreSession, retryJob, type AttemptView, type JobView, type PlatformHealth,
   type ProjectView, type WorkspaceView,
 } from "../../api/v2Client";
 
@@ -25,6 +25,7 @@ export function JobCenter({onClose}: Props) {
     void getPlatformHealth().then(setHealth).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : "platform_unavailable");
     });
+    void restoreSession().then(setAuthenticated).catch(() => setAuthenticated(false));
   }, []);
 
   const refreshJobs = useCallback(async () => {

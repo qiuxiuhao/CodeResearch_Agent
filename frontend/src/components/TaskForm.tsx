@@ -1,11 +1,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import {
-  createTaskByPathAsync,
-  createTaskByUploadAsync,
   getLLMPublicConfig,
-  getProviderSettings,
-  getTaskProgress
+  getProviderSettings
 } from "../api/client";
+import { getJob, submitJob, uploadArtifact } from "../api/v2Client";
+import type { JobView } from "../api/v2Client";
 import { PROVIDER_SETTINGS_UPDATED } from "../providerSettingsEvents";
 import type { LLMPublicConfig, ProviderPublicSettings, TaskProgress, TaskSummary } from "../types/analysis";
 import { TaskProgressPanel } from "./TaskProgressPanel";
@@ -14,10 +13,11 @@ type Props = {
   onTaskCreated: (summary: TaskSummary) => void | Promise<void>;
   onError: (message: string | null) => void;
   onOpenSettings?: () => void;
+  workspaceId?: string;
+  projectId?: string;
 };
 
-export function TaskForm({ onTaskCreated, onError, onOpenSettings }: Props) {
-  const [inputMode, setInputMode] = useState<"path" | "upload">("path");
+export function TaskForm({ onTaskCreated, onError, onOpenSettings, workspaceId, projectId }: Props) {
   const [textLLMEnabled, setTextLLMEnabled] = useState(false);
   const [teachingNarrativeLLMEnabled, setTeachingNarrativeLLMEnabled] = useState(false);
   const [visionVLMEnabled, setVisionVLMEnabled] = useState(false);
@@ -28,8 +28,6 @@ export function TaskForm({ onTaskCreated, onError, onOpenSettings }: Props) {
   const [externalImageConsent, setExternalImageConsent] = useState(false);
   const [externalTeachingReviewConsent, setExternalTeachingReviewConsent] = useState(false);
   const [llmConfig, setLLMConfig] = useState<LLMPublicConfig | null>(null);
-  const [zipPath, setZipPath] = useState("examples/small_pytorch_project.zip");
-  const [paperPath, setPaperPath] = useState("");
   const [zipFile, setZipFile] = useState<File | null>(null);
   const [paperFile, setPaperFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -121,7 +119,7 @@ export function TaskForm({ onTaskCreated, onError, onOpenSettings }: Props) {
       if (teachingNarrativeLLMEnabled && !externalTextConsent) {
         throw new Error("启用教学文案 LLM 前必须同意将脱敏后的教学图结构发送到外部模型服务商");
       }
-      const hasPaper = inputMode === "path" ? Boolean(paperPath.trim()) : Boolean(paperFile);
+      const hasPaper = Boolean(paperFile);
       if (visionVLMEnabled && !hasPaper) {
         throw new Error("启用论文 Figure AI 理解前请先提供论文 PDF");
       }
@@ -146,28 +144,12 @@ export function TaskForm({ onTaskCreated, onError, onOpenSettings }: Props) {
       if (teachingReviewVLMEnabled && !externalTeachingReviewConsent) {
         throw new Error("启用教学图 VLM 审查前必须单独同意教学图审查外发");
       }
-      let nextProgress =
-        inputMode === "path"
-          ? await createTaskByPathAsync({
-              zip_path: zipPath,
-              output_root: "outputs",
-              paper_pdf_path: paperPath || null,
-              text_llm_enabled: textLLMEnabled,
-              teaching_narrative_llm_enabled: teachingNarrativeLLMEnabled,
-              vision_vlm_enabled: visionVLMEnabled,
-              external_text_consent: externalTextConsent,
-              external_vision_consent: externalVisionConsent,
-              teaching_diagrams_enabled: true,
-              image_generation_enabled: imageGenerationEnabled,
-              external_image_consent: externalImageConsent,
-              teaching_review_vlm_enabled: teachingReviewVLMEnabled,
-              external_teaching_review_consent: externalTeachingReviewConsent
-            })
-          : await submitUpload();
+      let nextProgress = await submitUpload();
       setProgress(nextProgress);
       while (nextProgress.status === "queued" || nextProgress.status === "running") {
         await delay(700);
-        nextProgress = await getTaskProgress(nextProgress.task_id);
+        if (!workspaceId || !projectId) throw new Error("请先选择 Workspace 和 Project");
+        nextProgress = jobProgress(await getJob(workspaceId, projectId, nextProgress.task_id));
         setProgress(nextProgress);
       }
       if (nextProgress.status === "failed") {
@@ -182,53 +164,37 @@ export function TaskForm({ onTaskCreated, onError, onOpenSettings }: Props) {
   }
 
   async function submitUpload() {
+    if (!workspaceId || !projectId) {
+      throw new Error("请先选择 Workspace 和 Project");
+    }
     if (!zipFile) {
       throw new Error("请选择 ZIP 文件");
     }
-    const formData = new FormData();
-    formData.append("zip_file", zipFile);
-    formData.append("output_root", "outputs");
-    formData.append("text_llm_enabled", String(textLLMEnabled));
-    formData.append("teaching_narrative_llm_enabled", String(teachingNarrativeLLMEnabled));
-    formData.append("vision_vlm_enabled", String(visionVLMEnabled));
-    formData.append("external_text_consent", String(externalTextConsent));
-    formData.append("external_vision_consent", String(externalVisionConsent));
-    formData.append("teaching_diagrams_enabled", "true");
-    formData.append("image_generation_enabled", String(imageGenerationEnabled));
-    formData.append("external_image_consent", String(externalImageConsent));
-    formData.append("teaching_review_vlm_enabled", String(teachingReviewVLMEnabled));
-    formData.append("external_teaching_review_consent", String(externalTeachingReviewConsent));
-    if (paperFile) {
-      formData.append("paper_pdf", paperFile);
-    }
-    return createTaskByUploadAsync(formData);
+    const repositoryArtifact = await uploadArtifact(workspaceId, projectId, zipFile);
+    const paperArtifact = paperFile ? await uploadArtifact(workspaceId, projectId, paperFile) : null;
+    const created = await submitJob(workspaceId, projectId, "analysis", {
+      repository_artifact_id: repositoryArtifact.artifact_id,
+      paper_artifact_id: paperArtifact?.artifact_id ?? null,
+      text_llm_enabled: textLLMEnabled,
+      teaching_narrative_llm_enabled: teachingNarrativeLLMEnabled,
+      vision_vlm_enabled: visionVLMEnabled,
+      external_text_consent: externalTextConsent,
+      external_vision_consent: externalVisionConsent,
+      teaching_diagrams_enabled: true,
+      image_generation_enabled: imageGenerationEnabled,
+      external_image_consent: externalImageConsent,
+      teaching_review_vlm_enabled: teachingReviewVLMEnabled,
+      external_teaching_review_consent: externalTeachingReviewConsent
+    }, crypto.randomUUID());
+    return jobProgress(await getJob(workspaceId, projectId, created.job_id));
   }
 
   return (
     <section className="panel">
       <h2>创建分析任务</h2>
-      <div className="button-row">
-        <button className={inputMode === "path" ? "primary-button" : "secondary-button"} onClick={() => setInputMode("path")} type="button">
-          本地路径
-        </button>
-        <button className={inputMode === "upload" ? "primary-button" : "secondary-button"} onClick={() => setInputMode("upload")} type="button">
-          浏览器上传
-        </button>
-      </div>
+      <p className="muted">Local 正式入口使用受 Workspace/Project 隔离的浏览器上传；服务器路径仅保留给内部 CLI。</p>
       <form className="task-form" onSubmit={submit}>
-        {inputMode === "path" ? (
-          <>
-            <label>
-              ZIP 路径
-              <input value={zipPath} onChange={(event) => setZipPath(event.target.value)} />
-            </label>
-            <label>
-              论文 PDF 路径（可选）
-              <input value={paperPath} onChange={(event) => setPaperPath(event.target.value)} placeholder="examples/paper.pdf" />
-            </label>
-          </>
-        ) : (
-          <>
+        <>
             <label>
               ZIP 文件
               <input accept=".zip" type="file" onChange={(event) => setZipFile(event.target.files?.[0] ?? null)} />
@@ -237,8 +203,7 @@ export function TaskForm({ onTaskCreated, onError, onOpenSettings }: Props) {
               论文 PDF（可选）
               <input accept=".pdf" type="file" onChange={(event) => setPaperFile(event.target.files?.[0] ?? null)} />
             </label>
-          </>
-        )}
+        </>
         <fieldset className="llm-options">
           <legend>可选 AI 增强（默认仅规则分析）</legend>
           <div className="ai-option-list">
@@ -370,6 +335,26 @@ export function TaskForm({ onTaskCreated, onError, onOpenSettings }: Props) {
       </form>
     </section>
   );
+}
+
+function jobProgress(job: JobView): TaskProgress {
+  const terminal = ["completed", "partial", "failed", "cancelled", "dead"].includes(job.status);
+  const failed = ["failed", "cancelled", "dead"].includes(job.status);
+  return {
+    task_id: job.job_id,
+    status: failed ? "failed" : terminal ? "completed" : job.status === "queued" ? "queued" : "running",
+    completed_nodes: terminal ? 1 : 0,
+    total_nodes: 1,
+    percent: terminal ? 100 : job.status === "queued" ? 0 : 50,
+    error: job.error_code,
+    summary: terminal && !failed ? {task_id: job.job_id} : null,
+    steps: [{
+      id: "analysis",
+      label: "统一 Analysis Job",
+      status: failed ? "failed" : terminal ? "done" : job.status === "queued" ? "pending" : "running"
+    }],
+    updated_at: job.updated_at
+  };
 }
 
 function delay(ms: number): Promise<void> {

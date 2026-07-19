@@ -130,7 +130,17 @@ class ApplicationConfig(StrictConfig):
             parent_path = (config_path.parent / str(extends)).resolve()
             payload = _deep_merge(_load_yaml(parent_path), payload)
         config = cls.model_validate(payload)
+        database = config.database.model_copy(update={
+            "control_url": _resolve_database_url(config.database.control_url, config_path.parent),
+            "observability_url": _resolve_database_url(
+                config.database.observability_url, config_path.parent,
+            ),
+            "checkpoint_url": _resolve_database_url(
+                config.database.checkpoint_url, config_path.parent,
+            ),
+        })
         return config.model_copy(update={
+            "database": database,
             "model_manifest": _resolve_path(config.model_manifest, config_path.parent),
             "compute": config.compute.model_copy(update={
                 "model_cache": _resolve_path(config.compute.model_cache, config_path.parent),
@@ -181,6 +191,13 @@ class ApplicationConfig(StrictConfig):
         from backend.app.retrieval.model_manager import load_manifest
 
         models = {item.role: item for item in load_manifest(self.model_manifest).models}
+        data_root = _sqlite_data_root(self.database.control_url)
+        checkpoint_path = _sqlite_path_or(
+            self.database.checkpoint_url, data_root / "research_checkpoints.sqlite3",
+        )
+        observability_path = _sqlite_path_or(
+            self.database.observability_url, data_root / "observability.sqlite3",
+        )
         values = {
             "CRA_DEPLOYMENT_PROFILE": self.profile,
             "CONTROL_DATABASE_URL": self.database.control_url,
@@ -188,6 +205,18 @@ class ApplicationConfig(StrictConfig):
             "CHECKPOINT_DATABASE_URL": self.database.checkpoint_url,
             "LOCAL_ARTIFACT_ROOT": str(self.artifacts.local_root),
             "RETRIEVAL_MODEL_CACHE_DIR": str(self.compute.model_cache),
+            "LIBRARY_DB_PATH": str(data_root / "python_function_library.sqlite3"),
+            "STRUCTURED_INDEX_DB_PATH": str(data_root / "structured_index.sqlite3"),
+            "RETRIEVAL_FTS_DB_PATH": str(data_root / "retrieval_fts.sqlite3"),
+            "RETRIEVAL_MANIFEST_ROOT": str(data_root / "retrieval" / "manifests"),
+            "RESEARCH_RUN_DB_PATH": str(data_root / "research_runs.sqlite3"),
+            "RESEARCH_CHECKPOINT_DB_PATH": str(checkpoint_path),
+            "ALIGNMENT_DB_PATH": str(data_root / "paper_code_alignment.sqlite3"),
+            "EVALUATION_DB_PATH": str(data_root / "evaluation.sqlite3"),
+            "OBSERVABILITY_DB_PATH": str(observability_path),
+            "LLM_CACHE_PATH": str(data_root / "llm_explanation_cache.sqlite3"),
+            "VLM_CACHE_PATH": str(data_root / "vlm_figure_cache.sqlite3"),
+            "IMAGE_GENERATION_CACHE_PATH": str(data_root / "image_generation_cache.sqlite3"),
             "RETRIEVAL_OFFLINE": "true",
             "RETRIEVAL_DENSE_MODEL_ID": models["dense"].model_id,
             "RETRIEVAL_DENSE_MODEL_REVISION": models["dense"].revision,
@@ -215,7 +244,14 @@ class ApplicationConfig(StrictConfig):
         }
         for key, value in {**values, **optional}.items():
             if value is not None:
-                os.environ.setdefault(key, str(value))
+                previous = os.environ.get(key)
+                if previous is not None and previous != str(value):
+                    warnings.warn(
+                        f"ignored legacy environment override because YAML is authoritative: {key}",
+                        DeprecationWarning,
+                        stacklevel=2,
+                    )
+                os.environ[key] = str(value)
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -244,6 +280,27 @@ def _resolve_path(value: Path | None, root: Path) -> Path | None:
         return None
     expanded = value.expanduser()
     return expanded if expanded.is_absolute() else (root / expanded).resolve()
+
+
+def _resolve_database_url(value: str, root: Path) -> str:
+    prefix = "sqlite:///"
+    if not value.startswith(prefix):
+        return value
+    path = Path(value[len(prefix):]).expanduser()
+    resolved = path if path.is_absolute() else (root / path).resolve()
+    return f"sqlite:///{resolved}"
+
+
+def _sqlite_data_root(value: str) -> Path:
+    prefix = "sqlite:///"
+    if not value.startswith(prefix):
+        return Path("data").resolve()
+    return Path(value[len(prefix):]).resolve().parent
+
+
+def _sqlite_path_or(value: str, fallback: Path) -> Path:
+    prefix = "sqlite:///"
+    return Path(value[len(prefix):]).resolve() if value.startswith(prefix) else fallback.resolve()
 
 
 def _bool_text(value: bool) -> str:

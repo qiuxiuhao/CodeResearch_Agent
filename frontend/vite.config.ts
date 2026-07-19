@@ -10,6 +10,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      "/api/v2": "http://127.0.0.1:8000",
       "/analysis": "http://127.0.0.1:8000",
       "/library": "http://127.0.0.1:8000",
       "/llm": "http://127.0.0.1:8000",

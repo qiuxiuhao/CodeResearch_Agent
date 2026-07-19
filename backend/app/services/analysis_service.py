@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from backend.app.agents.graph import ProgressCallback, build_analysis_graph
+from backend.app.agents.graph import CancelCheck, ProgressCallback, build_analysis_graph
 from backend.app.image_generation.config import ImageGenerationSettings
 from backend.app.image_generation.runtime import ImageGenerationRuntime
 from backend.app.llm.config import LLMSettings
@@ -82,6 +82,7 @@ def _run_analysis_impl(
     image_runtime: ImageGenerationRuntime | None = None,
     task_id: str | None = None,
     progress_callback: ProgressCallback | None = None,
+    cancel_check: CancelCheck | None = None,
     structured_index_enabled: bool | None = None,
     repository_key: str | None = None,
     structured_index_db_path: str | Path | None = None,
@@ -120,7 +121,10 @@ def _run_analysis_impl(
     resolved_vision_runtime = runtime_context.vision
     resolved_image_runtime = runtime_context.image
     resolved_library_db_path = str(library_db_path or os.getenv("LIBRARY_DB_PATH") or "data/python_function_library.sqlite3")
-    graph = build_analysis_graph(runtime, resolved_vision_runtime, resolved_image_runtime, progress_callback)
+    graph = build_analysis_graph(
+        runtime, resolved_vision_runtime, resolved_image_runtime,
+        progress_callback, cancel_check,
+    )
     initial_state: AgentState = {
         "zip_path": str(zip_path),
         "output_dir": str(output_root),

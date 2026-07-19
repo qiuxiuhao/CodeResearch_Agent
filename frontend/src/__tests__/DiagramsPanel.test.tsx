@@ -1,21 +1,34 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { DiagramsPanel } from "../components/DiagramsPanel";
 import type { AnalysisResult } from "../types/analysis";
+import { setActiveScope } from "../api/v2Client";
 
 vi.mock("../components/MermaidBlock", () => ({
   MermaidBlock: ({ code }: { code: string }) => <pre data-testid="mermaid-block">{code}</pre>
 }));
 
-test("switches between Blueprint and AI teaching views without duplicating Mermaid", () => {
+beforeEach(() => {
+  setActiveScope("workspace-a", "project-a");
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(new Blob(["image"], {type: "image/png"}))));
+  Object.defineProperty(URL, "createObjectURL", {configurable: true, value: vi.fn(() => "blob:protected-diagram")});
+  Object.defineProperty(URL, "revokeObjectURL", {configurable: true, value: vi.fn()});
+});
+
+afterEach(() => vi.unstubAllGlobals());
+
+test("switches between protected Blueprint and AI teaching views without duplicating Mermaid", async () => {
   render(<DiagramsPanel result={resultWithTeaching({ display_variant: "ai", final_asset: asset("final") })} />);
 
-  expect(screen.getByAltText(/AI 教学图/)).toHaveAttribute("src", expect.stringContaining("final.png"));
+  await waitFor(() => expect(screen.getByAltText(/AI 教学图/)).toHaveAttribute("src", "blob:protected-diagram"));
   expect(screen.queryByRole("button", { name: "Mermaid" })).not.toBeInTheDocument();
   expect(screen.queryByTestId("mermaid-block")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Blueprint" }));
-  expect(screen.getByAltText(/Blueprint/)).toHaveAttribute("src", expect.stringContaining("blueprint.png"));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+    expect.stringContaining("/teaching-diagrams/td_demo/blueprint.png"), expect.anything(),
+  ));
   fireEvent.click(screen.getByRole("button", { name: "AI 教学图" }));
+  await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalledTimes(3));
   expect(screen.getByText(/可能存在简化/)).toBeInTheDocument();
 });
 
@@ -28,18 +41,20 @@ test("shows one selectable Mermaid diagram when teaching diagrams are absent", (
   expect(screen.getByTestId("mermaid-block")).toHaveTextContent("flowchart LR");
 });
 
-test("disables AI tab and defaults to Blueprint when review did not pass", () => {
+test("disables AI tab and defaults to Blueprint when review did not pass", async () => {
   render(<DiagramsPanel result={resultWithTeaching({ display_variant: "blueprint", final_asset: null, fallback_reason: "review_failed_fallback_blueprint" })} />);
 
   expect(screen.getByRole("button", { name: "AI 教学图" })).toBeDisabled();
-  expect(screen.getByAltText(/Blueprint/)).toHaveAttribute("src", expect.stringContaining("blueprint.png"));
+  await waitFor(() => expect(screen.getByAltText(/Blueprint/)).toHaveAttribute("src", "blob:protected-diagram"));
   expect(screen.getByText(/review_failed_fallback_blueprint/)).toBeInTheDocument();
 });
 
-test("prefers SVG Blueprint when Chinese font fallback warning is present", () => {
+test("prefers SVG Blueprint when Chinese font fallback warning is present", async () => {
   render(<DiagramsPanel result={resultWithTeaching({ warnings: ["teaching_diagram_font_unavailable"] })} />);
 
-  expect(screen.getByAltText(/Blueprint/)).toHaveAttribute("src", expect.stringContaining("blueprint.svg"));
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+    expect.stringContaining("/teaching-diagrams/td_demo/blueprint.svg"), expect.anything(),
+  ));
 });
 
 function resultWithTeaching(overrides: Record<string, unknown> = {}): AnalysisResult {

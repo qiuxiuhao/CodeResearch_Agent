@@ -1,5 +1,5 @@
-import { figureAssetUrl, figurePreviewUrl } from "../api/client";
 import type { PaperFigure } from "../types/analysis";
+import { AuthenticatedAnalysisAssetButton, AuthenticatedAnalysisImage } from "./AuthenticatedAnalysisAsset";
 
 export function PaperFigureGallery({ taskId, figures }: { taskId: string; figures: PaperFigure[] }) {
   if (!figures.length) return <p className="muted">未检测到可展示的 Figure。</p>;
@@ -10,7 +10,11 @@ export function PaperFigureGallery({ taskId, figures }: { taskId: string; figure
         return (
           <article className="figure-card" key={figure.figure_id}>
             {figure.canonical_preview ? (
-              <img src={figurePreviewUrl(taskId, figure.figure_id)} alt={`${figure.caption.label}: ${figure.caption.text}`} />
+              <AuthenticatedAnalysisImage
+                taskId={taskId}
+                suffix={`figures/${encodeURIComponent(figure.figure_id)}/preview`}
+                alt={`${figure.caption.label}: ${figure.caption.text}`}
+              />
             ) : <div className="figure-placeholder">Preview 不可用</div>}
             <div className="figure-content">
               <h4>{figure.caption.label}</h4>
@@ -24,15 +28,13 @@ export function PaperFigureGallery({ taskId, figures }: { taskId: string; figure
                 {!!figure.original_assets?.length && (
                   <div className="chip-row">
                     {figure.original_assets.map((asset, index) => (
-                      <a
-                        className="chip"
-                        href={figureAssetUrl(taskId, figure.figure_id, asset.asset_id)}
+                      <AuthenticatedAnalysisAssetButton
+                        taskId={taskId}
+                        suffix={`figures/${encodeURIComponent(figure.figure_id)}/assets/${encodeURIComponent(asset.asset_id)}`}
                         key={asset.asset_id}
-                        rel="noreferrer"
-                        target="_blank"
                       >
                         查看原始资产 {index + 1}
-                      </a>
+                      </AuthenticatedAnalysisAssetButton>
                     ))}
                   </div>
                 )}

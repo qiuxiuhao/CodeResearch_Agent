@@ -38,12 +38,21 @@ JOB_TRANSITIONS: dict[JobStatus, set[JobStatus]] = {
     JobStatus.CANCELLING: {JobStatus.CANCELLED, JobStatus.FAILED},
 }
 ATTEMPT_TRANSITIONS: dict[AttemptStatus, set[AttemptStatus]] = {
-    AttemptStatus.CREATED: {AttemptStatus.DISPATCHED, AttemptStatus.CANCELLED},
-    AttemptStatus.DISPATCHED: {AttemptStatus.CLAIMED, AttemptStatus.LOST, AttemptStatus.CANCELLED},
-    AttemptStatus.CLAIMED: {AttemptStatus.RUNNING, AttemptStatus.LOST, AttemptStatus.CANCELLED},
+    AttemptStatus.CREATED: {
+        AttemptStatus.DISPATCHED, AttemptStatus.CANCELLED, AttemptStatus.SUPERSEDED,
+    },
+    AttemptStatus.DISPATCHED: {
+        AttemptStatus.CLAIMED, AttemptStatus.LOST, AttemptStatus.CANCELLED,
+        AttemptStatus.SUPERSEDED,
+    },
+    AttemptStatus.CLAIMED: {
+        AttemptStatus.RUNNING, AttemptStatus.LOST, AttemptStatus.CANCELLED,
+        AttemptStatus.SUPERSEDED,
+    },
     AttemptStatus.RUNNING: {
         AttemptStatus.SUCCEEDED, AttemptStatus.FAILED_RETRYABLE,
         AttemptStatus.FAILED_TERMINAL, AttemptStatus.CANCELLED, AttemptStatus.LOST,
+        AttemptStatus.SUPERSEDED,
     },
 }
 
@@ -354,6 +363,21 @@ class LocalControlPlaneStore:
             raise ControlPlaneError("artifact_not_found")
         return ArtifactRecord.model_validate_json(row[0])
 
+    def find_scoped_artifact_by_storage_key(
+        self, workspace_id: str, project_id: str, storage_key: str,
+    ) -> ArtifactRecord:
+        """Compatibility lookup for persisted task-schema-v1 requests only."""
+        self.migrate()
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT artifact_json FROM artifacts
+                   WHERE workspace_id=? AND project_id=? AND storage_key=? LIMIT 2""",
+                (workspace_id, project_id, storage_key),
+            ).fetchall()
+        if len(rows) != 1:
+            raise ControlPlaneError("legacy_artifact_payload_unverifiable")
+        return ArtifactRecord.model_validate_json(rows[0][0])
+
     def list_artifacts(
         self, workspace_id: str, project_id: str, *, limit: int = 100,
     ) -> list[ArtifactRecord]:
@@ -364,6 +388,43 @@ class LocalControlPlaneStore:
                 """SELECT artifact_json FROM artifacts
                    WHERE workspace_id=? AND project_id=?
                    ORDER BY created_at DESC LIMIT ?""",
+                (workspace_id, project_id, bounded),
+            ).fetchall()
+        return [ArtifactRecord.model_validate_json(row[0]) for row in rows]
+
+    def list_artifacts_for_maintenance(
+        self,
+        workspace_id: str,
+        project_id: str,
+        *,
+        statuses: tuple[str, ...] = ("staging", "rejected", "orphaned"),
+        limit: int = 1000,
+    ) -> list[ArtifactRecord]:
+        """Return only explicitly owned artifacts; unknown staging files are never included."""
+        self.migrate()
+        if not statuses:
+            return []
+        bounded = max(1, min(limit, 5000))
+        placeholders = ",".join("?" for _ in statuses)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""SELECT artifact_json FROM artifacts
+                    WHERE workspace_id=? AND project_id=? AND status IN ({placeholders})
+                    ORDER BY updated_at LIMIT ?""",
+                (workspace_id, project_id, *statuses, bounded),
+            ).fetchall()
+        return [ArtifactRecord.model_validate_json(row[0]) for row in rows]
+
+    def list_available_artifacts(
+        self, workspace_id: str, project_id: str, *, limit: int = 5000,
+    ) -> list[ArtifactRecord]:
+        self.migrate()
+        bounded = max(1, min(limit, 5000))
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT artifact_json FROM artifacts
+                   WHERE workspace_id=? AND project_id=? AND status='available'
+                   ORDER BY artifact_id LIMIT ?""",
                 (workspace_id, project_id, bounded),
             ).fetchall()
         return [ArtifactRecord.model_validate_json(row[0]) for row in rows]
@@ -594,6 +655,117 @@ class LocalControlPlaneStore:
             actor_id_hash=actor_id_hash, retry_of_job_id=job_id,
             max_attempts=job.max_attempts, task_schema_version=job.task_schema_version,
         )
+
+    def recover_incomplete_jobs(self) -> list[CreatedJob]:
+        """Atomically supersede process-owned attempts and create restart attempts."""
+        self.migrate()
+        now = datetime.now(UTC)
+        recovered: list[CreatedJob] = []
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT job_json FROM jobs WHERE status NOT IN ('completed','partial','failed','cancelled','dead') "
+                "ORDER BY created_at"
+            ).fetchall()
+            for row in rows:
+                job = JobRecord.model_validate_json(row[0])
+                attempt = self._get_attempt_in(
+                    connection, job.job_id, job.current_attempt_number,
+                )
+                if attempt.status in {
+                    AttemptStatus.CREATED, AttemptStatus.DISPATCHED,
+                    AttemptStatus.CLAIMED, AttemptStatus.RUNNING,
+                }:
+                    attempt_status = (
+                        AttemptStatus.SUPERSEDED
+                        if attempt.status is AttemptStatus.CREATED
+                        else AttemptStatus.LOST
+                    )
+                    updated_attempt = attempt.model_copy(update={
+                        "status": attempt_status,
+                        "error_code": "application_restart",
+                        "retryable": True,
+                        "finished_at": now,
+                        "updated_at": now,
+                    })
+                    connection.execute(
+                        "UPDATE job_attempts SET status=?,attempt_json=?,updated_at=? WHERE attempt_id=?",
+                        (
+                            attempt_status, updated_attempt.model_dump_json(),
+                            _iso(now), attempt.attempt_id,
+                        ),
+                    )
+                outbox_row = connection.execute(
+                    "SELECT outbox_json FROM outbox_events WHERE attempt_id=?",
+                    (attempt.attempt_id,),
+                ).fetchone()
+                if outbox_row:
+                    event = OutboxEvent.model_validate_json(outbox_row[0])
+                    if event.status != "failed":
+                        failed_event = event.model_copy(update={
+                            "status": "failed",
+                            "claim_token_hash": None,
+                            "lease_owner_hash": None,
+                            "lease_until": None,
+                            "last_publish_error_code": "attempt_superseded_on_restart",
+                            "updated_at": now,
+                        })
+                        connection.execute(
+                            """UPDATE outbox_events SET status='failed',claim_token_hash=NULL,
+                               lease_owner_hash=NULL,lease_until=NULL,last_publish_error_code=?,
+                               outbox_json=?,updated_at=? WHERE outbox_event_id=?""",
+                            (
+                                "attempt_superseded_on_restart", failed_event.model_dump_json(),
+                                _iso(now), event.outbox_event_id,
+                            ),
+                        )
+                if job.status is JobStatus.CANCELLING:
+                    cancelled = job.model_copy(update={
+                        "status": JobStatus.CANCELLED,
+                        "cancel_requested": True,
+                        "retryable": False,
+                        "error_code": "job_cancelled_during_restart",
+                        "finished_at": now,
+                        "updated_at": now,
+                        "revision": job.revision + 1,
+                    })
+                    self._update_job(connection, cancelled)
+                    continue
+                if job.current_attempt_number >= job.max_attempts:
+                    dead = job.model_copy(update={
+                        "status": JobStatus.DEAD,
+                        "retryable": False,
+                        "error_code": "job_attempts_exhausted_after_restart",
+                        "finished_at": now,
+                        "updated_at": now,
+                        "revision": job.revision + 1,
+                    })
+                    self._update_job(connection, dead)
+                    continue
+                token = secrets.token_urlsafe(32)
+                next_attempt = JobAttempt(
+                    attempt_id=f"attempt_{uuid4().hex}", job_id=job.job_id,
+                    attempt_number=job.current_attempt_number + 1,
+                    execution_token_hash=stable_hash(token), created_at=now, updated_at=now,
+                )
+                queued = job.model_copy(update={
+                    "status": JobStatus.QUEUED,
+                    "current_attempt_number": next_attempt.attempt_number,
+                    "cancel_requested": False,
+                    "retryable": False,
+                    "error_code": None,
+                    "finished_at": None,
+                    "updated_at": now,
+                    "revision": job.revision + 1,
+                })
+                request = self._get_job_request_in(connection, job.job_id)
+                outbox = self._new_outbox(queued, next_attempt, request, now)
+                self._insert_attempt(connection, next_attempt)
+                self._insert_outbox(connection, outbox)
+                self._update_job(connection, queued)
+                recovered.append(CreatedJob(queued, next_attempt, outbox, token, request))
+            connection.commit()
+        return recovered
 
     def request_cancel(self, job_id: str) -> JobRecord:
         self.migrate()

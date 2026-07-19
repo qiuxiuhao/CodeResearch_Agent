@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { AnalysisResult, Diagram, TeachingDiagramItem } from "../types/analysis";
-import { teachingDiagramAssetUrl } from "../api/client";
+import { AuthenticatedAnalysisImage } from "./AuthenticatedAnalysisAsset";
 import { EmptyState } from "./EmptyState";
 import { MermaidBlock } from "./MermaidBlock";
 
@@ -114,16 +114,17 @@ function TeachingDiagramCard({ result, diagram }: { result: AnalysisResult; diag
         </button>
       </div>
       {view === "blueprint" && (diagram.blueprint_png || diagram.blueprint_svg) && (
-        <img
+        <AuthenticatedAnalysisImage
           className="figure-preview"
-          src={teachingDiagramAssetUrl(result.task_id, diagram.diagram_id, preferSvgBlueprint && diagram.blueprint_svg ? "blueprint.svg" : "blueprint.png")}
+          taskId={result.task_id}
+          suffix={`teaching-diagrams/${encodeURIComponent(diagram.diagram_id)}/${preferSvgBlueprint && diagram.blueprint_svg ? "blueprint.svg" : "blueprint.png"}`}
           alt={`${diagram.title} Blueprint`}
         />
       )}
       {view === "blueprint" && !diagram.blueprint_png && !diagram.blueprint_svg && <p className="muted">暂无 Blueprint 图。</p>}
       {view === "ai" && hasAi && (
         <>
-          <img className="figure-preview" src={teachingDiagramAssetUrl(result.task_id, diagram.diagram_id, "final.png")} alt={`${diagram.title} AI 教学图`} />
+          <AuthenticatedAnalysisImage className="figure-preview" taskId={result.task_id} suffix={`teaching-diagrams/${encodeURIComponent(diagram.diagram_id)}/final.png`} alt={`${diagram.title} AI 教学图`} />
           <p className="muted">AI 教学示意图可能存在简化，已由本地程序覆盖模块文字、Shape、公式、箭头和图例。</p>
         </>
       )}

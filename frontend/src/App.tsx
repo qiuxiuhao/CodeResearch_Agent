@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { AppShell } from "./components/AppShell";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { LibraryFunctionModal } from "./components/LibraryFunctionModal";
@@ -6,13 +6,30 @@ import { LoadingState } from "./components/LoadingState";
 import { ResultTabs } from "./components/ResultTabs";
 import { TaskForm } from "./components/TaskForm";
 import { ProviderSettingsDrawer } from "./components/ProviderSettingsDrawer";
-import { getTaskResult, listTasks } from "./api/client";
 import type { AnalysisResult, LibraryCall, Mode, ResultTab, TaskSummary } from "./types/analysis";
+import {
+  getAnalysisJobResult,
+  listJobs,
+  listProjects,
+  listWorkspaces,
+  login,
+  restoreSession,
+  setActiveScope,
+  type ProjectView,
+  type WorkspaceView
+} from "./api/v2Client";
 import { TraceExplorer } from "./features/observability/TraceExplorer";
 import { EvaluationDashboard } from "./features/evaluation/EvaluationDashboard";
 import { JobCenter } from "./features/platform/JobCenter";
 
 export default function App() {
+  const [session, setSession] = useState<"restoring" | "authenticated" | "anonymous">("restoring");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [workspaces, setWorkspaces] = useState<WorkspaceView[]>([]);
+  const [projects, setProjects] = useState<ProjectView[]>([]);
+  const [workspaceId, setWorkspaceId] = useState("");
+  const [projectId, setProjectId] = useState("");
   const [mode, setMode] = useState<Mode>("normal");
   const [activeTab, setActiveTab] = useState<ResultTab>("overview");
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -26,28 +43,61 @@ export default function App() {
   const [jobsOpen, setJobsOpen] = useState(false);
 
   useEffect(() => {
-    void refreshTasks();
+    void restoreSession().then(async (restored) => {
+      setSession(restored ? "authenticated" : "anonymous");
+      if (restored) await refreshWorkspaces();
+    });
   }, []);
+
+  useEffect(() => {
+    if (!workspaceId) {
+      setProjects([]);
+      setProjectId("");
+      return;
+    }
+    void listProjects(workspaceId).then(({items}) => {
+      setProjects(items);
+      setProjectId((current) => items.some((item) => item.project_id === current) ? current : items[0]?.project_id ?? "");
+    }).catch((exc) => setError(exc instanceof Error ? exc.message : "加载 Project 失败"));
+  }, [workspaceId]);
+
+  useEffect(() => {
+    setActiveScope(workspaceId, projectId);
+    if (workspaceId && projectId) void refreshTasks(workspaceId, projectId);
+    else setTasks([]);
+  }, [workspaceId, projectId]);
 
   const docsByName = useMemo(() => {
     const docs = result?.library_function_docs?.library_function_docs ?? [];
     return new Map(docs.map((doc) => [doc.canonical_name, doc]));
   }, [result]);
 
-  async function refreshTasks() {
+  async function refreshWorkspaces() {
+    const response = await listWorkspaces();
+    setWorkspaces(response.items);
+    setWorkspaceId((current) => response.items.some((item) => item.workspace_id === current) ? current : response.items[0]?.workspace_id ?? "");
+  }
+
+  async function refreshTasks(targetWorkspaceId = workspaceId, targetProjectId = projectId) {
+    if (!targetWorkspaceId || !targetProjectId) return;
     try {
-      const response = await listTasks();
-      setTasks(response.tasks);
+      const response = await listJobs(targetWorkspaceId, targetProjectId);
+      setTasks(response.items.filter((job) => job.job_type === "analysis").map((job) => ({
+        task_id: job.job_id,
+        has_report: job.status === "completed" || job.status === "partial",
+        has_diagrams: false
+      })));
     } catch {
       // Recent tasks are optional for the MVP.
     }
   }
 
   async function loadResult(taskId: string) {
+    if (!workspaceId || !projectId) return;
     setIsLoading(true);
     setError(null);
     try {
-      const nextResult = await getTaskResult(taskId);
+      const nextResult = await getAnalysisJobResult<AnalysisResult>(workspaceId, projectId, taskId);
       setResult(nextResult);
       setActiveTab("overview");
       await refreshTasks();
@@ -64,6 +114,18 @@ export default function App() {
     }
   }
 
+  async function handleLogin(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    try {
+      await login(username, password);
+      setSession("authenticated");
+      await refreshWorkspaces();
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "登录失败");
+    }
+  }
+
   return (
     <AppShell
       mode={mode}
@@ -73,7 +135,21 @@ export default function App() {
       onOpenEvaluation={() => { setJobsOpen(false); setObservabilityOpen(false); setEvaluationOpen(true); }}
       onOpenJobs={() => { setObservabilityOpen(false); setEvaluationOpen(false); setJobsOpen(true); }}
     >
-      {jobsOpen ? (
+      {session === "restoring" ? (
+        <main className="content"><LoadingState message="正在恢复登录会话..." /></main>
+      ) : session === "anonymous" ? (
+        <main className="content">
+          {error && <ErrorBanner message={error} />}
+          <section className="panel">
+            <h2>登录 Local Workspace</h2>
+            <form className="task-form" onSubmit={handleLogin}>
+              <label>账号<input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+              <label>密码<input autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+              <button className="primary-button" type="submit">登录</button>
+            </form>
+          </section>
+        </main>
+      ) : jobsOpen ? (
         <JobCenter onClose={() => setJobsOpen(false)} />
       ) : evaluationOpen ? (
         <EvaluationDashboard onClose={() => setEvaluationOpen(false)} />
@@ -82,7 +158,13 @@ export default function App() {
       ) : (
         <>
       <aside className="sidebar">
-        <TaskForm onTaskCreated={handleTaskCreated} onError={setError} onOpenSettings={() => setSettingsOpen(true)} />
+        <section className="panel">
+          <h2>当前范围</h2>
+          <label>Workspace<select value={workspaceId} onChange={(event) => setWorkspaceId(event.target.value)}>{workspaces.map((item) => <option key={item.workspace_id} value={item.workspace_id}>{item.name}</option>)}</select></label>
+          <label>Project<select value={projectId} onChange={(event) => setProjectId(event.target.value)}>{projects.map((item) => <option key={item.project_id} value={item.project_id}>{item.name}</option>)}</select></label>
+          {!workspaceId || !projectId ? <p className="muted">请先创建并选择 Workspace 与 Project。</p> : null}
+        </section>
+        <TaskForm workspaceId={workspaceId} projectId={projectId} onTaskCreated={handleTaskCreated} onError={setError} onOpenSettings={() => setSettingsOpen(true)} />
         <section className="panel">
           <h2>最近任务</h2>
           {tasks.length === 0 ? (
@@ -90,9 +172,9 @@ export default function App() {
           ) : (
             <div className="task-list">
               {tasks.map((task) => (
-                <button key={task.task_id} className="task-button" onClick={() => task.task_id && loadResult(task.task_id)}>
+                <button key={task.task_id} className="task-button" disabled={!task.has_report} onClick={() => task.task_id && loadResult(task.task_id)}>
                   <span>{task.task_id}</span>
-                  <small>{task.has_diagrams ? "含图示" : "无图示"}</small>
+                  <small>{task.has_report ? (task.has_diagrams ? "含图示" : "可查看结果") : "运行中或未完成"}</small>
                 </button>
               ))}
             </div>

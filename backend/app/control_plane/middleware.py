@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import re
+import os
+
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -25,4 +28,40 @@ class TeamLegacyApiGuardMiddleware:
                 )
                 await response(scope, receive, send)
                 return
+            if (
+                settings.profile is DeploymentProfile.LOCAL
+                and bool(os.getenv("CRA_CONFIG_PATH"))
+                and str(scope.get("method") or "").upper() in {"POST", "PUT", "DELETE"}
+                and _is_legacy_scheduling_path(path)
+            ):
+                response = JSONResponse(
+                    {"detail": {"error_code": "legacy_scheduling_api_disabled"}},
+                    status_code=410,
+                )
+                await response(scope, receive, send)
+                return
         await self.app(scope, receive, send)
+
+
+_LEGACY_SCHEDULING_PATTERNS = (
+    re.compile(r"^/analysis/tasks(?:/async|/upload(?:/async)?)?$"),
+    re.compile(r"^/repositories/[^/]+/research/agent/runs$"),
+    re.compile(r"^/research/agent/runs/[^/]+/(?:resume|cancel)$"),
+    re.compile(r"^/repositories/[^/]+/alignments/runs$"),
+    re.compile(r"^/alignments/runs/[^/]+/cancel$"),
+    re.compile(r"^/evaluations/runs$"),
+    re.compile(r"^/evaluations/runs/[^/]+/cancel$"),
+)
+
+
+def _is_legacy_scheduling_path(path: str) -> bool:
+    return any(pattern.fullmatch(path) for pattern in _LEGACY_SCHEDULING_PATTERNS)
+
+
+def mark_legacy_scheduling_routes_deprecated(app) -> None:
+    """Keep internal handlers importable while excluding them from new client generation."""
+    for route in app.routes:
+        path = str(getattr(route, "path", ""))
+        methods = set(getattr(route, "methods", set()) or set())
+        if _is_legacy_scheduling_path(path) and methods.intersection({"POST", "PUT", "DELETE"}):
+            route.deprecated = True

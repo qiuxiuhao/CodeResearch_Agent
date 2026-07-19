@@ -32,6 +32,7 @@ from backend.app.observability.context import start_span_or_root
 from backend.app.vision.runtime import VisionRuntime
 
 ProgressCallback = Callable[[str, str, str, int, int, AgentState | None, BaseException | None], None]
+CancelCheck = Callable[[], None]
 
 ANALYSIS_GRAPH_STEPS: list[dict[str, str]] = [
     {"id": "unzip", "label": "解压项目"},
@@ -64,6 +65,7 @@ def build_analysis_graph(
     vision_runtime: VisionRuntime | None = None,
     image_runtime: ImageGenerationRuntime | None = None,
     progress_callback: ProgressCallback | None = None,
+    cancel_check: CancelCheck | None = None,
 ):
     file_llm = partial(file_explain_llm_node, llm_runtime=llm_runtime)
     function_llm = partial(function_explain_llm_node, llm_runtime=llm_runtime)
@@ -104,7 +106,7 @@ def build_analysis_graph(
             "teaching_diagram_review_vlm": teaching_review,
             "library_function_doc": library_function_doc_node,
             "report_generate": report_generate_node,
-        }, progress_callback))
+        }, progress_callback, cancel_check))
 
     workflow = StateGraph(AgentState)
     nodes = _instrumented_node_map({
@@ -130,7 +132,7 @@ def build_analysis_graph(
         "teaching_diagram_review_vlm": teaching_review,
         "library_function_doc": library_function_doc_node,
         "report_generate": report_generate_node,
-    }, progress_callback)
+    }, progress_callback, cancel_check)
     for name, node in nodes.items():
         workflow.add_node(name, node)
 
@@ -174,12 +176,15 @@ class _SequentialGraph:
 def _instrumented_node_map(
     nodes: dict[str, Callable[..., AgentState]],
     callback: ProgressCallback | None,
+    cancel_check: CancelCheck | None = None,
 ) -> dict[str, Callable[[AgentState], AgentState]]:
     total = len(ANALYSIS_GRAPH_STEPS)
     order = {step["id"]: index for index, step in enumerate(ANALYSIS_GRAPH_STEPS, start=1)}
     labels = {step["id"]: step["label"] for step in ANALYSIS_GRAPH_STEPS}
     return {
-        node_id: _wrap_progress_node(node_id, labels[node_id], order[node_id], total, node, callback)
+        node_id: _wrap_progress_node(
+            node_id, labels[node_id], order[node_id], total, node, callback, cancel_check,
+        )
         for node_id, node in nodes.items()
     }
 
@@ -187,8 +192,9 @@ def _instrumented_node_map(
 def _instrumented_nodes(
     nodes: dict[str, Callable[..., AgentState]],
     callback: ProgressCallback | None,
+    cancel_check: CancelCheck | None = None,
 ) -> list[Callable[[AgentState], AgentState]]:
-    wrapped = _instrumented_node_map(nodes, callback)
+    wrapped = _instrumented_node_map(nodes, callback, cancel_check)
     return [wrapped[step["id"]] for step in ANALYSIS_GRAPH_STEPS]
 
 
@@ -199,6 +205,7 @@ def _wrap_progress_node(
     total: int,
     node: Callable[..., AgentState],
     callback: ProgressCallback | None,
+    cancel_check: CancelCheck | None = None,
 ) -> Callable[[AgentState], AgentState]:
     def wrapped(state: AgentState) -> AgentState:
         handle = start_span_or_root(
@@ -208,12 +215,16 @@ def _wrap_progress_node(
             attributes={"cra.count": index},
         )
         with handle:
+            if cancel_check is not None:
+                cancel_check()
             _notify_progress(callback, "start", node_id, label, index, total, state, None)
             try:
                 next_state = node(state)
             except BaseException as exc:
                 _notify_progress(callback, "error", node_id, label, index, total, state, exc)
                 raise
+            if cancel_check is not None:
+                cancel_check()
             _notify_progress(callback, "finish", node_id, label, index, total, next_state, None)
             return next_state
 

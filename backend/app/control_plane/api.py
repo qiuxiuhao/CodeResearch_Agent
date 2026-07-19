@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+import tempfile
 from typing import Annotated
 from uuid import uuid4
 
@@ -7,12 +9,19 @@ from fastapi import APIRouter, Cookie, Depends, File, Header, HTTPException, Req
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-from .access import AccessContext, AccessDeniedError, DefaultAccessPolicy
+from .access import (
+    AccessContext, AccessDeniedError, DefaultAccessPolicy, permission_for_job_type,
+)
 from .auth import AccessPrincipal, AuthenticationError, LocalIdentityService
 from .jobs import JobRequest
 from .store import ControlPlaneError, LocalControlPlaneStore
-from .artifacts import ArtifactSecurityError, LocalArtifactStore, validate_archive, validate_pdf_header
-from .schemas import ArtifactRecord
+from .artifacts import (
+    ArtifactSecurityError, LocalArtifactStore, extract_validated_archive,
+    validate_archive, validate_pdf_header,
+)
+from .domain_handlers import LocalArtifactResolver
+from .schemas import ArtifactExecutionRef, ArtifactRecord, JobStatus
+from backend.app.services.analysis_service import load_task_result
 from datetime import UTC, datetime
 
 
@@ -139,8 +148,8 @@ def logout(
     if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
         raise HTTPException(status_code=403, detail={"error_code": "csrf_required"})
     _identity(request).logout(principal.session_id)
-    response.delete_cookie("cra_refresh")
-    response.delete_cookie("cra_csrf")
+    response.delete_cookie("cra_refresh", path="/api/v2/auth")
+    response.delete_cookie("cra_csrf", path="/")
 
 
 @router.get("/auth/sessions")
@@ -223,9 +232,17 @@ async def submit_job(
 ) -> dict[str, str]:
     context = _access_context(request, principal, workspace_id, project_id)
     try:
-        DefaultAccessPolicy().require(context, "job.create")
+        DefaultAccessPolicy().require(context, permission_for_job_type(body.job_type))
     except AccessDeniedError as exc:
         raise HTTPException(status_code=403, detail={"error_code": "access_denied"}) from exc
+    if body.job_type == "backup":
+        raise HTTPException(
+            status_code=409, detail={"error_code": "local_full_backup_unavailable"},
+        )
+    if body.job_type == "restore":
+        raise HTTPException(
+            status_code=409, detail={"error_code": "local_live_restore_unsupported"},
+        )
     runtime = _runtime(request)
     payload = dict(body.payload)
     if body.job_type in {"analysis", "indexing"}:
@@ -241,7 +258,11 @@ async def submit_job(
             or repository.status != "available" or repository.kind != "repository_zip"
         ):
             raise HTTPException(status_code=409, detail={"error_code": "artifact_not_available"})
-        payload["repository_storage_key"] = repository.storage_key
+        payload["repository_artifact"] = {
+            "artifact_id": repository.artifact_id,
+            "expected_content_hash": repository.content_hash,
+            "expected_kind": repository.kind,
+        }
         paper_artifact_id = payload.pop("paper_artifact_id", None)
         if paper_artifact_id is not None:
             if not isinstance(paper_artifact_id, str):
@@ -255,13 +276,18 @@ async def submit_job(
                 or paper.status != "available" or paper.kind != "paper_pdf"
             ):
                 raise HTTPException(status_code=409, detail={"error_code": "artifact_not_available"})
-            payload["paper_storage_key"] = paper.storage_key
+            payload["paper_artifact"] = {
+                "artifact_id": paper.artifact_id,
+                "expected_content_hash": paper.content_hash,
+                "expected_kind": paper.kind,
+            }
     try:
         handle = await runtime.jobs.submit(JobRequest(
             workspace_id=workspace_id, project_id=project_id,
             job_type=body.job_type,  # validated by the strict JobRequest/store boundary
             queue_name=f"cra.{body.job_type}", payload=payload,
             idempotency_key=body.idempotency_key, actor_id_hash=principal.user_id,
+            task_schema_version=2,
         ))
     except (ControlPlaneError, ValueError) as exc:
         code = exc.code if isinstance(exc, ControlPlaneError) else "invalid_job_request"
@@ -409,6 +435,108 @@ async def get_job(
     return job.model_dump(mode="json")
 
 
+@router.get(
+    "/workspaces/{workspace_id}/projects/{project_id}/analysis-jobs/{job_id}/result"
+)
+def get_analysis_job_result(
+    workspace_id: str, project_id: str, job_id: str, request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+) -> dict:
+    with tempfile.TemporaryDirectory(prefix="cra-analysis-read-") as directory:
+        task_root, _artifact = _extract_analysis_result(
+            request, principal, workspace_id, project_id, job_id, Path(directory),
+        )
+        result = load_task_result("task_result", task_root.parent)
+        result["task_id"] = job_id
+        return _sanitize_analysis_result_paths(result)
+
+
+@router.get(
+    "/workspaces/{workspace_id}/projects/{project_id}/analysis-jobs/{job_id}"
+    "/figures/{figure_id}/preview"
+)
+def get_analysis_figure_preview(
+    workspace_id: str, project_id: str, job_id: str, figure_id: str, request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+) -> Response:
+    with tempfile.TemporaryDirectory(prefix="cra-analysis-read-") as directory:
+        task_root, _artifact = _extract_analysis_result(
+            request, principal, workspace_id, project_id, job_id, Path(directory),
+        )
+        result = load_task_result("task_result", task_root.parent)
+        figures = result.get("paper_figure_analysis", {}).get("figures", [])
+        figure = next((item for item in figures if item.get("figure_id") == figure_id), None)
+        value = (figure or {}).get("canonical_preview", {}).get("path")
+        candidate = _resolve_archived_result_path(task_root, value, "paper_figures")
+        if candidate is None:
+            raise HTTPException(status_code=404, detail={"error_code": "asset_not_found"})
+        return Response(content=candidate.read_bytes(), media_type="image/png")
+
+
+@router.get(
+    "/workspaces/{workspace_id}/projects/{project_id}/analysis-jobs/{job_id}"
+    "/figures/{figure_id}/assets/{asset_id}"
+)
+def get_analysis_figure_asset(
+    workspace_id: str, project_id: str, job_id: str, figure_id: str, asset_id: str,
+    request: Request, principal: Annotated[AccessPrincipal, Depends(_principal)],
+) -> Response:
+    with tempfile.TemporaryDirectory(prefix="cra-analysis-read-") as directory:
+        task_root, _artifact = _extract_analysis_result(
+            request, principal, workspace_id, project_id, job_id, Path(directory),
+        )
+        result = load_task_result("task_result", task_root.parent)
+        figures = result.get("paper_figure_analysis", {}).get("figures", [])
+        figure = next((item for item in figures if item.get("figure_id") == figure_id), None)
+        asset = next(
+            (
+                item for item in (figure or {}).get("original_assets", [])
+                if item.get("asset_id") == asset_id
+            ),
+            None,
+        )
+        candidate = _resolve_archived_result_path(
+            task_root, (asset or {}).get("path"), "paper_figures",
+        )
+        if candidate is None:
+            raise HTTPException(status_code=404, detail={"error_code": "asset_not_found"})
+        return Response(
+            content=candidate.read_bytes(),
+            media_type=(asset or {}).get("mime_type") or "application/octet-stream",
+        )
+
+
+@router.get(
+    "/workspaces/{workspace_id}/projects/{project_id}/analysis-jobs/{job_id}"
+    "/teaching-diagrams/{diagram_id}/{asset_name}"
+)
+def get_analysis_teaching_asset(
+    workspace_id: str, project_id: str, job_id: str, diagram_id: str, asset_name: str,
+    request: Request, principal: Annotated[AccessPrincipal, Depends(_principal)],
+) -> Response:
+    allowed = {
+        "blueprint.svg": ("blueprint_svg", "image/svg+xml"),
+        "blueprint.png": ("blueprint_png", "image/png"),
+        "final.png": ("final_asset", "image/png"),
+        "raw.png": ("generated_raw", "image/png"),
+    }
+    if asset_name not in allowed:
+        raise HTTPException(status_code=404, detail={"error_code": "asset_not_found"})
+    with tempfile.TemporaryDirectory(prefix="cra-analysis-read-") as directory:
+        task_root, _artifact = _extract_analysis_result(
+            request, principal, workspace_id, project_id, job_id, Path(directory),
+        )
+        result = load_task_result("task_result", task_root.parent)
+        diagrams = result.get("teaching_diagrams", {}).get("diagrams", [])
+        item = next((value for value in diagrams if value.get("diagram_id") == diagram_id), None)
+        field, media_type = allowed[asset_name]
+        path_value = ((item or {}).get(field) or {}).get("path")
+        candidate = _resolve_archived_result_path(task_root, path_value, "teaching_diagrams")
+        if candidate is None:
+            raise HTTPException(status_code=404, detail={"error_code": "asset_not_found"})
+        return Response(content=candidate.read_bytes(), media_type=media_type)
+
+
 @router.get("/workspaces/{workspace_id}/projects/{project_id}/jobs")
 def list_jobs(
     workspace_id: str, project_id: str, request: Request,
@@ -524,6 +652,91 @@ def _scoped_readable_artifact(
     return artifact
 
 
+def _extract_analysis_result(
+    request: Request,
+    principal: AccessPrincipal,
+    workspace_id: str,
+    project_id: str,
+    job_id: str,
+    temporary_root: Path,
+) -> tuple[Path, ArtifactRecord]:
+    context = _access_context(request, principal, workspace_id, project_id)
+    try:
+        DefaultAccessPolicy().require(context, "result.read")
+        job = _local_store(request).get_job(job_id)
+    except (AccessDeniedError, ControlPlaneError) as exc:
+        raise HTTPException(status_code=404, detail={"error_code": "job_not_found"}) from exc
+    if (
+        job.workspace_id != workspace_id or job.project_id != project_id
+        or job.job_type != "analysis"
+        or job.status not in {JobStatus.COMPLETED, JobStatus.PARTIAL}
+        or not job.result_artifact_ref_ids
+    ):
+        raise HTTPException(status_code=404, detail={"error_code": "job_not_found"})
+    artifact = _scoped_readable_artifact(
+        request, principal, workspace_id, project_id, job.result_artifact_ref_ids[0],
+    )
+    if artifact.kind != "report" or artifact.status != "available":
+        raise HTTPException(status_code=409, detail={"error_code": "artifact_not_available"})
+    runtime = _runtime(request)
+    store = runtime.artifacts
+    if not isinstance(store, LocalArtifactStore):
+        raise HTTPException(status_code=503, detail={"error_code": "artifact_store_unavailable"})
+    resolver = LocalArtifactResolver(_local_store(request), store)
+    try:
+        source = resolver.materialize_for_job(
+            job,
+            ArtifactExecutionRef(
+                artifact_id=artifact.artifact_id,
+                expected_content_hash=artifact.content_hash,
+                expected_kind=artifact.kind,
+            ),
+            temporary_root / "result.zip",
+        )
+        task_root = temporary_root / "task_result"
+        extract_validated_archive(source, task_root)
+    except (ArtifactSecurityError, ControlPlaneError) as exc:
+        raise HTTPException(
+            status_code=409, detail={"error_code": getattr(exc, "code", "artifact_invalid")},
+        ) from exc
+    return task_root, artifact
+
+
+def _resolve_archived_result_path(
+    task_root: Path, value: object, marker: str,
+) -> Path | None:
+    if not isinstance(value, str) or not value:
+        return None
+    parts = Path(value).parts
+    try:
+        index = parts.index(marker)
+    except ValueError:
+        return None
+    candidate = (task_root / Path(*parts[index:])).resolve()
+    root = task_root.resolve()
+    if root not in candidate.parents or not candidate.is_file():
+        return None
+    return candidate
+
+
+def _sanitize_analysis_result_paths(value):
+    if isinstance(value, dict):
+        result = {key: _sanitize_analysis_result_paths(item) for key, item in value.items()}
+        if "output_dir" in result:
+            result["output_dir"] = None
+        path_value = result.get("path")
+        if isinstance(path_value, str):
+            parts = Path(path_value).parts
+            for marker in ("paper_figures", "teaching_diagrams"):
+                if marker in parts:
+                    result["path"] = Path(*parts[parts.index(marker):]).as_posix()
+                    break
+        return result
+    if isinstance(value, list):
+        return [_sanitize_analysis_result_paths(item) for item in value]
+    return value
+
+
 def _stream_binary(source):
     try:
         while chunk := source.read(1024 * 1024):
@@ -547,7 +760,7 @@ def _set_session_cookies(
     )
     response.set_cookie(
         "cra_csrf", csrf_token, httponly=False, secure=secure, samesite="lax",
-        max_age=30 * 24 * 3600, path="/api/v2/auth",
+        max_age=30 * 24 * 3600, path="/",
     )
 
 

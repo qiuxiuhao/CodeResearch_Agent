@@ -43,7 +43,7 @@ def _request(job_type, payload, key):
     )
 
 
-def test_local_export_backup_restore_and_delete_handlers(tmp_path):
+def test_local_export_delete_and_internal_snapshot_verification_handlers(tmp_path):
     store = LocalControlPlaneStore(tmp_path / "control.sqlite3")
     artifacts = LocalArtifactStore(tmp_path / "artifacts")
     source = _available_artifact(store, artifacts)
@@ -58,24 +58,25 @@ def test_local_export_backup_restore_and_delete_handlers(tmp_path):
         export = await backend.submit(_request(
             "export", {"artifact_ids": [source.artifact_id]}, "export-one",
         ))
-        await backend.shutdown()
+        await _wait_for_terminal(store, export.job_id)
         export_job = store.get_job(export.job_id)
         export_record = store.get_artifact(export_job.result_artifact_ref_ids[0])
 
         backup = await backend.submit(_request("backup", {"label": "test"}, "backup-one"))
-        await backend.shutdown()
+        await _wait_for_terminal(store, backup.job_id)
         backup_job = store.get_job(backup.job_id)
         backup_record = store.get_artifact(backup_job.result_artifact_ref_ids[0])
 
         restore = await backend.submit(_request(
             "restore", {"backup_artifact_id": backup_record.artifact_id}, "restore-one",
         ))
-        await backend.shutdown()
+        await _wait_for_terminal(store, restore.job_id)
         restore_job = store.get_job(restore.job_id)
 
         delete = await backend.submit(_request(
             "delete", {"artifact_id": source.artifact_id}, "delete-one",
         ))
+        await _wait_for_terminal(store, delete.job_id)
         await backend.shutdown()
         return export_job, export_record, backup_job, backup_record, restore_job, delete
 
@@ -88,3 +89,14 @@ def test_local_export_backup_restore_and_delete_handlers(tmp_path):
     assert store.get_artifact(restore_job.result_artifact_ref_ids[0]).kind == "restore"
     assert store.get_job(delete.job_id).status is JobStatus.COMPLETED
     assert store.get_artifact(source.artifact_id).status == "deleted"
+
+
+async def _wait_for_terminal(store, job_id):
+    for _ in range(200):
+        if store.get_job(job_id).status in {
+            JobStatus.COMPLETED, JobStatus.PARTIAL, JobStatus.FAILED,
+            JobStatus.CANCELLED, JobStatus.DEAD,
+        }:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"job did not terminate: {job_id}")

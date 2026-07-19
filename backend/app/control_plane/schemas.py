@@ -220,15 +220,18 @@ class AuditEvent(StrictModel):
     attributes: dict[str, JsonValue] = Field(default_factory=dict)
 
 
+ArtifactKind = Literal[
+    "repository_zip", "git_repository", "paper_pdf", "report", "fixture", "export",
+    "backup", "restore", "replay_manifest",
+]
+
+
 class ArtifactRecord(StrictModel):
     schema_version: str = SCHEMA_VERSION
     artifact_id: str
     workspace_id: str
     project_id: str
-    kind: Literal[
-        "repository_zip", "git_repository", "paper_pdf", "report", "fixture", "export",
-        "backup", "restore", "replay_manifest",
-    ]
+    kind: ArtifactKind
     status: Literal[
         "staging", "quarantined", "validating", "available", "rejected",
         "orphaned", "deletion_requested", "deleted",
@@ -240,6 +243,14 @@ class ArtifactRecord(StrictModel):
     error_code: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ArtifactExecutionRef(StrictModel):
+    """Immutable artifact expectations captured when a Job is submitted."""
+
+    artifact_id: str = Field(min_length=1, max_length=128)
+    expected_content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_kind: ArtifactKind
 
 
 class ProviderReservation(StrictModel):

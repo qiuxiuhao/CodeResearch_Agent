@@ -114,6 +114,22 @@ def test_v2_local_analysis_runs_through_control_plane(monkeypatch, tmp_path):
             time.sleep(0.05)
         assert job.json()["status"] == "completed", job.text
         assert job.json()["result_artifact_ref_ids"]
+        result = client.get(f"{base}/analysis-jobs/{job_id}/result", headers=headers)
+        assert result.status_code == 200, result.text
+        assert result.json()["task_id"] == job_id
+        other_workspace = client.post(
+            "/api/v2/workspaces", headers=headers, json={"name": "Other"},
+        ).json()
+        other_project = client.post(
+            f"/api/v2/workspaces/{other_workspace['workspace_id']}/projects",
+            headers=headers, json={"name": "Other Project"},
+        ).json()
+        foreign = client.get(
+            f"/api/v2/workspaces/{other_workspace['workspace_id']}"
+            f"/projects/{other_project['project_id']}/analysis-jobs/{job_id}/result",
+            headers=headers,
+        )
+        assert foreign.status_code == 404
 
 
 def test_v2_local_analysis_export_backup_and_isolated_restore_journey(monkeypatch, tmp_path):
@@ -188,8 +204,17 @@ def test_v2_local_analysis_export_backup_and_isolated_restore_journey(monkeypatc
         result_id = analysis["result_artifact_ref_ids"][0]
         exported = run("export", {"artifact_ids": [result_id]}, "export")
         assert exported["result_artifact_ref_ids"]
-        backup = run("backup", {"label": "release-journey"}, "backup")
-        restored = run(
-            "restore", {"backup_artifact_id": backup["result_artifact_ref_ids"][0]}, "restore",
+        before_rejected = client.get(f"{base}/jobs", headers=headers).json()["items"]
+        backup = client.post(
+            f"{base}/jobs", headers=headers,
+            json={"job_type": "backup", "idempotency_key": "release-backup", "payload": {}},
         )
-        assert restored["result_artifact_ref_ids"]
+        assert backup.status_code == 409
+        assert backup.json()["detail"]["error_code"] == "local_full_backup_unavailable"
+        restore = client.post(
+            f"{base}/jobs", headers=headers,
+            json={"job_type": "restore", "idempotency_key": "release-restore", "payload": {}},
+        )
+        assert restore.status_code == 409
+        assert restore.json()["detail"]["error_code"] == "local_live_restore_unsupported"
+        assert client.get(f"{base}/jobs", headers=headers).json()["items"] == before_rejected
