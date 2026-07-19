@@ -34,6 +34,8 @@ class FastEmbedEmbedder:
         dimension: int,
         cache_dir: str | Path,
         offline: bool = True,
+        providers: list[str] | None = None,
+        specific_model_path: str | Path | None = None,
     ) -> None:
         self.model_id = model_id
         self.model_revision = model_revision
@@ -42,11 +44,14 @@ class FastEmbedEmbedder:
             from fastembed import TextEmbedding
         except ImportError as exc:
             raise RuntimeError("Install the optional 'retrieval' dependencies to use FastEmbed.") from exc
-        self._model = TextEmbedding(
-            model_name=model_id,
-            cache_dir=str(cache_dir),
-            local_files_only=offline,
-        )
+        options = {
+            "model_name": model_id, "cache_dir": str(cache_dir), "local_files_only": offline,
+        }
+        if specific_model_path is not None:
+            options["specific_model_path"] = str(specific_model_path)
+        if providers is not None:
+            options["providers"] = providers
+        self._model = TextEmbedding(**options)
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         vectors = [list(vector) for vector in self._model.embed(list(texts))]

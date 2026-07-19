@@ -1,0 +1,19 @@
+FROM python:3.11.15-slim AS builder
+WORKDIR /build
+COPY pyproject.toml README.md requirements-cpu.txt requirements-team.txt ./
+COPY backend ./backend
+RUN python -m venv /venv \
+    && /venv/bin/pip install --no-cache-dir --require-hashes -r requirements-cpu.txt \
+    && /venv/bin/pip install --no-cache-dir --require-hashes -r requirements-team.txt \
+    && /venv/bin/pip install --no-deps . \
+    && /venv/bin/pip check
+
+FROM python:3.11.15-slim
+RUN useradd --create-home --uid 10001 cra
+WORKDIR /app
+COPY --from=builder /venv /venv
+COPY backend ./backend
+ENV PATH=/venv/bin:$PATH PYTHONUNBUFFERED=1
+USER cra
+EXPOSE 8000
+CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]

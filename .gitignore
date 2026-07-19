@@ -15,6 +15,10 @@ outputs/*
 data/*.sqlite3
 data/*.sqlite3-*
 data/*.db
+data/.local_signing_key
+data/artifacts/
+data/models/
+data/qdrant/
 !data/.gitkeep
 
 *.log

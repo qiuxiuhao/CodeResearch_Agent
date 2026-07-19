@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 import zipfile
+import shutil
 from pathlib import Path
 
 from backend.app.schemas.repo import UnzipResult
@@ -67,9 +68,10 @@ def unzip_project(
                     continue
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with archive.open(member) as source, target.open("wb") as destination:
-                    destination.write(source.read())
+                    shutil.copyfileobj(source, destination, length=1024 * 1024)
                 extracted_count += 1
     except zipfile.BadZipFile as exc:
+        shutil.rmtree(repo_path, ignore_errors=True)
         errors.append(_error("unzip_tool", str(source_zip), type(exc).__name__, str(exc)))
         return UnzipResult(
             success=False,
@@ -114,4 +116,3 @@ def _error(tool: str, path: str, error_type: str, message: str) -> dict:
         "error_type": error_type,
         "message": message,
     }
-

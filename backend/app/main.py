@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -35,7 +37,7 @@ from backend.app.schemas.provider_settings import (
 from backend.app.settings.provider_settings import ProviderSettingsService
 from backend.app.settings.secret_store import SecretStoreConflictError, SecretStoreError
 from backend.app.settings.security import require_settings_write_access
-from backend.app.retrieval.api import router as retrieval_router
+from backend.app.retrieval.api import router as retrieval_router, shutdown_retrieval_runtime
 from backend.app.agents.research.api import (
     router as research_agent_router,
     start_research_agent_runtime,
@@ -57,6 +59,10 @@ from backend.app.evaluation.api import (
 from backend.app.observability.context import current_trace_context, start_span_or_root
 from backend.app.observability.middleware import ObservabilityMiddleware
 from backend.app.services.observability_runtime import get_observability_runtime
+from backend.app.control_plane.api import router as platform_v2_router
+from backend.app.control_plane.runtime import ControlPlaneRuntime
+from backend.app.control_plane.config import DeploymentProfile
+from backend.app.control_plane.middleware import TeamLegacyApiGuardMiddleware
 
 
 _analysis_executor: ThreadPoolExecutor | None = None
@@ -79,21 +85,27 @@ def _shutdown_analysis_executor() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     observability = get_observability_runtime()
+    control_plane = ControlPlaneRuntime.build()
+    _app.state.control_plane_runtime = control_plane
     observability.start()
-    await start_evaluation_runtime()
-    await start_alignment_runtime()
-    await start_research_agent_runtime()
+    if control_plane.settings.profile is DeploymentProfile.LOCAL:
+        await start_evaluation_runtime()
+        await start_alignment_runtime()
+        await start_research_agent_runtime()
     try:
         yield
     finally:
-        await stop_research_agent_runtime()
-        await stop_alignment_runtime()
-        await stop_evaluation_runtime()
+        if control_plane.settings.profile is DeploymentProfile.LOCAL:
+            await stop_research_agent_runtime()
+            await stop_alignment_runtime()
+            await stop_evaluation_runtime()
+        shutdown_retrieval_runtime()
+        await control_plane.shutdown()
         _shutdown_analysis_executor()
         observability.stop()
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.9.0", lifespan=lifespan)
+app = FastAPI(title="CodeResearch Agent", version="2.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -102,6 +114,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(ObservabilityMiddleware)
+app.add_middleware(TeamLegacyApiGuardMiddleware)
 app.include_router(retrieval_router)
 app.include_router(research_agent_router)
 app.include_router(alignment_router)
@@ -109,6 +122,7 @@ app.include_router(observability_router)
 app.include_router(evaluation_router)
 app.include_router(evaluation_catalog_router)
 app.include_router(bad_case_router)
+app.include_router(platform_v2_router)
 
 
 class AnalysisTaskRequest(BaseModel):
@@ -731,3 +745,9 @@ async def _save_upload_limited(
     except Exception:
         destination.unlink(missing_ok=True)
         raise
+
+
+_frontend_dist = Path(os.getenv("CRA_FRONTEND_DIST", "frontend/dist")).resolve()
+if os.getenv("CRA_SERVE_FRONTEND", "false").strip().casefold() == "true" and _frontend_dist.is_dir():
+    # Registered last so API routes remain authoritative; unknown browser routes use SPA fallback.
+    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="frontend")

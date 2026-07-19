@@ -1,0 +1,4 @@
+-r base.in
+langgraph-checkpoint-sqlite==3.1.0
+pip-tools==7.5.2
+pytest==9.1.1

@@ -1,0 +1,4 @@
+-r base.in
+fastembed-gpu==0.8.0
+onnxruntime-gpu==1.27.0
+qdrant-client==1.18.0

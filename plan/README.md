@@ -1,7 +1,7 @@
 # 计划索引
 
-- 当前版本：`1.9.0`
-- 当前实施计划：[`plan_v1.9.0.md`](plan_v1.9.0.md)
+- 当前版本：`2.0.0`（实施中）
+- 当前实施计划：[`plan_v2.0.0.md`](plan_v2.0.0.md)
 - 实施与验收结果：[`../docs/v1.9.0_results.md`](../docs/v1.9.0_results.md)
 - 历史计划：[`archive/`](archive/)
 

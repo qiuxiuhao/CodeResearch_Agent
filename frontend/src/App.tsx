@@ -10,6 +10,7 @@ import { getTaskResult, listTasks } from "./api/client";
 import type { AnalysisResult, LibraryCall, Mode, ResultTab, TaskSummary } from "./types/analysis";
 import { TraceExplorer } from "./features/observability/TraceExplorer";
 import { EvaluationDashboard } from "./features/evaluation/EvaluationDashboard";
+import { JobCenter } from "./features/platform/JobCenter";
 
 export default function App() {
   const [mode, setMode] = useState<Mode>("normal");
@@ -22,6 +23,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [observabilityOpen, setObservabilityOpen] = useState(false);
   const [evaluationOpen, setEvaluationOpen] = useState(false);
+  const [jobsOpen, setJobsOpen] = useState(false);
 
   useEffect(() => {
     void refreshTasks();
@@ -67,10 +69,13 @@ export default function App() {
       mode={mode}
       onModeChange={setMode}
       onOpenSettings={() => setSettingsOpen(true)}
-      onOpenObservability={() => { setEvaluationOpen(false); setObservabilityOpen(true); }}
-      onOpenEvaluation={() => { setObservabilityOpen(false); setEvaluationOpen(true); }}
+      onOpenObservability={() => { setJobsOpen(false); setEvaluationOpen(false); setObservabilityOpen(true); }}
+      onOpenEvaluation={() => { setJobsOpen(false); setObservabilityOpen(false); setEvaluationOpen(true); }}
+      onOpenJobs={() => { setObservabilityOpen(false); setEvaluationOpen(false); setJobsOpen(true); }}
     >
-      {evaluationOpen ? (
+      {jobsOpen ? (
+        <JobCenter onClose={() => setJobsOpen(false)} />
+      ) : evaluationOpen ? (
         <EvaluationDashboard onClose={() => setEvaluationOpen(false)} />
       ) : observabilityOpen ? (
         <TraceExplorer onClose={() => setObservabilityOpen(false)} />

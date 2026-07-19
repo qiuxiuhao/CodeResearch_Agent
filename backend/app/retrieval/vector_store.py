@@ -40,6 +40,7 @@ class VectorStore(Protocol):
         self, collection_name: str, vector_name: str, vector: SparseVectorData,
         *, filters: dict[str, object], top_k: int,
     ) -> list[VectorSearchHit]: ...
+    def close(self) -> None: ...
 
 
 @dataclass(slots=True)
@@ -114,6 +115,9 @@ class InMemoryVectorStore:
             score = sum(query.get(index, 0.0) * value for index, value in zip(stored.indices, stored.values, strict=True))
             hits.append(VectorSearchHit(point.point_id, score, point.payload))
         return sorted(hits, key=lambda hit: (-hit.score, hit.point_id))[:top_k]
+
+    def close(self) -> None:
+        return None
 
 
 class QdrantLocalVectorStore:
@@ -224,6 +228,9 @@ class QdrantLocalVectorStore:
         temporary = self._registry_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(value, sort_keys=True, separators=(",", ":")), encoding="utf-8")
         temporary.replace(self._registry_path)
+
+    def close(self) -> None:
+        self._client.close()
 
 
 def resolve_collection_name(profile_hash: str, existing_profiles: dict[str, str]) -> str:

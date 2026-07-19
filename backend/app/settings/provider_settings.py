@@ -28,6 +28,7 @@ from backend.app.settings.secret_store import (
     SecretStore,
     SecretStoreConflictError,
     SecretStoreError,
+    configured_secret_store,
     looks_like_masked_key,
     masked_key,
 )
@@ -46,7 +47,7 @@ from backend.app.vision.types import VisionRequest
 
 class ProviderSettingsService:
     def __init__(self, store: SecretStore | None = None) -> None:
-        self.store = store or SecretStore()
+        self.store = store or configured_secret_store()
 
     def list_public_settings(self) -> ProviderSettingsListResponse:
         revision = self.store.current_revision()

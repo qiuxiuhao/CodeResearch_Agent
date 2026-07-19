@@ -1,0 +1,32 @@
+schema_version: "1"
+models:
+  - role: dense
+    model_id: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+    source_repo: qdrant/paraphrase-multilingual-MiniLM-L12-v2-onnx-Q
+    revision: faf4aa4225822f3bc6376869cb1164e8e3feedd0
+    dimension: 384
+    license: apache-2.0
+    required: true
+    allowed_devices: [cpu, cuda]
+  - role: sparse
+    model_id: Qdrant/bm25
+    source_repo: Qdrant/bm25
+    revision: e499a1f8d6bec960aab5533a0941bf914e70faf9
+    license: apache-2.0
+    required: true
+    allowed_devices: [cpu]
+  - role: reranker
+    model_id: BAAI/bge-reranker-base
+    source_repo: BAAI/bge-reranker-base
+    revision: 2cfc18c9415c912f9d8155881c133215df768a70
+    license: mit
+    required: true
+    allowed_devices: [cpu, cuda]
+  - role: code_dense
+    model_id: jinaai/jina-embeddings-v2-base-code
+    source_repo: jinaai/jina-embeddings-v2-base-code
+    revision: 516f4baf13dec4ddddda8631e019b5737c8bc250
+    dimension: 768
+    license: apache-2.0
+    required: false
+    allowed_devices: [cpu, cuda]

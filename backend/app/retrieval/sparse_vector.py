@@ -29,18 +29,26 @@ class FakeSparseVectorProvider:
 
 
 class QdrantBM25SparseProvider:
-    def __init__(self, *, cache_dir: str, offline: bool = True) -> None:
+    def __init__(
+        self, *, cache_dir: str, offline: bool = True,
+        providers: list[str] | None = None,
+        specific_model_path: str | None = None,
+    ) -> None:
         self.model_id = "Qdrant/bm25"
         self.model_version = "v1"
         try:
             from fastembed import SparseTextEmbedding
         except ImportError as exc:
             raise RuntimeError("Install the optional 'retrieval' dependencies to use Qdrant BM25.") from exc
-        self._model = SparseTextEmbedding(
-            model_name=self.model_id,
-            cache_dir=cache_dir,
-            local_files_only=offline,
-        )
+        options = {
+            "model_name": self.model_id, "cache_dir": cache_dir,
+            "local_files_only": offline,
+        }
+        if specific_model_path is not None:
+            options["specific_model_path"] = specific_model_path
+        if providers is not None:
+            options["providers"] = providers
+        self._model = SparseTextEmbedding(**options)
 
     def embed(self, texts: Sequence[str]) -> list[SparseVectorData]:
         vectors = list(self._model.embed(list(texts)))

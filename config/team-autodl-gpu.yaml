@@ -1,0 +1,32 @@
+extends: default.yaml
+schema_version: "2.0"
+profile: team
+host: 127.0.0.1
+port: 8000
+database:
+  control_url: postgresql://cra_api@127.0.0.1:5432/cra_control
+  observability_url: postgresql://cra_api@127.0.0.1:5432/cra_observability
+  checkpoint_url: postgresql://cra_worker@127.0.0.1:5432/cra_checkpoint
+artifacts:
+  local_root: /root/autodl-tmp/cra/artifacts
+  s3_endpoint_url: http://127.0.0.1:9000
+  s3_bucket: cra-artifacts
+services:
+  redis_url: redis://127.0.0.1:6379/0
+  celery_broker_url: redis://127.0.0.1:6379/0
+  qdrant_url: http://127.0.0.1:6333
+compute:
+  device: cuda
+  execution_providers: [CUDAExecutionProvider, CPUExecutionProvider]
+  batch_size: 64
+  threads: 0
+  model_cache: /root/autodl-tmp/cra/models
+  inference_socket: /root/autodl-tmp/cra/run/inference.sock
+security:
+  secret_backend: encrypted_file
+  secret_store_path: /root/autodl-tmp/cra/secrets/providers.json.enc
+  secret_key_path: /root/.config/cra/master.key
+  access_token_minutes: 15
+  refresh_token_days: 30
+  secure_cookies: true
+model_manifest: models.yaml

@@ -1,0 +1,49 @@
+schema_version: "2.0"
+profile: local
+host: 127.0.0.1
+port: 8000
+database:
+  control_url: sqlite:///data/control_plane.sqlite3
+  observability_url: sqlite:///data/observability.sqlite3
+  checkpoint_url: sqlite:///data/research_checkpoints.sqlite3
+artifacts:
+  local_root: ../data/artifacts
+  s3_endpoint_url: null
+  s3_bucket: null
+services:
+  redis_url: null
+  celery_broker_url: null
+  qdrant_url: null
+compute:
+  device: cpu
+  execution_providers: [CPUExecutionProvider]
+  batch_size: 32
+  threads: 0
+  model_cache: ../data/models
+  inference_socket: null
+resources:
+  minimum_team_cpu_cores: 8
+  minimum_team_memory_gib: 32
+  minimum_team_disk_gib: 100
+  constrained_memory_gib: 48
+features:
+  structured_index: true
+  retrieval: true
+  dense_retrieval: true
+  sparse_vectors: true
+  reranker: true
+  research_agent: true
+  alignment: true
+  observability: true
+  observability_api: true
+  evaluation: true
+  evaluation_api: true
+  evaluation_live: false
+security:
+  secret_backend: keyring
+  secret_store_path: ~/.coderesearch_agent/secrets.json
+  secret_key_path: null
+  access_token_minutes: 15
+  refresh_token_days: 30
+  secure_cookies: false
+model_manifest: models.yaml

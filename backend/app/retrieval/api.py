@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from functools import lru_cache
 
 from fastapi import APIRouter
@@ -23,6 +24,7 @@ from backend.app.observability.context import current_trace_context
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -37,6 +39,15 @@ def get_retrieval_service() -> RetrievalService:
     )
 
 
+def shutdown_retrieval_runtime() -> None:
+    if get_retrieval_service.cache_info().currsize:
+        service = get_retrieval_service()
+        if service.vector_sync_service is not None:
+            service.vector_sync_service.vector_store.close()
+    get_retrieval_service.cache_clear()
+    get_answer_generator.cache_clear()
+
+
 def _optional_vector_sync_service() -> VectorSyncService | None:
     if not _bool_env("RETRIEVAL_DENSE_ENABLED", False):
         return None
@@ -46,16 +57,25 @@ def _optional_vector_sync_service() -> VectorSyncService | None:
     )
     model_revision = os.getenv("RETRIEVAL_DENSE_MODEL_REVISION", "pinned-by-deployment")
     dimension = int(os.getenv("RETRIEVAL_DENSE_DIMENSION", "384"))
+    cache_dir = os.getenv("RETRIEVAL_MODEL_CACHE_DIR", "data/models")
+    providers = _execution_providers()
     try:
-        embedder = FastEmbedEmbedder(
-            model_id=model_id,
-            model_revision=model_revision,
-            dimension=dimension,
-            cache_dir=os.getenv("RETRIEVAL_MODEL_CACHE_DIR", "data/models"),
-            offline=_bool_env("RETRIEVAL_OFFLINE", True),
-        )
+        client = _inference_client()
+        if client is not None:
+            from backend.app.retrieval.inference_backend import RemoteEmbedder
+            embedder = RemoteEmbedder(client, model_id, model_revision, dimension)
+        else:
+            embedder = FastEmbedEmbedder(
+                model_id=model_id,
+                model_revision=model_revision,
+                dimension=dimension,
+                cache_dir=cache_dir,
+                offline=_bool_env("RETRIEVAL_OFFLINE", True),
+                providers=providers,
+                specific_model_path=_snapshot_path(cache_dir, model_id),
+            )
         sparse_provider = (
-            QdrantBM25SparseProvider()
+            _sparse_provider(client, cache_dir)
             if _bool_env("RETRIEVAL_QDRANT_SPARSE_ENABLED", False)
             else None
         )
@@ -73,7 +93,10 @@ def _optional_vector_sync_service() -> VectorSyncService | None:
             sparse_provider=sparse_provider,
             manifest_root=os.getenv("RETRIEVAL_MANIFEST_ROOT", "data/retrieval/manifests"),
         )
-    except Exception:
+    except Exception as exc:
+        logger.exception("dense/vector retrieval runtime initialization failed")
+        if os.getenv("CRA_CONFIG_PATH"):
+            raise RuntimeError("retrieval_vector_runtime_unavailable") from exc
         return None
 
 
@@ -81,13 +104,65 @@ def _optional_reranker():
     if not _bool_env("RETRIEVAL_RERANKER_ENABLED", False):
         return None
     try:
+        client = _inference_client()
+        if client is not None:
+            from backend.app.retrieval.inference_backend import RemoteReranker
+            return RemoteReranker(client)
         return FastEmbedCrossEncoderReranker(
-            model_id=os.getenv("RETRIEVAL_RERANKER_MODEL_ID", "BAAI/bge-reranker-base"),
+            model_id=(model_id := os.getenv(
+                "RETRIEVAL_RERANKER_MODEL_ID", "BAAI/bge-reranker-base"
+            )),
             cache_dir=os.getenv("RETRIEVAL_MODEL_CACHE_DIR", "data/models"),
             offline=_bool_env("RETRIEVAL_OFFLINE", True),
+            providers=_execution_providers(),
+            specific_model_path=str(_snapshot_path(
+                os.getenv("RETRIEVAL_MODEL_CACHE_DIR", "data/models"), model_id,
+            )),
         )
-    except Exception:
+    except Exception as exc:
+        logger.exception("reranker runtime initialization failed")
+        if os.getenv("CRA_CONFIG_PATH"):
+            raise RuntimeError("retrieval_reranker_runtime_unavailable") from exc
         return None
+
+
+def _execution_providers() -> list[str]:
+    config_path = os.getenv("CRA_CONFIG_PATH")
+    if config_path:
+        from backend.app.config.application import ApplicationConfig
+        return ApplicationConfig.load(config_path).compute.execution_providers
+    return ["CPUExecutionProvider"]
+
+
+def _inference_client():
+    config_path = os.getenv("CRA_CONFIG_PATH")
+    if not config_path:
+        return None
+    from backend.app.config.application import ApplicationConfig
+    from backend.app.retrieval.inference_backend import UnixSocketInferenceClient
+
+    socket_path = ApplicationConfig.load(config_path).compute.inference_socket
+    return UnixSocketInferenceClient(socket_path) if socket_path else None
+
+
+def _sparse_provider(client, cache_dir: str):
+    if client is not None:
+        from backend.app.retrieval.inference_backend import RemoteSparseProvider
+        return RemoteSparseProvider(client)
+    return QdrantBM25SparseProvider(
+        cache_dir=cache_dir, offline=_bool_env("RETRIEVAL_OFFLINE", True),
+        providers=["CPUExecutionProvider"],
+        specific_model_path=str(_snapshot_path(cache_dir, "Qdrant/bm25")),
+    )
+
+
+def _snapshot_path(cache_dir: str, model_id: str):
+    from backend.app.retrieval.model_manager import model_snapshot_path, verify_models
+
+    errors = verify_models(cache_dir)
+    if errors:
+        raise RuntimeError(errors[0])
+    return model_snapshot_path(cache_dir, model_id)
 
 
 @lru_cache(maxsize=1)

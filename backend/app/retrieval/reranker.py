@@ -32,12 +32,21 @@ class MockReranker:
 
 
 class FastEmbedCrossEncoderReranker:
-    def __init__(self, *, model_id: str, cache_dir: str, offline: bool = True) -> None:
+    def __init__(
+        self, *, model_id: str, cache_dir: str, offline: bool = True,
+        providers: list[str] | None = None,
+        specific_model_path: str | None = None,
+    ) -> None:
         try:
             from fastembed.rerank.cross_encoder import TextCrossEncoder
         except ImportError as exc:
             raise RuntimeError("Install the optional 'retrieval' dependencies to use a reranker.") from exc
-        self._model = TextCrossEncoder(model_name=model_id, cache_dir=cache_dir, local_files_only=offline)
+        options = {"model_name": model_id, "cache_dir": cache_dir, "local_files_only": offline}
+        if specific_model_path is not None:
+            options["specific_model_path"] = specific_model_path
+        if providers is not None:
+            options["providers"] = providers
+        self._model = TextCrossEncoder(**options)
 
     def score(self, query_text: str, candidates: Sequence[FusedRetrievalCandidate]) -> Mapping[str, float]:
         # The actual candidate text is supplied by the service through metadata.

@@ -1,443 +1,339 @@
 # CodeResearch Agent
 
-CodeResearch Agent 是一个本地优先的代码理解 Agent，面向深度学习代码仓库和可选的论文 PDF。它可以把一个项目 ZIP 转换成结构化分析结果、Markdown 报告、Mermaid 图示、可检索的 Python 函数知识库，以及一个可交互的 React 工作台。
+CodeResearch Agent 是一个面向代码仓库与论文的本地优先研究平台。当前开发线为 **v2.0.0**，可复现的稳定基线为 `v1.9.0`（Commit `d869f88e2c0132fae7cf52adc7def28f946751c1`）。
 
-当前版本：`1.9.0`
+当前交付状态必须严格区分：
 
-## 核心亮点
+- **Local CPU Profile**：受支持的单机路径，使用 SQLite、LocalArtifactStore、InProcessJobBackend 和本地 Qdrant/FastEmbed。
+- **AutoDL CUDA Team Profile**：正在完善的私有单机验收路径，目标是 PostgreSQL、Redis、MinIO、Qdrant、Celery、Supervisor 和一个共享 GPU 推理进程；尚不能作为公开多人生产服务。
+- **Docker Team Profile**：保留为其他长期服务器的参考部署，仍需完成真实 Compose、迁移、故障注入和恢复门禁。
+- Alignment 真实双标 Gold 尚未提供，状态为 `ALIGNMENT_BENCHMARK_PENDING`，因此 v2.0 RC/GA 仍被阻断。
 
-- 使用 LangGraph 组织分阶段代码分析工作流。
-- 基于 Python AST 做静态分析，提取 import、alias、类、函数、方法和行号范围。
-- 生成文件级分析和函数级分析，并尽量保留 evidence。
-- 识别 Python / PyTorch / NumPy / PIL / OpenCV / einops 等库函数调用。
-- 使用 SQLite 沉淀全局 Python 函数教学知识库。
-- 可选构建带稳定 ID、证据、Symbol Table、Import Resolver、Call Graph 和 Symbol Chunk 的仓库级结构化索引。
-- 为零基础用户生成教学级库函数解释。
-- 识别 PyTorch 风格的 `nn.Module` 模型类、网络层和基础 forward 流程。
-- 支持可选论文 PDF 解析，并启发式对齐论文贡献点和代码结构。
-- 提供版本化论文—代码对齐 2.0：多路候选、可解释特征、校准拒答、受约束验证和人工复核。
-- 提供默认关闭、metadata-only 的统一 Trace 与可观测性：调用树、完整性、SSE、Metrics、可选 OTLP 和 Trace Explorer。
-- 提供确定性优先的 Evaluation/Regression Loop：版本化 Dataset、六组件 Adapter、Metric/Gate、Bad Case、Replay Manifest、独立 Store/API 和 Dashboard。
-- 本地确定性提取论文 Figure、图注、页码、bbox、原始资产和 canonical preview。
-- 可独立启用 Qwen-VL（默认）/GLM-4.5V（备用）理解筛选后的关键 Figure。
-- 生成 Mermaid 图示，包括项目结构、模型流程、核心模块、函数逻辑和论文代码对齐。
-- 生成面向初学者的本地 Blueprint 教学图，并为后续 Qwen-Image/Seedream 视觉层提供独立授权、预算和安全缓存边界。
-- 提供 React + Vite 前端，支持正常模式、零基础模式、任务结果浏览和全局函数库搜索。
+系统已有结构化索引、Hybrid Retrieval、Research Agent、论文代码 Alignment、统一 Trace、Evaluation/Regression 和 Bad Case 合同。生成式文本/VLM/图片默认调用受控远端 Provider；本地 CPU 或 RTX 4090 只承载 Dense Embedding、BM25 和 Reranker，不加载本地大语言模型。
 
-v1.4.0 新增确定性的结构化索引基础：代码/论文实体、关系与证据统一建模，解析 import alias、相对 import、局部调用、`self.method()` 和可确定的模型 `forward`，并完整保留 unresolved/ambiguous 关系。索引以独立 SQLite 版本快照持久化，长时间构建不占用写事务，短事务原子激活；默认关闭，旧 JSON、报告和前端保持 Schema 与规范化语义兼容。
+## 1. 平台要求
 
-## v1.4 结构化索引
+共同要求：
 
-- 未提供 `repository_key` 时仓库身份严格限定在当前任务，不使用 ZIP 文件名跨任务合并；提供后使用 NFC 规范化的显式身份支持幂等复用。
-- 路径统一为大小写保留的仓库相对 POSIX 路径；拒绝绝对路径、盘符、UNC 和 `..` 逃逸。
-- `input_hash` 覆盖文件内容、文件选择、模块根、解析器、Schema、Builder 与确定性策略版本，不包含时间、输出目录或模型结果。
-- 新快照通过 `building → ready → active → superseded` 状态机管理；失败不会替换旧 active 版本。
-- 使用 `STRUCTURED_INDEX_ENABLED=true` 或 API/CLI 的 `structured_index_enabled` 显式开启，默认数据库为 `data/structured_index.sqlite3`。
-
-## v1.1 LLM 增强
-
-- 文件、函数、模型和论文代码对齐解释默认使用 DeepSeek，失败后回退 Qwen。
-- 所有调用通过 ModelRouter，输出经过 Pydantic 和 evidence 引用校验。
-- 规则事实不会被 LLM 覆盖，增强结果独立保存在 `llm_explanations.json`。
-- 后端强制验证 `external_model_consent`，并独立限制逻辑实体数和真实 Provider 请求数。
-- 发送前过滤常见密钥、token、password、私钥和连接字符串；不记录完整 Prompt、源码或原始响应。
-- 自动测试只使用 MockProvider；真实连通性只能手动运行 `scripts/smoke_llm.py`。
-
-## v1.2 论文 Figure 理解
-
-- Python/PyMuPDF 在本地确定性检测图注、页码、Figure bbox、原始图片对象和正文 Figure 引用。
-- 前端和 VLM 默认使用完整 Figure bbox 的页面区域渲染图，避免丢失 PDF 文字、矢量箭头、多 panel 和图例。
-- VLM 只输出 Figure 类型、模块、流程、输入输出、视觉关系、贡献候选和不确定性，并通过 Pydantic/evidence 校验。
-- 默认路由为 Qwen-VL，失败后回退 GLM-4.5V；首版使用纯 JSON Prompt 与本地解析，不默认开启 JSON Object。
-- `text_llm_enabled` 与 `vision_vlm_enabled`、`external_text_consent` 与 `external_vision_consent` 相互独立。
-- 自动测试只使用 MockVisionProvider；真实图片请求只能手动运行 `scripts/smoke_vlm.py`。
-
-## v1.3 教学图生成
-
-- Mermaid 工程结构图继续保留，教学图通过 `related_mermaid_diagram_ids` 与 Mermaid 图建立映射。
-- 模块、连接、方向、输入输出、Tensor Shape 和公式只来自规则分析、`model_analysis`、`function_analysis` 或 `diagrams.json`。
-- 无任何图片 API Key 时也会生成本地准确 Blueprint SVG/PNG。
-- AI 图片生成默认关闭；启用时需要 `external_image_consent`，且供应商 raw 图不会直接成为 final 图。
-- 前端图示页支持 Mermaid / Blueprint / AI 教学图切换，AI 不合格或未启用时回退 Blueprint。
-
-## 截图
-
-本仓库暂不强制提交截图。推荐截图清单和采集说明见 [docs/screenshots.md](docs/screenshots.md)。
-
-## 技术栈
-
-- 后端：Python 3.11、FastAPI、LangGraph、Pydantic、PyMuPDF
-- 静态分析：Python `ast`、确定性规则工具
-- 存储：SQLite，用于全局 Python 函数知识库、模型缓存和独立的版本化结构索引
-- 前端：React、Vite、TypeScript、Mermaid、lucide-react
-- 测试：pytest、Vitest、Testing Library
-
-## 快速开始
-
-创建并安装后端环境：
-
-```bash
-conda create -n code-research-agent python=3.11 -y
-conda activate code-research-agent
-pip install -e ".[dev]"
+```text
+Python 3.11
+Node.js 20+（已在 Node 24 验证）
+npm
+Git
+至少 5 GiB 可用空间（Local）
 ```
 
-推荐在本机安装 keyring 后端，让 Provider 设置中心优先使用系统钥匙串保存 API Key：
+Local 推荐 8 GiB 以上内存。AutoDL Team 验收要求 Linux x86_64、CUDA 12.x、cuDNN 9、至少 8 CPU 核、32 GiB RAM、100 GiB 可用数据盘和单卡 RTX 4090 24 GiB。
+
+项目不依赖 `.env` 启动。配置来自显式 YAML，Secret 由系统 Keychain 或受保护的加密文件管理。旧环境变量仅作为兼容覆盖，并会产生弃用提示。
+
+## 2. 获取源码与基础检查
 
 ```bash
-pip install -e ".[dev,secrets]"
+git clone <your-repository-url> CodeResearch_Agent
+cd CodeResearch_Agent
+git status --short
+git tag --points-at HEAD
 ```
 
-未安装 `keyring` 时会回退到本地 Secret Store 文件；如果该文件损坏，后端会保留原文件并生成 `.corrupt` 备份，环境变量中的 Key 仍可只读使用。
+不要把 `data/models/`、`data/artifacts/`、数据库、输出目录或任何 Secret 提交到 Git。
 
-安装前端依赖：
+## 3. Mac / CPU Local Profile
+
+### 3.1 创建环境
+
+```bash
+conda create -n cra-v2-local python=3.11 pip -y
+conda activate cra-v2-local
+python -m pip install --upgrade pip
+python -m pip install --require-hashes -r requirements-cpu.txt
+python -m pip install --no-deps -e .
+python -m pip check
+```
+
+开发和测试工具另装在同一环境：
+
+```bash
+python -m pip install --require-hashes -r requirements-dev.txt
+```
+
+前端使用锁文件恢复：
 
 ```bash
 npm --prefix frontend ci
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
 ```
 
-不要提交 `frontend/node_modules/`。前端依赖应通过 `frontend/package-lock.json` 和 `npm ci` 恢复。
-
-一键启动后端和前端：
+### 3.2 校验配置与下载权重
 
 ```bash
-bash scripts/dev.sh
+cra config validate --config config/local-cpu.yaml
+cra doctor --config config/local-cpu.yaml
+cra models prefetch --config config/local-cpu.yaml
+cra models verify --config config/local-cpu.yaml
+```
+
+`prefetch` 是安装阶段唯一需要模型网络访问的步骤。下载后，请在离线状态再次执行 `verify`。默认 Manifest 固定以下模型的不可变 revision：
+
+```text
+sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+Qdrant/bm25
+BAAI/bge-reranker-base
+```
+
+可选 Jina Code Dense 不随默认下载；需要时增加 `--include-optional`。当前默认模型缓存实测约 1.3 GiB，实际空间会随上游文件布局和缓存元数据变化。
+
+### 3.3 Secret 与首个管理员
+
+macOS 默认使用系统 Keychain：
+
+```bash
+cra secrets set --config config/local-cpu.yaml --provider deepseek
+cra secrets list --config config/local-cpu.yaml
+```
+
+命令会交互读取 API Key，不要把 Key 放进 shell 历史、YAML 或 Git。没有真实 Provider 时仍可运行规则分析、Mock 测试和离线评测；系统不会自动发起付费请求。
+
+创建一次性 Bootstrap Token：
+
+```bash
+cra auth bootstrap-token --config config/local-cpu.yaml --ttl-hours 24
+```
+
+保存终端输出，服务启动后只使用一次：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v2/auth/bootstrap \
+  -H 'Content-Type: application/json' \
+  -H 'X-Bootstrap-Token: <one-use-token>' \
+  -d '{"username":"owner","password":"replace-with-a-long-password"}'
+```
+
+### 3.4 启动
+
+构建前端后，由 FastAPI 同端口提供 API；开发期也可单独运行 Vite。
+
+```bash
+CRA_SERVE_FRONTEND=true \
+CRA_FRONTEND_DIST="$PWD/frontend/dist" \
+cra serve --config config/local-cpu.yaml
 ```
 
 打开：
 
 ```text
-http://127.0.0.1:5173
-```
-
-后端健康检查：
-
-```text
+http://127.0.0.1:8000/
+http://127.0.0.1:8000/api/v2/health
 http://127.0.0.1:8000/health
 ```
 
-手动启动方式：
+开发前端：
 
 ```bash
-conda run -n code-research-agent uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173
 ```
 
-## 演示流程
+Local 默认使用 CPU，不启用 MPS，也不会静默切换 CUDA。
 
-使用内置示例：
+## 4. Local 使用流程
 
-```text
-examples/small_pytorch_project.zip
-```
-
-展开目录 `examples/small_pytorch_project/` 是示例事实源；可用下列命令在任意临时目录确定性生成等价 ZIP：
-
-```bash
-python scripts/build_example_zip.py /tmp/small_pytorch_project.zip
-```
-
-测试会验证展开源码与已提交 ZIP 的逐文件 SHA-256 一致性。
-
-推荐演示步骤：
-
-1. 执行 `bash scripts/dev.sh`。
-2. 打开 `http://127.0.0.1:5173`。
-3. 使用路径模式，输入 `examples/small_pytorch_project.zip`。
-4. 创建分析任务。
-5. 依次查看总览、文件、函数、库函数说明、模型分析、图示、全局函数库和报告。
-6. 切换到零基础模式，点击函数中的库函数调用，打开教学解释弹窗。
-
-更多说明见 [docs/demo_guide.md](docs/demo_guide.md)。
-
-## API
-
-核心 API：
-
-- `GET /health`
-- `POST /analysis/tasks`
-- `POST /analysis/tasks/upload`
-- `GET /analysis/tasks`
-- `GET /analysis/tasks/{task_id}`
-- `GET /analysis/tasks/{task_id}/report`
-- `GET /analysis/tasks/{task_id}/figures/{figure_id}/preview`
-- `GET /analysis/tasks/{task_id}/figures/{figure_id}/assets/{asset_id}`
-- `GET /analysis/tasks/{task_id}/teaching-diagrams/{diagram_id}/blueprint.svg`
-- `GET /analysis/tasks/{task_id}/teaching-diagrams/{diagram_id}/blueprint.png`
-- `GET /analysis/tasks/{task_id}/teaching-diagrams/{diagram_id}/final.png`
-- `GET /image-generation/public-config`
-- `GET /llm/public-config`
-- `GET /vision/public-config`
-- `GET /library/stats`
-- `GET /library/functions`
-- `GET /library/functions/{canonical_name}`
-- `GET /library/functions/low-confidence`
-
-完整 API 说明见 [docs/api_reference.md](docs/api_reference.md)。
-
-## 输出文件
-
-每次分析会写入：
+登录后，通过 `/api/v2` 创建 Workspace、Project 和 Artifact，再提交 Job。统一 Job 类型包括：
 
 ```text
-outputs/{task_id}/
-  source/
-  repo_index.json
-  parsed_files.json
-  file_analysis.json
-  library_calls.json
-  function_analysis.json
-  model_analysis.json
-  paper_analysis.json
-  paper_code_alignment.json
-  paper_figure_analysis.json
-  paper_figures/original/
-  paper_figures/previews/
-  diagrams.json
-  teaching_diagrams/manifest.json
-  teaching_diagrams/specs/
-  teaching_diagrams/blueprint_svg/
-  teaching_diagrams/blueprint_png/
-  teaching_diagrams/ai/
-  library_function_docs.json
-  llm_explanations.json
-  index_manifest.json       # 仅在结构化索引开启时生成
-  report.md
+analysis, indexing, research, alignment, evaluation,
+replay, export, backup, restore, maintenance, delete
 ```
 
-这些任务输出属于运行时产物，不应提交到 Git。
+Analysis/Index 只接受状态为 `available` 的仓库 Artifact；论文同理。Job、Attempt、Outbox 和 Run 控制状态位于 `data/control_plane.sqlite3`，派生数据库、Checkpoint、Trace 与文件系统 Artifact 不属于同一个原子事务。
 
-## 全局函数库
+备份与恢复 Job 通过 ArtifactRef 传递结果。Restore 先写入隔离目录并校验 SQLite 完整性，不会覆盖当前运行目录。
 
-全局函数库的定位是“Python / PyTorch 库函数教学知识库”。它记录库函数本身的教学级解释，支持搜索、筛选、详情查看和零基础模式弹窗，不记录某个库函数在每个项目、文件、函数或行号中的出现位置。
+## 5. AutoDL RTX 4090 私有 Team 验收
 
-默认 SQLite 数据库路径：
+这条路径适用于本人私有验收，不承诺公网多人生产。只暴露端口 6006；PostgreSQL、Redis、MinIO、Qdrant 和 GPU Unix Socket 都必须绑定本机。
+
+数据布局：
 
 ```text
-data/python_function_library.sqlite3
+/root/autodl-tmp/cra/
+  artifacts/
+  backups/
+  envs/
+  logs/
+  models/
+  run/
+  secrets/
+  services/
 ```
 
-可以通过 `LIBRARY_DB_PATH`、`--library-db-path` 或 API 请求字段覆盖。 SQLite 文件属于本地运行时数据，不应提交。
-
-更多说明见 [docs/database.md](docs/database.md)。
-
-结构化索引默认关闭。命令行可使用：
+### 5.1 初始化 Python、前端和模型
 
 ```bash
-python -m backend.app.services.analysis_service examples/small_pytorch_project.zip \
-  --structured-index-enabled \
-  --repository-key examples/small
+cd /root/CodeResearch_Agent
+export CRA_DATA_ROOT=/root/autodl-tmp/cra
+export CRA_REPO_ROOT=$PWD
+bash deploy/autodl/bootstrap.sh
 ```
 
-`--repository-key` 可省略，此时索引使用 task-scoped 身份。数据库可用
-`STRUCTURED_INDEX_DB_PATH` 或 `--structured-index-db-path` 覆盖。
+脚本使用 Python 3.11、`requirements-gpu-cu12.txt` 和 `requirements-team.txt` 的 Hash 锁安装。CPU 版 FastEmbed/ORT 与 GPU 版不能混装。
 
-## v1.5 Hybrid RAG
+### 5.2 原生基础服务
 
-检索路由始终注册，但默认关闭；关闭时稳定返回 `503 retrieval_disabled`。启用基于
-SQLite FTS5 的离线 Sparse 检索：
+AutoDL 普通实例不依赖嵌套 Docker。先安装 PostgreSQL 与 Redis，再为 MinIO、Qdrant 提供经过人工冻结的 URL 和 SHA-256：
 
 ```bash
-export RETRIEVAL_ENABLED=true
-export STRUCTURED_INDEX_DB_PATH=data/structured_index.sqlite3
-export RETRIEVAL_FTS_DB_PATH=data/retrieval_fts.sqlite3
+export MINIO_BINARY_URL='<immutable-https-url>'
+export MINIO_BINARY_SHA256='<sha256>'
+export QDRANT_BINARY_URL='<immutable-https-url>'
+export QDRANT_BINARY_SHA256='<sha256>'
+bash deploy/autodl/install-services.sh
 ```
 
-可选 Dense/Qdrant Local 必须先安装 `retrieval` extra 并显式预缓存模型。应用请求不会
-隐式下载模型；默认 `RETRIEVAL_OFFLINE=true`，模型不可用时降级到 FTS5 + Graph：
+随后必须按运维 Runbook 初始化数据库、五类数据库角色、RLS、Bucket、Redis Auth 和 Secret 引用。当前脚本不会猜测生产密码或下载未固定校验和的二进制。
+
+### 5.3 CUDA 验收
 
 ```bash
-pip install -e '.[retrieval]'
-export RETRIEVAL_DENSE_ENABLED=true
-export RETRIEVAL_MODEL_CACHE_DIR=data/models
-export QDRANT_LOCAL_PATH=data/qdrant
+/root/autodl-tmp/cra/envs/cra-v2/bin/cra config validate \
+  --config config/team-autodl-gpu.yaml
+/root/autodl-tmp/cra/envs/cra-v2/bin/cra doctor \
+  --config config/team-autodl-gpu.yaml
+/root/autodl-tmp/cra/envs/cra-v2/bin/cra models verify \
+  --config config/team-autodl-gpu.yaml
 ```
 
-固定单轮研究回答只有在请求同时设置 `answer_enabled=true` 和
-`external_text_consent=true` 时才可调用已配置文本 Provider。模型输出还会经过 Citation
-Validator；无 Provider、调用失败或非法引用时返回 evidence-only 结果。详细配置、API 和
-评测格式见 [docs/retrieval_v1.5.0.md](docs/retrieval_v1.5.0.md)。
+`doctor` 必须显示 `CUDAExecutionProvider` 为首选 Provider。CUDA 配置下 GPU 不可用时启动应失败；禁止静默回退 CPU。Supervisor 只启动一个共享推理 Runtime，领域 Worker 通过 Unix Socket 调用，避免重复加载显存。
 
-## v1.6 动态 Research Agent
-
-v1.6 在 v1.5 固定检索之上新增独立 Research Agent Graph，不修改离线 Analysis Graph。
-Agent API 始终注册，默认关闭；启用前安装安全版本的 SQLite Checkpointer：
+### 5.4 启停
 
 ```bash
-pip install -e '.[agent]'
-export RESEARCH_AGENT_ENABLED=true
-export RETRIEVAL_ENABLED=true
+bash deploy/autodl/start.sh
+bash deploy/autodl/status.sh
+bash deploy/autodl/backup.sh
+bash deploy/autodl/restore-verify.sh /root/autodl-tmp/cra/backups/<window>
+bash deploy/autodl/stop.sh
 ```
 
-运行控制面和 checkpoint 分别使用 `data/research_runs.sqlite3` 与
-`data/research_checkpoints.sqlite3`。工具只读取固定的 repository/index version，最多六个
-Plan Step、十次实际工具调用和两次 Replan；未授权外部文本时使用确定性计划与
-evidence-first 回答，不向 Provider 发送代码。配置、状态机、恢复和 API 示例见
-[docs/research_agent_v1.6.0.md](docs/research_agent_v1.6.0.md)。
+入口为：
 
-## v1.7 论文代码对齐 2.0
-
-v1.7 在保留 Legacy 启发式对齐、旧 JSON/报告和 `ALIGNS_WITH` Edge 的前提下，新增独立的
-版本化派生对齐系统。规则 Profile、八路候选召回、九类可解释 Feature、Candidate-level
-Calibration、集合决策、Abstention、受约束 Provider Verifier、Append-only Review 和显式
-Deployment 均固定 `repo_id + index_version_id + paper_id + model_profile_id`。
-
-```bash
-export ALIGNMENT_ENABLED=true
-export STRUCTURED_INDEX_DB_PATH=data/structured_index.sqlite3
-export ALIGNMENT_DB_PATH=data/paper_code_alignment.sqlite3
+```text
+http://127.0.0.1:6006/
+http://127.0.0.1:6006/api/v2/health
 ```
 
-Alignment 路由始终注册；关闭时返回 `503 alignment_disabled`。外部 Verifier 还要求请求显式
-设置 `verifier_enabled=true` 和 `external_text_consent=true`；否则使用本地 Scorer 或 fallback。
-v1.7 不新增必需依赖，也不会在自动测试中下载模型。架构、API、运行状态和人工 Gold 门禁见
-[docs/alignment_v1.7.0.md](docs/alignment_v1.7.0.md)。
+请通过 AutoDL 的端口代理访问 6006，不要把数据库、Broker、对象存储或 Qdrant 直接暴露到公网。
 
-## v1.8 统一 Trace 与可观测性
+> 重要：Team 的 Analysis/Index Worker 已有真实执行路径；Research、Alignment、Evaluation、Replay、Export、Backup/Restore 的 Team Worker、Team 身份/API、完整 PostgreSQL Domain/Trace/Checkpoint 迁移仍在开发。未完成这些门禁前，不得把本节视为生产部署证明。
 
-v1.8 增加 metadata-only 的统一 Trace/Span/Event/Link、独立 SQLite Sink、受限查询 API、SSE
-和 Trace Explorer。默认不记录 Query、Prompt、模型 Response、源码、论文正文、Secret、原始
-异常、完整 State 或 Checkpoint；可观测性失败不会改变业务结果、排序或恢复状态。
+## 6. CPU / CUDA 计算边界
 
-```bash
-export OBSERVABILITY_ENABLED=true
-export OBSERVABILITY_API_ENABLED=true
-export OBSERVABILITY_DB_PATH=data/observability.sqlite3
-```
+| 能力 | Mac Local | RTX 4090 Team |
+|---|---|---|
+| Python AST、报告、BM25 | CPU | CPU |
+| SQLite/PostgreSQL/Redis/Qdrant | CPU | CPU |
+| Dense Embedding | ONNX CPU | ONNX CUDA |
+| Reranker | ONNX CPU | ONNX CUDA |
+| Research/Alignment 生成模型 | 受控远端 Provider | 受控远端 Provider |
+| VLM/图片模型 | 受控远端 Provider | 受控远端 Provider |
+| 本地 LLM / MPS | 不支持 | 不支持 |
 
-读取 API 默认关闭；当前没有正式认证系统时仅允许本机管理员。OTLP 为可选、默认关闭的单向
-下游，安装方式、Remote Parent、完整性标记、Retention 和 API 见
-[docs/observability_v1.8.0.md](docs/observability_v1.8.0.md)。
+CUDA 仅用于 Dense 与 Reranker。Worker 不把每次 Provider 调用拆成嵌套 Celery 任务。
 
-## v1.9 Evaluation、Bad Case 与 Regression Loop
+## 7. 验证与测试
 
-v1.9 增加独立 `data/evaluation.sqlite3`、不可变 Evaluation Subject/Run、显式 Baseline Binding、
-六组件 Gold/Outcome 合同、可比较性检查、CI/Release Gate、Bad Case occurrence/lifecycle、受控 Artifact
-Resolver 和离线 Regression CLI。读取面和执行面均默认关闭：
-
-```bash
-export EVALUATION_ENABLED=true
-export EVALUATION_API_ENABLED=true
-export EVALUATION_DB_PATH=data/evaluation.sqlite3
-```
-
-CI 不访问网络：
-
-```bash
-python scripts/evaluate_regression.py \
-  --mode deterministic_fixture \
-  --dataset-version synthetic-regression-v1 \
-  --output outputs/evaluation-regression.json
-```
-
-内置 Alignment case 是 synthetic contract fixture，不能替代人工 Gold；真实质量状态仍为
-`ALIGNMENT_BENCHMARK_PENDING`。完整合同、权限、API、Replay 与 Gate 边界见
-[docs/evaluation_v1.9.0.md](docs/evaluation_v1.9.0.md)。
-
-## 测试与验收
-
-运行完整验收脚本：
-
-```bash
-bash scripts/validate.sh
-```
-
-手动运行后端测试：
+默认自动测试无网络、无付费 Provider：
 
 ```bash
 python -m pytest -q
-```
-
-手动运行前端测试和构建：
-
-```bash
-npm --prefix frontend ci
 npm --prefix frontend test
+npm --prefix frontend run typecheck
 npm --prefix frontend run build
+bash scripts/validate.sh
 ```
 
-也可以进入前端目录执行：
+专项验证：
 
 ```bash
-cd frontend
-npm ci
-npm test
-npm run build
+python -m pytest -q tests/control_plane
+python scripts/validate_alignment_gold.py
+bash scripts/release_security_gate.sh
 ```
 
-`npm run build` 时 Mermaid 可能产生构建体积警告，这不影响 v1.2 前端运行。后续版本可以通过 dynamic import 或 code splitting 优化体积。
+Release Security Gate 依赖 `pip-audit`、`gitleaks`、`trivy`、SBOM/License 工具与固定镜像 Digest。缺少工具时必须报告未执行，不能把跳过当通过。
 
-真实 VLM 连通性测试会发送一张无敏感信息的合成图并可能产生费用，不属于自动验收：
+真实 Provider Smoke Test 必须单独获得 Consent 与预算：
 
 ```bash
-python scripts/smoke_vlm.py --provider qwen_vl --i-understand-cost
-python scripts/smoke_vlm.py --provider glm_v --i-understand-cost
-python scripts/smoke_image.py --provider qwen_image --i-understand-cost --i-understand-image-transfer
+python scripts/smoke_llm.py
+python scripts/smoke_vlm.py
+python scripts/smoke_image.py
 ```
 
-## 项目结构
+不要在 CI 或普通启动过程中执行这些脚本。
+
+## 8. 依赖锁维护
+
+`pyproject.toml` 保存包元数据；安装使用分层、带 Hash 的 requirements：
 
 ```text
-backend/
-  app/
-    agents/      LangGraph 图和节点
-    domain/      v1.4 代码/论文实体、关系、证据和 Manifest 模型
-    indexing/    路径、稳定 ID、符号解析、调用图、Chunk 与索引编排
-    persistence/ 结构化索引迁移与版本持久化
-    schemas/     Pydantic 数据模型
-    services/    分析服务和 SQLite 服务
-    tools/       确定性分析工具
-frontend/
-  src/
-    api/         API client
-    components/  React 面板和复用组件
-    types/       TypeScript 分析结果类型
-docs/            架构、API、演示、简历、面试、FAQ 文档
-examples/        示例项目 ZIP
-plan/            分阶段开发计划
-scripts/         本地启动和验收脚本
+requirements.txt
+requirements-cpu.txt
+requirements-gpu-cu12.txt
+requirements-team.txt
+requirements-dev.txt
+requirements/*.in
 ```
 
-## 文档
-
-- [架构说明](docs/architecture.md)
-- [Agent 工作流](docs/agent_workflow.md)
-- [API 参考](docs/api_reference.md)
-- [数据库说明](docs/database.md)
-- [评测说明](docs/evaluation.md)
-- [v1.4.0 实施与验收结果](docs/v1.4.0_results.md)
-- [v1.5.0 Hybrid RAG](docs/retrieval_v1.5.0.md)
-- [v1.5.0 实施与验收结果](docs/v1.5.0_results.md)
-- [v1.6.0 动态 Research Agent](docs/research_agent_v1.6.0.md)
-- [v1.6.0 实施与验收结果](docs/v1.6.0_results.md)
-- [v1.7.0 论文代码对齐 2.0](docs/alignment_v1.7.0.md)
-- [v1.7.0 实施与验收结果](docs/v1.7.0_results.md)
-- [演示指南](docs/demo_guide.md)
-- [前端指南](docs/frontend_guide.md)
-- [截图说明](docs/screenshots.md)
-- [简历描述](docs/resume.md)
-- [面试讲解](docs/interview_guide.md)
-- [FAQ](docs/faq.md)
-- [验收说明](docs/validation.md)
-
-## 简历描述
-
-CodeResearch Agent 是一个基于 FastAPI + LangGraph + React 的深度学习代码理解工具，支持 AST 仓库分析、函数/模型结构提取、可选论文代码对齐、Mermaid 图示，以及带零基础解释的 SQLite 全局 Python 函数知识库。
-
-更完整的简历表述和面试讲解提纲见 [docs/resume.md](docs/resume.md) 和 [docs/interview_guide.md](docs/interview_guide.md)。
-
-## 提交前清理
+更新必须从对应 `.in` 文件重新生成锁，而不是直接手改解析结果。CPU 与 GPU 锁需分别在全新 Python 3.11 Conda 环境执行 `pip check` 和真实推理验证。源码最后用：
 
 ```bash
-bash scripts/clean.sh
+python -m pip install --no-deps -e .
 ```
 
-`clean.sh` 只删除可重建产物：`__pycache__`、`*.pyc`、`.pytest_cache`、`*.egg-info`、`frontend/node_modules`、`frontend/dist`、`frontend/.vite` 和 `*.tsbuildinfo`。它会显式避开 `data/` 和 `outputs/`，不会删除 SQLite 数据库、任务输出、报告、教学图、全局函数知识库或 Provider Secret。
+## 9. 配置与兼容环境变量
 
-只在确实需要永久重置本地运行数据时，才能显式执行：
+配置优先级：
 
-```bash
-bash scripts/reset_runtime_data.sh --confirm-delete-runtime-data
+```text
+命令行 --config → YAML → 代码默认值
 ```
 
-该命令会先打印将删除的 `data/*.sqlite3*` 和 `outputs/task_*` 路径及数据丢失警告；不带完整确认参数时不会删除任何数据。Provider Secret 始终不在该脚本的删除范围内。
+示例：
+
+```text
+config/default.yaml
+config/local-cpu.yaml
+config/team-autodl-gpu.yaml
+config/models.yaml
+```
+
+Team 配置中的数据库、对象存储和 Secret 值是部署模板，不是可以直接用于公网的凭据。不要提交真实 Secret。`.env.example` 只记录 v1 兼容边界，不是安装指南。
+
+## 10. 数据、备份与升级
+
+- Local：同步 Control/Domain SQLite、Artifact、签名密钥和仍需恢复的 Active Checkpoint。
+- Team：PostgreSQL PITR、独立 Artifact Backup、Secret Backup 和一致性 Manifest 缺一不可；Redis 和 Qdrant 不是权威恢复源。
+- Restore 必须先进入隔离环境并完成 Hash、Schema、RLS 和业务等价验证。
+- 升级遵循 Expand → 兼容 API/Worker → Drain → Contract；不能在旧 Worker 或旧消息未清空时删除字段。
+- AutoDL 本地盘不作为可靠冗余，需把 Backup Artifact 同步到独立 OSS/Bucket。
+
+## 11. 已知发布阻断项
+
+完整、实时清单见 [plan/need.md](plan/need.md)。主要阻断项包括：
+
+- Team 全领域 Worker、Team Identity/API 和 PostgreSQL Domain/Trace/Checkpoint 的真实集成验收。
+- 原生 PostgreSQL/Redis/MinIO/Qdrant 初始化、PITR、故障注入和完整 AutoDL Journey。
+- Local 与 Team 的完整业务等价 E2E。
+- 真实六组 repo-paper、92 条双标/仲裁 Alignment Gold。
+- 供应链、SBOM、镜像、迁移兼容和恢复门禁。
+
+## 12. 设计与计划文档
+
+- [v2.0 实施计划](plan/plan_v2.0.0.md)
+- [v2 部署边界](docs/deployment_v2.md)
+- [v2 安全边界](docs/security_v2.md)
+- [v1.9 基线](docs/baseline_v1.9.0.md)
+- [依赖、模型和缺口审计](plan/need.md)
+
+任何 Trace、Evaluation 或模型输出都不能替代业务事实、人工 Gold 或权限判断。
