@@ -12,7 +12,7 @@ beforeEach(() => {
       if (url.endsWith("/workspaces/w/projects")) return response({items: [{project_id: "p", workspace_id: "w", name: "Project", status: "active", role: "project_owner"}]});
       if (url.endsWith("/workspaces/w/projects/p/jobs")) return response({items: []});
       if (url.includes("/settings/providers")) return response({providers: []});
-      if (url.includes("/llm/public-config")) return response({default_analysis_mode: "rule", providers: {}});
+      if (url.includes("/runtime/public-config")) return response({default_analysis_mode: "rule", providers: {}});
       return response({});
     })
   );

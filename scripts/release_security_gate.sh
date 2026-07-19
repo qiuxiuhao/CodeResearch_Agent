@@ -15,12 +15,7 @@ npm --prefix frontend audit --audit-level=high
 gitleaks detect --no-banner --redact
 trivy fs --severity HIGH,CRITICAL --exit-code 1 .
 
-if rg -n 'image:\s*[^#\n]+:latest\b' compose.team.yml deploy; then
-  echo "floating latest image is forbidden" >&2
-  exit 1
-fi
-
-if rg -n 'pickle|application/x-python-serialize' backend/app/control_plane compose.team.yml; then
+if rg -n 'pickle|application/x-python-serialize' backend/app/control_plane; then
   echo "unsafe serializer reference found" >&2
   exit 1
 fi

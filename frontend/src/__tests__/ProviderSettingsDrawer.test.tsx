@@ -1,5 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ProviderSettingsDrawer } from "../components/ProviderSettingsDrawer";
+import { setActiveScope } from "../api/v2Client";
+
+beforeEach(() => {
+  setActiveScope("workspace-a", "project-a");
+});
 
 afterEach(() => {
   vi.restoreAllMocks();

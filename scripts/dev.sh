@@ -19,7 +19,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "Starting CodeResearch Agent backend..."
-conda run -n code-research-agent uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000 &
+conda run -n code-research-agent cra serve --config config/local-cpu.yaml --host 127.0.0.1 --port 8000 &
 BACKEND_PID=$!
 
 echo "Starting CodeResearch Agent frontend..."

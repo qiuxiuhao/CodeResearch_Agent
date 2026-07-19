@@ -12,6 +12,7 @@ import type {
   TaskProgress,
   TaskSummary
 } from "../types/analysis";
+import { v2ProjectPath, v2Request, v2WorkspacePath } from "./v2Client";
 
 export type CreateTaskPayload = {
   zip_path: string;
@@ -51,42 +52,39 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function createTaskByPathAsync(payload: CreateTaskPayload): Promise<TaskProgress> {
-  return requestJson<TaskProgress>("/analysis/tasks/async", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+  void payload;
+  return Promise.reject(new Error("server_path_analysis_disabled"));
 }
 
 export function createTaskByUploadAsync(formData: FormData): Promise<TaskProgress> {
-  return requestJson<TaskProgress>("/analysis/tasks/upload/async", {
-    method: "POST",
-    body: formData
-  });
+  void formData;
+  return Promise.reject(new Error("legacy_upload_analysis_disabled"));
 }
 
 export function listTasks(): Promise<{ tasks: TaskSummary[] }> {
-  return requestJson<{ tasks: TaskSummary[] }>("/analysis/tasks");
+  return Promise.reject(new Error("legacy_task_listing_disabled"));
 }
 
 export function getTaskResult(taskId: string): Promise<AnalysisResult> {
-  return requestJson<AnalysisResult>(`/analysis/tasks/${encodeURIComponent(taskId)}`);
+  void taskId;
+  return Promise.reject(new Error("legacy_task_result_disabled"));
 }
 
 export function getTaskProgress(taskId: string): Promise<TaskProgress> {
-  return requestJson<TaskProgress>(`/analysis/tasks/${encodeURIComponent(taskId)}/progress`);
+  void taskId;
+  return Promise.reject(new Error("legacy_task_progress_disabled"));
 }
 
 export function getLLMPublicConfig(): Promise<LLMPublicConfig> {
-  return requestJson<LLMPublicConfig>("/llm/public-config");
+  return v2Request<LLMPublicConfig>("/runtime/public-config");
 }
 
 export function getProviderSettings(): Promise<ProviderSettingsResponse> {
-  return requestJson<ProviderSettingsResponse>("/settings/providers");
+  return v2Request<ProviderSettingsResponse>(v2WorkspacePath("/settings/providers"));
 }
 
 export function saveProviderSettings(providerId: string, payload: ProviderSettingsPayload): Promise<ProviderPublicSettings> {
-  return requestJson<ProviderPublicSettings>(`/settings/providers/${encodeURIComponent(providerId)}`, {
+  return v2Request<ProviderPublicSettings>(v2WorkspacePath(`/settings/providers/${encodeURIComponent(providerId)}`), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
@@ -94,7 +92,7 @@ export function saveProviderSettings(providerId: string, payload: ProviderSettin
 }
 
 export function deleteProviderApiKey(providerId: string, expected_revision: number): Promise<ProviderPublicSettings> {
-  return requestJson<ProviderPublicSettings>(`/settings/providers/${encodeURIComponent(providerId)}/api-key`, {
+  return v2Request<ProviderPublicSettings>(v2WorkspacePath(`/settings/providers/${encodeURIComponent(providerId)}/api-key`), {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ expected_revision })
@@ -102,7 +100,7 @@ export function deleteProviderApiKey(providerId: string, expected_revision: numb
 }
 
 export function validateProviderSettings(providerId: string, payload: Partial<ProviderSettingsPayload>): Promise<ProviderValidateResponse> {
-  return requestJson<ProviderValidateResponse>(`/settings/providers/${encodeURIComponent(providerId)}/validate`, {
+  return v2Request<ProviderValidateResponse>(v2WorkspacePath(`/settings/providers/${encodeURIComponent(providerId)}/validate`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
@@ -110,23 +108,11 @@ export function validateProviderSettings(providerId: string, payload: Partial<Pr
 }
 
 export function testProviderSettings(providerId: string, confirmCost: boolean): Promise<ProviderTestResponse> {
-  return requestJson<ProviderTestResponse>(`/settings/providers/${encodeURIComponent(providerId)}/test`, {
+  return v2Request<ProviderTestResponse>(v2WorkspacePath(`/settings/providers/${encodeURIComponent(providerId)}/test`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ confirm_cost: confirmCost })
   });
-}
-
-export function figurePreviewUrl(taskId: string, figureId: string): string {
-  return `/analysis/tasks/${encodeURIComponent(taskId)}/figures/${encodeURIComponent(figureId)}/preview`;
-}
-
-export function figureAssetUrl(taskId: string, figureId: string, assetId: string): string {
-  return `/analysis/tasks/${encodeURIComponent(taskId)}/figures/${encodeURIComponent(figureId)}/assets/${encodeURIComponent(assetId)}`;
-}
-
-export function teachingDiagramAssetUrl(taskId: string, diagramId: string, assetName: "blueprint.svg" | "blueprint.png" | "final.png" | "raw.png"): string {
-  return `/analysis/tasks/${encodeURIComponent(taskId)}/teaching-diagrams/${encodeURIComponent(diagramId)}/${assetName}`;
 }
 
 export type GlobalLibraryQuery = {
@@ -152,17 +138,21 @@ function withParams(path: string, params: Record<string, string | number | undef
 }
 
 export function listGlobalLibraryFunctions(params: GlobalLibraryQuery = {}): Promise<GlobalLibraryListResponse> {
-  return requestJson<GlobalLibraryListResponse>(withParams("/library/functions", params));
+  return v2Request<GlobalLibraryListResponse>(withParams(v2ProjectPath("/library/functions"), params));
 }
 
 export function getGlobalLibraryFunction(canonicalName: string): Promise<GlobalLibraryDetailResponse> {
-  return requestJson<GlobalLibraryDetailResponse>(`/library/functions/${encodeURIComponent(canonicalName)}`);
+  return v2Request<GlobalLibraryDetailResponse>(
+    v2ProjectPath(`/library/functions/${encodeURIComponent(canonicalName)}`)
+  );
 }
 
 export function getGlobalLibraryStats(): Promise<GlobalLibraryStats> {
-  return requestJson<GlobalLibraryStats>("/library/stats");
+  return v2Request<GlobalLibraryStats>(v2ProjectPath("/library/stats"));
 }
 
 export function getLowConfidenceFunctions(limit = 50): Promise<{ items: GlobalLibraryListResponse["items"] }> {
-  return requestJson<{ items: GlobalLibraryListResponse["items"] }>(withParams("/library/functions/low-confidence", { limit }));
+  return v2Request<{ items: GlobalLibraryListResponse["items"] }>(
+    withParams(v2ProjectPath("/library/functions/low-confidence"), { limit })
+  );
 }

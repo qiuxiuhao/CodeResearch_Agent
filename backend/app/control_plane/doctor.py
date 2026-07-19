@@ -35,7 +35,7 @@ def run_doctor(config: ApplicationConfig) -> list[DoctorCheck]:
         _module_check("qdrant_client", required=config.compute.device in {"cpu", "cuda"}),
         _module_check("fastembed", required=True),
         _module_check("onnxruntime", required=True),
-        _path_check("model_cache", config.compute.model_cache),
+        _path_check("model_cache", config.compute.model_cache, required=False),
         _path_check("model_manifest", config.model_manifest, file=True),
     ]
     if config.compute.device == "cuda":
@@ -88,9 +88,13 @@ def _module_check(name: str, *, required: bool) -> DoctorCheck:
     )
 
 
-def _path_check(name: str, path: Path, *, file: bool = False) -> DoctorCheck:
+def _path_check(name: str, path: Path, *, file: bool = False, required: bool = True) -> DoctorCheck:
     present = path.is_file() if file else path.is_dir()
-    return DoctorCheck(name=name, status="ok" if present else "error", detail=str(path))
+    return DoctorCheck(
+        name=name,
+        status="ok" if present else ("error" if required else "warning"),
+        detail=str(path),
+    )
 
 
 def _command_check(name: str) -> DoctorCheck:

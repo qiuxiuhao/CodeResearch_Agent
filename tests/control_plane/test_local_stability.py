@@ -222,12 +222,13 @@ def test_explicit_v2_local_config_disables_legacy_scheduling(monkeypatch, tmp_pa
     )
     monkeypatch.setenv("CRA_CONFIG_PATH", str(config_path))
     monkeypatch.setenv("OBSERVABILITY_ENABLED", "false")
+    monkeypatch.setenv("CRA_LEGACY_INTERNAL_API_ENABLED", "false")
     with TestClient(app) as client:
         response = client.post("/analysis/tasks", json={"zip_path": "fixture.zip"})
-        operation = client.get("/openapi.json").json()["paths"]["/analysis/tasks"]["post"]
+        paths = client.get("/openapi.json").json()["paths"]
     assert response.status_code == 410
-    assert response.json()["detail"]["error_code"] == "legacy_scheduling_api_disabled"
-    assert operation["deprecated"] is True
+    assert response.json()["detail"]["error_code"] == "legacy_api_disabled"
+    assert "/analysis/tasks" not in paths
 
 
 def test_local_runtime_lock_rejects_second_owner(tmp_path):

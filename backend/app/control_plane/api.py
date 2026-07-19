@@ -5,9 +5,24 @@ import tempfile
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import APIRouter, Cookie, Depends, File, Header, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, Cookie, Depends, File, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
+
+from backend.app.image_generation.config import ImageGenerationSettings
+from backend.app.llm.config import LLMSettings
+from backend.app.observability.schemas import TraceFilter
+from backend.app.schemas.provider_settings import (
+    ProviderApiKeyDeleteRequest,
+    ProviderSettingsUpdateRequest,
+    ProviderTestRequest,
+    ProviderValidateRequest,
+)
+from backend.app.services.library_function_service import LibraryFunctionService
+from backend.app.services.observability_runtime import get_observability_runtime
+from backend.app.settings.provider_settings import ProviderSettingsService
+from backend.app.settings.secret_store import SecretStoreConflictError, SecretStoreError
+from backend.app.vision.config import VisionSettings
 
 from .access import (
     AccessContext, AccessDeniedError, DefaultAccessPolicy, permission_for_job_type,
@@ -89,6 +104,17 @@ def _principal(
 def v2_health(request: Request) -> dict[str, str]:
     runtime = _runtime(request)
     return {"status": "ok", "profile": runtime.settings.profile.value, "api_contract_version": "2"}
+
+
+@router.get("/runtime/public-config")
+def runtime_public_config(
+    _principal_value: Annotated[AccessPrincipal, Depends(_principal)],
+) -> dict:
+    return {
+        **LLMSettings.from_env().public_config(),
+        "vision": VisionSettings.from_env().public_config(),
+        "image_generation": ImageGenerationSettings.from_env().public_config(),
+    }
 
 
 @router.post("/auth/bootstrap", status_code=201)
@@ -223,6 +249,71 @@ def list_projects(
     except ControlPlaneError as exc:
         raise HTTPException(status_code=404, detail={"error_code": "resource_not_found"}) from exc
     return {"items": items}
+
+
+@router.get("/workspaces/{workspace_id}/settings/providers")
+def get_provider_settings(
+    workspace_id: str, request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+) -> dict:
+    _access_context(request, principal, workspace_id, None)
+    return ProviderSettingsService().list_public_settings().model_dump(mode="json")
+
+
+@router.put("/workspaces/{workspace_id}/settings/providers/{provider_id}")
+def put_provider_settings(
+    workspace_id: str, provider_id: str, payload: ProviderSettingsUpdateRequest,
+    request: Request, principal: Annotated[AccessPrincipal, Depends(_principal)],
+) -> dict:
+    _require_provider_manage(request, principal, workspace_id)
+    try:
+        return ProviderSettingsService().save(provider_id, payload).model_dump(mode="json")
+    except SecretStoreConflictError as exc:
+        raise HTTPException(status_code=409, detail={"error_code": "provider_settings_conflict"}) from exc
+    except (SecretStoreError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail={"error_code": "provider_settings_invalid"}) from exc
+
+
+@router.delete("/workspaces/{workspace_id}/settings/providers/{provider_id}/api-key")
+def delete_provider_api_key(
+    workspace_id: str, provider_id: str, payload: ProviderApiKeyDeleteRequest,
+    request: Request, principal: Annotated[AccessPrincipal, Depends(_principal)],
+) -> dict:
+    _require_provider_manage(request, principal, workspace_id)
+    try:
+        return ProviderSettingsService().delete_api_key(provider_id, payload).model_dump(mode="json")
+    except SecretStoreConflictError as exc:
+        raise HTTPException(status_code=409, detail={"error_code": "provider_settings_conflict"}) from exc
+    except (SecretStoreError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail={"error_code": "provider_settings_invalid"}) from exc
+
+
+@router.post("/workspaces/{workspace_id}/settings/providers/{provider_id}/validate")
+def validate_provider_settings(
+    workspace_id: str, provider_id: str, payload: ProviderValidateRequest,
+    request: Request, principal: Annotated[AccessPrincipal, Depends(_principal)],
+) -> dict:
+    _require_provider_manage(request, principal, workspace_id)
+    try:
+        return ProviderSettingsService().validate(
+            provider_id, payload, require_configured_key=True,
+        ).model_dump(mode="json")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"error_code": "provider_settings_invalid"}) from exc
+
+
+@router.post("/workspaces/{workspace_id}/settings/providers/{provider_id}/test")
+def test_provider_settings(
+    workspace_id: str, provider_id: str, payload: ProviderTestRequest,
+    request: Request, principal: Annotated[AccessPrincipal, Depends(_principal)],
+) -> dict:
+    _require_provider_manage(request, principal, workspace_id)
+    try:
+        return ProviderSettingsService().test_provider(
+            provider_id, confirm_cost=payload.confirm_cost,
+        ).model_dump(mode="json")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"error_code": "provider_settings_invalid"}) from exc
 
 
 @router.post("/workspaces/{workspace_id}/projects/{project_id}/jobs", status_code=202)
@@ -382,6 +473,66 @@ def list_artifacts(
     )]}
 
 
+@router.get("/workspaces/{workspace_id}/projects/{project_id}/library/functions")
+def list_library_functions(
+    workspace_id: str,
+    project_id: str,
+    request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+    query: str | None = None,
+    package_name: str | None = None,
+    category: str | None = None,
+    confidence: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    sort: str = "canonical_name",
+) -> dict:
+    _require_project_permission(request, principal, workspace_id, project_id, "artifact.read")
+    try:
+        return LibraryFunctionService().search_functions(
+            query=query,
+            package_name=package_name,
+            category=category,
+            confidence=confidence,
+            limit=limit,
+            offset=offset,
+            sort=sort,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error_code": "library_query_invalid"}) from exc
+
+
+@router.get("/workspaces/{workspace_id}/projects/{project_id}/library/stats")
+def get_library_stats(
+    workspace_id: str, project_id: str, request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+) -> dict:
+    _require_project_permission(request, principal, workspace_id, project_id, "artifact.read")
+    return LibraryFunctionService().get_library_stats()
+
+
+@router.get("/workspaces/{workspace_id}/projects/{project_id}/library/functions/low-confidence")
+def list_low_confidence_library_functions(
+    workspace_id: str, project_id: str, request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+    limit: int = Query(50, ge=1, le=100),
+) -> dict:
+    _require_project_permission(request, principal, workspace_id, project_id, "artifact.read")
+    return {"items": LibraryFunctionService().list_low_confidence_functions(limit)}
+
+
+@router.get("/workspaces/{workspace_id}/projects/{project_id}/library/functions/{canonical_name}")
+def get_library_function_detail(
+    workspace_id: str, project_id: str, canonical_name: str, request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+) -> dict:
+    _require_project_permission(request, principal, workspace_id, project_id, "artifact.read")
+    detail = LibraryFunctionService().get_function_detail(canonical_name)
+    if detail is None:
+        raise HTTPException(status_code=404, detail={"error_code": "library_function_not_found"})
+    return detail
+
+
 @router.get("/workspaces/{workspace_id}/projects/{project_id}/artifacts/{artifact_id}")
 def get_artifact(
     workspace_id: str, project_id: str, artifact_id: str, request: Request,
@@ -537,6 +688,169 @@ def get_analysis_teaching_asset(
         return Response(content=candidate.read_bytes(), media_type=media_type)
 
 
+@router.get("/workspaces/{workspace_id}/projects/{project_id}/evaluation/runs")
+def list_evaluation_runs_v2(
+    workspace_id: str, project_id: str, request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    _require_workspace_owner(request, principal, workspace_id, project_id)
+    store = _evaluation_store()
+    return {"items": store.list_runs(limit=limit, offset=offset)}
+
+
+@router.get("/workspaces/{workspace_id}/projects/{project_id}/evaluation/datasets")
+def list_evaluation_datasets_v2(
+    workspace_id: str, project_id: str, request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+) -> dict:
+    _require_workspace_owner(request, principal, workspace_id, project_id)
+    return {"items": _evaluation_store().list_datasets()}
+
+
+@router.get("/workspaces/{workspace_id}/projects/{project_id}/evaluation/baselines")
+def list_evaluation_baselines_v2(
+    workspace_id: str, project_id: str, request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+) -> dict:
+    _require_workspace_owner(request, principal, workspace_id, project_id)
+    return {"items": _evaluation_store().list_baseline_bindings()}
+
+
+@router.get("/workspaces/{workspace_id}/projects/{project_id}/evaluation/comparisons")
+def list_evaluation_comparisons_v2(
+    workspace_id: str, project_id: str, request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict:
+    _require_workspace_owner(request, principal, workspace_id, project_id)
+    return {"items": _evaluation_store().list_comparisons(limit=limit)}
+
+
+@router.get("/workspaces/{workspace_id}/projects/{project_id}/evaluation/bad-cases")
+def list_evaluation_bad_cases_v2(
+    workspace_id: str, project_id: str, request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+    status: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    _require_workspace_owner(request, principal, workspace_id, project_id)
+    rows = _evaluation_store().list_bad_cases(status=status)
+    return {"items": rows[offset : offset + limit], "total": len(rows)}
+
+
+@router.get("/workspaces/{workspace_id}/projects/{project_id}/observability/traces")
+def list_traces_v2(
+    workspace_id: str,
+    project_id: str,
+    request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+    start: datetime | None = None,
+    end: datetime | None = None,
+    status: str | None = None,
+    trace_type: str | None = None,
+    component: str | None = None,
+    operation: str | None = None,
+    repo_id: str | None = None,
+    index_version_id: str | None = None,
+    run_id: str | None = None,
+    error_code: str | None = None,
+    min_duration_ms: float | None = Query(default=None, ge=0),
+    max_duration_ms: float | None = Query(default=None, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    cursor: int = Query(default=0, ge=0),
+) -> dict:
+    _require_workspace_owner(request, principal, workspace_id, project_id)
+    runtime = _observability_runtime()
+    filters = TraceFilter(
+        start=start,
+        end=end,
+        status=status,
+        trace_type=trace_type,
+        component=component,
+        operation=operation,
+        repo_id=repo_id,
+        index_version_id=index_version_id,
+        run_id=run_id,
+        error_code=error_code,
+        min_duration_ms=min_duration_ms,
+        max_duration_ms=max_duration_ms,
+    )
+    try:
+        items = runtime.store.list_traces(filters, limit=limit, offset=cursor)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail={"error_code": "invalid_trace_filter"}) from exc
+    return {
+        "items": [item.model_dump(mode="json") for item in items],
+        "next_cursor": cursor + len(items) if len(items) == limit else None,
+        "limit": limit,
+    }
+
+
+@router.get("/workspaces/{workspace_id}/projects/{project_id}/observability/traces/{trace_id}")
+def get_trace_v2(
+    workspace_id: str, project_id: str, trace_id: str, request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+) -> dict:
+    _require_workspace_owner(request, principal, workspace_id, project_id)
+    runtime = _observability_runtime()
+    try:
+        trace = runtime.store.get_trace(trace_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail={"error_code": "trace_not_found"}) from exc
+    return {
+        "trace": trace.model_dump(mode="json"),
+        "links": [item.model_dump(mode="json") for item in runtime.store.list_links(trace_id)],
+        "artifacts": [item.model_dump(mode="json") for item in runtime.store.list_artifacts(trace_id)],
+    }
+
+
+@router.get("/workspaces/{workspace_id}/projects/{project_id}/observability/traces/{trace_id}/spans")
+def list_trace_spans_v2(
+    workspace_id: str, project_id: str, trace_id: str, request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+    limit: int = Query(default=200, ge=1, le=2_000),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    _require_workspace_owner(request, principal, workspace_id, project_id)
+    runtime = _observability_runtime()
+    try:
+        runtime.store.get_trace(trace_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail={"error_code": "trace_not_found"}) from exc
+    return {
+        "items": [
+            item.model_dump(mode="json")
+            for item in runtime.store.list_spans(trace_id, limit=limit, offset=offset)
+        ]
+    }
+
+
+@router.get("/workspaces/{workspace_id}/projects/{project_id}/observability/traces/{trace_id}/events")
+def list_trace_events_v2(
+    workspace_id: str, project_id: str, trace_id: str, request: Request,
+    principal: Annotated[AccessPrincipal, Depends(_principal)],
+    after_sequence: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=500),
+) -> dict:
+    _require_workspace_owner(request, principal, workspace_id, project_id)
+    runtime = _observability_runtime()
+    try:
+        runtime.store.get_trace(trace_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail={"error_code": "trace_not_found"}) from exc
+    return {
+        "items": [
+            item.model_dump(mode="json")
+            for item in runtime.store.list_events(
+                trace_id, after_sequence=after_sequence, limit=limit,
+            )
+        ]
+    }
+
+
 @router.get("/workspaces/{workspace_id}/projects/{project_id}/jobs")
 def list_jobs(
     workspace_id: str, project_id: str, request: Request,
@@ -609,6 +923,63 @@ async def retry_job(
         "job_id": handle.job_id, "attempt_id": handle.attempt_id,
         "domain_run_id": handle.domain_run_id,
     }
+
+
+def _require_project_permission(
+    request: Request,
+    principal: AccessPrincipal,
+    workspace_id: str,
+    project_id: str,
+    permission: str,
+) -> AccessContext:
+    context = _access_context(request, principal, workspace_id, project_id)
+    try:
+        DefaultAccessPolicy().require(context, permission)
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=404, detail={"error_code": "resource_not_found"}) from exc
+    return context
+
+
+def _require_workspace_owner(
+    request: Request,
+    principal: AccessPrincipal,
+    workspace_id: str,
+    project_id: str | None = None,
+) -> AccessContext:
+    context = _access_context(request, principal, workspace_id, project_id)
+    if context.workspace_role != "owner":
+        raise HTTPException(status_code=404, detail={"error_code": "resource_not_found"})
+    return context
+
+
+def _require_provider_manage(
+    request: Request, principal: AccessPrincipal, workspace_id: str,
+) -> AccessContext:
+    context = _access_context(request, principal, workspace_id, None)
+    try:
+        DefaultAccessPolicy().require(context, "provider.manage")
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=403, detail={"error_code": "access_denied"}) from exc
+    return context
+
+
+def _evaluation_store():
+    from backend.app.evaluation import api as evaluation_api
+
+    if not evaluation_api._api_enabled():
+        raise HTTPException(status_code=503, detail={"error_code": "evaluation_api_disabled"})
+    if not evaluation_api._enabled():
+        raise HTTPException(status_code=503, detail={"error_code": "evaluation_disabled"})
+    return evaluation_api.get_evaluation_store()
+
+
+def _observability_runtime():
+    runtime = get_observability_runtime()
+    if not runtime.api_enabled:
+        raise HTTPException(status_code=503, detail={"error_code": "observability_api_disabled"})
+    if not runtime.enabled:
+        raise HTTPException(status_code=503, detail={"error_code": "observability_disabled"})
+    return runtime
 
 
 def _access_context(

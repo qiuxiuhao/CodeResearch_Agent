@@ -1,13 +1,15 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TaskForm } from "../components/TaskForm";
+import { setActiveScope } from "../api/v2Client";
 
 afterEach(() => vi.unstubAllGlobals());
 
 test("text and vision AI switches submit consent through scoped v2 jobs", async () => {
+  setActiveScope("workspace-a", "project-a");
   let artifactNumber = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    if (url.includes("/llm/public-config")) {
+    if (url.includes("/runtime/public-config")) {
       return {
         ok: true,
         headers: { get: () => "application/json" },

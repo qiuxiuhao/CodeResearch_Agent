@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, AlertTriangle, ArrowLeft, RefreshCw } from "lucide-react";
-import { getTrace, getTraceEvents, getTraceSpans, listTraces, traceEventStreamUrl } from "./api";
+import { getTrace, getTraceEvents, getTraceSpans, listTraces } from "./api";
 import type { SpanRecord, TraceDetail, TraceEvent, TraceRecord } from "./types";
 
 type Props = { onClose: () => void };
@@ -46,19 +46,26 @@ export function TraceExplorer({ onClose }: Props) {
 
   useEffect(() => {
     if (!live || !selectedId) return;
-    const source = new EventSource(traceEventStreamUrl(selectedId));
-    const onTrace = (raw: Event) => {
-      const message = raw as MessageEvent<string>;
-      try {
-        const item = JSON.parse(message.data) as TraceEvent;
-        setEvents((current) => current.some((existing) => existing.stream_sequence === item.stream_sequence) ? current : [...current, item]);
-        if (item.name === "trace.terminal") { source.close(); setLive(false); }
-      } catch { /* payload is server-owned and bounded */ }
+    let active = true;
+    const timer = window.setInterval(() => {
+      const after = events.reduce((max, item) => Math.max(max, item.stream_sequence ?? 0), 0);
+      void getTraceEvents(selectedId, after).then((response) => {
+        if (!active) return;
+        setEvents((current) => {
+          const seen = new Set(current.map((item) => item.stream_sequence ?? item.event_id));
+          return [
+            ...current,
+            ...response.items.filter((item) => !seen.has(item.stream_sequence ?? item.event_id))
+          ];
+        });
+        if (response.items.some((item) => item.name === "trace.terminal")) setLive(false);
+      }).catch((exc) => setError(exc instanceof Error ? exc.message : "Trace 事件刷新失败"));
+    }, 1000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
     };
-    source.addEventListener("trace", onTrace);
-    source.onerror = () => source.close();
-    return () => { source.removeEventListener("trace", onTrace); source.close(); };
-  }, [live, selectedId]);
+  }, [events, live, selectedId]);
 
   const selected = spans.find((item) => item.span_id === selectedSpan) ?? null;
   const ordered = useMemo(() => treeRows(spans, detail?.trace.root_span_id), [spans, detail]);

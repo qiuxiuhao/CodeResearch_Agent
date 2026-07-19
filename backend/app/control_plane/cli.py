@@ -13,13 +13,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cra")
     subparsers = parser.add_subparsers(dest="command", required=True)
     serve = subparsers.add_parser("serve", help="start the CodeResearch Agent API")
-    serve_source = serve.add_mutually_exclusive_group(required=True)
-    serve_source.add_argument("--config")
-    serve_source.add_argument(
-        "--profile",
-        choices=("local", "team"),
-        help="deprecated compatibility shortcut; prefer --config",
-    )
+    serve.add_argument("--config", required=True)
     serve.add_argument("--host")
     serve.add_argument("--port", type=int)
     config = subparsers.add_parser("config", help="validate application configuration")
@@ -47,18 +41,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if hasattr(args, "config") or hasattr(args, "profile"):
-        selected_config = getattr(args, "config", None)
-        if selected_config is None:
-            selected_config = (
-                "config/local-cpu.yaml" if args.profile == "local"
-                else "config/team-autodl-gpu.yaml"
-            )
-            print(
-                "warning: --profile is deprecated; use --config instead",
-                file=sys.stderr,
-            )
-        config_path = str(Path(selected_config).expanduser().resolve())
+    if hasattr(args, "config"):
+        config_path = str(Path(args.config).expanduser().resolve())
         os.environ["CRA_CONFIG_PATH"] = config_path
         config = ApplicationConfig.load(config_path)
         config.export_runtime_compatibility()

@@ -34,14 +34,15 @@ def _index(path) -> None:
     store.activate(lease, IndexArtifacts([], [entity], [], [], [evidence], [chunk]))
 
 
-def test_retrieval_routes_are_registered_but_disabled_by_default(monkeypatch) -> None:
+def test_retrieval_routes_are_internal_and_disabled_by_default(monkeypatch) -> None:
     monkeypatch.delenv("RETRIEVAL_ENABLED", raising=False)
     with TestClient(app) as client:
         response = client.post("/repositories/repo/retrieval/search", json={"text": "forward"})
         openapi = client.get("/openapi.json").json()
     assert response.status_code == 503
     assert response.json()["error"]["error_code"] == "retrieval_disabled"
-    assert "/repositories/{repo_id}/retrieval/search" in openapi["paths"]
+    assert "/repositories/{repo_id}/retrieval/search" not in openapi["paths"]
+    assert "/api/v2/workspaces/{workspace_id}/projects/{project_id}/library/functions" in openapi["paths"]
 
 
 def test_sparse_search_and_evidence_only_research_api(tmp_path, monkeypatch) -> None:

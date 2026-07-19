@@ -1,12 +1,14 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { GlobalLibraryPanel } from "../components/GlobalLibraryPanel";
+import { setActiveScope } from "../api/v2Client";
 
 beforeEach(() => {
+  setActiveScope("workspace-a", "project-a");
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.startsWith("/library/stats")) {
+      if (url.includes("/library/stats")) {
         return jsonResponse({
           function_count: 1,
           package_counts: [{ name: "torch", count: 1 }],
@@ -14,10 +16,10 @@ beforeEach(() => {
           confidence_counts: [{ name: "high", count: 1 }]
         });
       }
-      if (url.startsWith("/library/functions/low-confidence")) {
+      if (url.includes("/library/functions/low-confidence")) {
         return jsonResponse({ items: [] });
       }
-      if (url === "/library/functions/torch.randn") {
+      if (url.includes("/library/functions/torch.randn")) {
         return jsonResponse({
           function: {
             canonical_name: "torch.randn",
@@ -31,7 +33,7 @@ beforeEach(() => {
           }
         });
       }
-      if (url.startsWith("/library/functions")) {
+      if (url.includes("/library/functions")) {
         return jsonResponse({
           items: [
             {

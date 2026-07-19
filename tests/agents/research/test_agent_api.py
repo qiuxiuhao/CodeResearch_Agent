@@ -21,12 +21,13 @@ def test_agent_routes_are_stable_when_feature_disabled(monkeypatch) -> None:
     assert response.json()["error"]["error_code"] == "research_agent_disabled"
 
 
-def test_openapi_contains_agent_contract_when_disabled(monkeypatch) -> None:
+def test_openapi_hides_legacy_agent_contract_when_disabled(monkeypatch) -> None:
     monkeypatch.delenv("RESEARCH_AGENT_ENABLED", raising=False)
     paths = app.openapi()["paths"]
-    assert "/repositories/{repo_id}/research/agent/runs" in paths
-    assert "/research/agent/runs/{run_id}/resume" in paths
-    assert "/research/agent/runs/{run_id}/cancel" in paths
+    assert "/repositories/{repo_id}/research/agent/runs" not in paths
+    assert "/research/agent/runs/{run_id}/resume" not in paths
+    assert "/research/agent/runs/{run_id}/cancel" not in paths
+    assert "/api/v2/workspaces/{workspace_id}/projects/{project_id}/jobs" in paths
 
 
 def test_agent_api_executes_direct_route_with_checkpoint(tmp_path, monkeypatch) -> None:

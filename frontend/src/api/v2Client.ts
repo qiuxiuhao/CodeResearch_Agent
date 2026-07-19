@@ -68,6 +68,7 @@ export type ArtifactView = {
 
 let accessToken: string | null = null;
 let refreshInFlight: Promise<boolean> | null = null;
+let activeWorkspaceId: string | null = null;
 let activeScope: {workspaceId: string; projectId: string} | null = null;
 
 export function setAccessToken(token: string | null): void {
@@ -75,7 +76,19 @@ export function setAccessToken(token: string | null): void {
 }
 
 export function setActiveScope(workspaceId: string, projectId: string): void {
+  activeWorkspaceId = workspaceId || null;
   activeScope = workspaceId && projectId ? {workspaceId, projectId} : null;
+}
+
+export function v2WorkspacePath(suffix: string): string {
+  if (!activeWorkspaceId) throw new Error("workspace_scope_required");
+  return `/workspaces/${encodeURIComponent(activeWorkspaceId)}${suffix}`;
+}
+
+export function v2ProjectPath(suffix: string): string {
+  if (!activeScope) throw new Error("project_scope_required");
+  const {workspaceId, projectId} = activeScope;
+  return `/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}${suffix}`;
 }
 
 export async function v2Request<T>(
@@ -88,8 +101,13 @@ export async function v2Request<T>(
     return v2Request<T>(path, init, false);
   }
   if (!response.ok) {
-    const body = await response.json().catch(() => null) as {detail?: {error_code?: string}} | null;
-    throw new Error(body?.detail?.error_code ?? `request_failed_${response.status}`);
+    const body = await response.json().catch(() => null) as {detail?: {error_code?: string} | string; error?: {error_code?: string}} | null;
+    const detail = body?.detail;
+    throw new Error(
+      (typeof detail === "string" ? detail : detail?.error_code)
+        ?? body?.error?.error_code
+        ?? `request_failed_${response.status}`
+    );
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;

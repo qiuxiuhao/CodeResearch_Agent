@@ -490,7 +490,8 @@ def test_provider_settings_write_security_checks_remote_origin_and_admin_token(m
 
     with TestClient(app, client=("203.0.113.10", 50000)) as remote_client:
         remote_blocked = remote_client.put("/settings/providers/deepseek", json=remote_payload)
-    assert remote_blocked.status_code == 403
+    assert remote_blocked.status_code == 410
+    assert remote_blocked.json()["detail"]["error_code"] == "legacy_api_disabled"
 
     monkeypatch.setenv("REMOTE_PROVIDER_SETTINGS_ENABLED", "true")
     monkeypatch.setenv("PROVIDER_SETTINGS_ADMIN_TOKEN", "admin-token")
@@ -503,8 +504,10 @@ def test_provider_settings_write_security_checks_remote_origin_and_admin_token(m
             headers={"origin": "https://admin.example", "x-admin-token": "admin-token"},
         )
 
-    assert missing_token.status_code == 403
-    assert allowed.status_code == 200
+    assert missing_token.status_code == 410
+    assert missing_token.json()["detail"]["error_code"] == "legacy_api_disabled"
+    assert allowed.status_code == 410
+    assert allowed.json()["detail"]["error_code"] == "legacy_api_disabled"
 
 
 def test_runtime_blocks_custom_base_url_dns_ssrf_before_task_runs(monkeypatch, tmp_path: Path):

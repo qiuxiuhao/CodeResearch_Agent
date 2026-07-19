@@ -34,19 +34,16 @@ def test_key_fastapi_routes_remain_registered_in_openapi() -> None:
     paths = app.openapi()["paths"]
     expected = {
         "/health",
-        "/analysis/tasks",
-        "/analysis/tasks/async",
-        "/analysis/tasks/upload",
-        "/analysis/tasks/upload/async",
-        "/analysis/tasks/{task_id}",
-        "/analysis/tasks/{task_id}/report",
-        "/settings/providers",
-        "/settings/providers/{provider_id}",
-        "/settings/providers/{provider_id}/validate",
-        "/settings/providers/{provider_id}/test",
-        "/library/functions",
+        "/api/v2/runtime/public-config",
+        "/api/v2/workspaces/{workspace_id}/settings/providers",
+        "/api/v2/workspaces/{workspace_id}/settings/providers/{provider_id}",
+        "/api/v2/workspaces/{workspace_id}/settings/providers/{provider_id}/validate",
+        "/api/v2/workspaces/{workspace_id}/settings/providers/{provider_id}/test",
+        "/api/v2/workspaces/{workspace_id}/projects/{project_id}/library/functions",
     }
     assert expected <= set(paths)
+    legacy = [path for path in paths if not (path == "/health" or path.startswith("/api/v2/"))]
+    assert legacy == []
 
 
 def test_known_internal_cleanup_candidates_are_not_public_exports() -> None:
@@ -64,13 +61,11 @@ def test_known_internal_cleanup_candidates_are_not_public_exports() -> None:
     assert internal_names.isdisjoint(exported)
 
 
-def test_v135_compatibility_fields_and_sync_routes_are_deprecated_in_openapi() -> None:
+def test_v135_compatibility_fields_remain_deprecated_and_legacy_routes_are_hidden() -> None:
     schema = app.openapi()
     components = schema["components"]["schemas"]
     for model_name in ("ProviderSettingsUpdateRequest", "ProviderValidateRequest"):
         assert components[model_name]["properties"]["supports_async"]["deprecated"] is True
-    request_fields = components["AnalysisTaskRequest"]["properties"]
-    assert request_fields["analysis_mode"]["deprecated"] is True
-    assert request_fields["external_model_consent"]["deprecated"] is True
-    assert schema["paths"]["/analysis/tasks"]["post"]["deprecated"] is True
-    assert schema["paths"]["/analysis/tasks/upload"]["post"]["deprecated"] is True
+    assert "AnalysisTaskRequest" not in components
+    assert "/analysis/tasks" not in schema["paths"]
+    assert "/analysis/tasks/upload" not in schema["paths"]

@@ -1,14 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TaskForm } from "../components/TaskForm";
+import { setActiveScope } from "../api/v2Client";
 import { notifyProviderSettingsUpdated } from "../providerSettingsEvents";
 
 afterEach(() => vi.unstubAllGlobals());
 
 test("TaskForm updates provider readiness after settings change without refresh", async () => {
+  setActiveScope("workspace-a", "project-a");
   let configured = false;
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.includes("/llm/public-config")) {
+    if (url.includes("/runtime/public-config")) {
       return jsonResponse({
         default_analysis_mode: "rule",
         default_text_llm_enabled: false,
