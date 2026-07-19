@@ -226,6 +226,30 @@ curl http://127.0.0.1:8000/library/stats
 curl "http://127.0.0.1:8000/library/functions?query=torch&sort=updated_at"
 ```
 
+## v1.9 Evaluation API
+
+路由始终注册；`EVALUATION_API_ENABLED=false` 返回 `503 evaluation_api_disabled`，执行面关闭返回
+`503 evaluation_disabled`。当前无统一认证系统时仅本机管理员可访问。
+
+```text
+POST /evaluations/runs
+GET  /evaluations/runs
+GET  /evaluations/runs/{run_id}
+POST /evaluations/runs/{run_id}/cancel
+GET  /evaluations/runs/{run_id}/results
+GET  /evaluations/runs/{run_id}/metrics
+POST/GET /evaluations/comparisons
+POST/GET /evaluations/baselines
+GET  /evaluation/datasets
+GET  /evaluation/datasets/{dataset_id}
+GET  /bad-cases
+GET  /bad-cases/{bad_case_id}
+POST /bad-cases/{bad_case_id}/triage|confirm|mark-fixed|verify|promote
+```
+
+Run 创建支持 `Idempotency-Key`；同 Key 不同 canonical request 返回
+`evaluation_idempotency_conflict`。Live mode 还要求独立 flag、consent、预算和 TrialSpec。
+
 ## v1.7 Alignment API
 
 路由始终注册；`ALIGNMENT_ENABLED=false` 时统一返回 HTTP 503 `alignment_disabled`。

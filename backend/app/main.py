@@ -47,6 +47,13 @@ from backend.app.alignment.api import (
     stop_alignment_runtime,
 )
 from backend.app.observability.api import router as observability_router
+from backend.app.evaluation.api import (
+    bad_case_router,
+    catalog_router as evaluation_catalog_router,
+    router as evaluation_router,
+    start_evaluation_runtime,
+    stop_evaluation_runtime,
+)
 from backend.app.observability.context import current_trace_context, start_span_or_root
 from backend.app.observability.middleware import ObservabilityMiddleware
 from backend.app.services.observability_runtime import get_observability_runtime
@@ -73,6 +80,7 @@ def _shutdown_analysis_executor() -> None:
 async def lifespan(_app: FastAPI):
     observability = get_observability_runtime()
     observability.start()
+    await start_evaluation_runtime()
     await start_alignment_runtime()
     await start_research_agent_runtime()
     try:
@@ -80,11 +88,12 @@ async def lifespan(_app: FastAPI):
     finally:
         await stop_research_agent_runtime()
         await stop_alignment_runtime()
+        await stop_evaluation_runtime()
         _shutdown_analysis_executor()
         observability.stop()
 
 
-app = FastAPI(title="CodeResearch Agent", version="1.8.0", lifespan=lifespan)
+app = FastAPI(title="CodeResearch Agent", version="1.9.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -97,6 +106,9 @@ app.include_router(retrieval_router)
 app.include_router(research_agent_router)
 app.include_router(alignment_router)
 app.include_router(observability_router)
+app.include_router(evaluation_router)
+app.include_router(evaluation_catalog_router)
+app.include_router(bad_case_router)
 
 
 class AnalysisTaskRequest(BaseModel):

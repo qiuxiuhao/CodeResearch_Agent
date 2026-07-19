@@ -1,5 +1,8 @@
 # 评测说明
 
+当前统一 Evaluation、Regression Gate、Bad Case 与 Replay Manifest 合同见
+[evaluation_v1.9.0.md](evaluation_v1.9.0.md)。本文件以下内容保留为 v1.4 确定性索引评测历史基线。
+
 v1.4.0 仍处于确定性结构化索引阶段，不包含 Hybrid RAG、向量检索或动态 Research Agent。当前评测目标是验证索引事实的稳定性、完整性、幂等性和旧流程兼容性，而不是回答生成质量。
 
 ## 固定基线

@@ -17,6 +17,18 @@ bash scripts/validate.sh
 
 自动验收禁止真实模型网络请求。Provider 测试使用 MockProvider/MockTransport。
 
+v1.9 CI Regression使用固定synthetic fixture且无网络：
+
+```bash
+python scripts/evaluate_regression.py --mode deterministic_fixture \
+  --dataset-version synthetic-regression-v1 \
+  --output outputs/evaluation-regression.json
+```
+
+真实Alignment Gold当前仍为`ALIGNMENT_BENCHMARK_PENDING`；synthetic case只验证合同。Release前用
+`python scripts/validate_alignment_gold.py evaluation/alignment/benchmark_v1.jsonl --release`检查双人
+Gold、4 Dev/2 Locked和72/20分布。
+
 真实 API 仅可手动验证，例如：
 
 ```bash

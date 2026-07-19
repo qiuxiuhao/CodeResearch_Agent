@@ -80,7 +80,7 @@ export function TraceExplorer({ onClose }: Props) {
           <div className="trace-filters">
             <select aria-label="Trace 类型" value={traceType} onChange={(event) => setTraceType(event.target.value)}>
               <option value="">全部类型</option><option value="api_request">API</option><option value="analysis">Analysis</option>
-              <option value="indexing">Index</option><option value="retrieval">Retrieval</option><option value="research_agent">Agent</option><option value="alignment">Alignment</option>
+              <option value="indexing">Index</option><option value="retrieval">Retrieval</option><option value="research_agent">Agent</option><option value="alignment">Alignment</option><option value="evaluation">Evaluation</option>
             </select>
             <select aria-label="Trace 状态" value={status} onChange={(event) => setStatus(event.target.value)}>
               <option value="">全部状态</option><option value="completed">Completed</option><option value="failed">Failed</option><option value="partial">Partial</option><option value="abandoned">Abandoned</option>

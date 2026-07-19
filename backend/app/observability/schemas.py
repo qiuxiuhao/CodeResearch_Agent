@@ -18,11 +18,12 @@ MAX_ATTRIBUTES_BYTES = 16 * 1_024
 MAX_COMMAND_PAYLOAD_BYTES = 32 * 1_024
 
 TraceType = Literal[
-    "api_request", "analysis", "indexing", "retrieval", "research_agent", "alignment"
+    "api_request", "analysis", "indexing", "retrieval", "research_agent", "alignment",
+    "evaluation",
 ]
 SpanComponent = Literal[
     "api", "analysis_graph", "indexing", "retrieval", "agent", "alignment",
-    "provider", "tool", "database", "checkpoint", "cache",
+    "provider", "tool", "database", "checkpoint", "cache", "evaluation",
 ]
 RecordingMode = Literal["none", "metadata", "diagnostic_metadata"]
 TraceStatus = Literal["running", "completed", "partial", "failed", "cancelled", "abandoned"]
@@ -164,7 +165,7 @@ class SpanLink(StrictModel):
     linked_span_id: str | None = Field(default=None, pattern=SPAN_ID_PATTERN)
     relation: Literal[
         "queued_from", "resume_of", "retry_of", "reused_from", "continued_from",
-        "checkpoint_of", "linked_from_remote",
+        "checkpoint_of", "linked_from_remote", "evaluates", "replay_of",
     ]
     attributes: dict[str, JsonValue] = Field(default_factory=dict)
 

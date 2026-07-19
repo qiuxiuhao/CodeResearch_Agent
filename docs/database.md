@@ -115,3 +115,14 @@ data/paper_code_alignment.sqlite3
 failed/cancelled rows 不会暴露为 active，可使用相同输入创建递增 attempt。新 active Run 的最终
 切换在短事务中 supersede 旧 active；失败不会修改 `structured_index.sqlite3`、Legacy JSON 或旧
 `ALIGNS_WITH` Edge。
+
+## v1.9 Evaluation 派生数据库
+
+Evaluation使用独立 `data/evaluation.sqlite3`，migration为
+`backend/app/persistence/evaluation_migrations/001_evaluation.sql`。核心表包括 Dataset/Version/Case、
+Subject/Plan/Run/Lease、CaseResult/MetricResult、Comparison/Gate/BaselineBinding、BadCase/Event/Occurrence/
+Verification、Promotion、ReplayManifest、ArtifactRef和Idempotency Key。
+
+EvaluationRun终态不可变；BaselineBinding在独立短事务中原子supersede，不能修改源Run。Candidate
+Index在隔离namespace构建，不写Frozen Dataset或生产active index。该DB是可重建派生数据，不是业务
+事实、Checkpoint或Trace的替代品。
