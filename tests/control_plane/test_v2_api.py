@@ -64,6 +64,56 @@ def test_csrf_required_for_cookie_refresh(monkeypatch, tmp_path):
         assert client.post("/api/v2/auth/refresh").status_code == 403
 
 
+def test_v2_local_session_creates_default_scope_without_personal_login(monkeypatch, tmp_path):
+    monkeypatch.setenv("CRA_DEPLOYMENT_PROFILE", "local")
+    monkeypatch.setenv("CONTROL_DATABASE_URL", f"sqlite:///{tmp_path / 'control.sqlite3'}")
+    monkeypatch.setenv("LOCAL_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
+    monkeypatch.setenv("OBSERVABILITY_ENABLED", "false")
+    with TestClient(app, base_url="https://testserver") as client:
+        session = client.post("/api/v2/auth/local-session")
+        assert session.status_code == 200, session.text
+        body = session.json()
+        headers = {"Authorization": f"Bearer {body['access_token']}"}
+        workspaces = client.get("/api/v2/workspaces", headers=headers)
+        projects = client.get(f"/api/v2/workspaces/{body['workspace_id']}/projects", headers=headers)
+    assert body["workspace_id"].startswith("ws_")
+    assert body["project_id"].startswith("project_")
+    assert workspaces.json()["items"][0]["name"] == "Local Workspace"
+    assert projects.json()["items"][0]["name"] == "Default Project"
+
+
+def test_v2_local_session_is_loopback_only(monkeypatch, tmp_path):
+    monkeypatch.setenv("CRA_DEPLOYMENT_PROFILE", "local")
+    monkeypatch.setenv("CONTROL_DATABASE_URL", f"sqlite:///{tmp_path / 'control.sqlite3'}")
+    monkeypatch.setenv("LOCAL_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
+    monkeypatch.setenv("OBSERVABILITY_ENABLED", "false")
+    with TestClient(app, base_url="https://testserver", client=("203.0.113.10", 50000)) as client:
+        response = client.post("/api/v2/auth/local-session")
+    assert response.status_code == 403
+    assert response.json()["detail"]["error_code"] == "local_session_unavailable"
+
+
+def test_v2_login_short_password_is_auth_failure_not_validation_error(monkeypatch, tmp_path):
+    monkeypatch.setenv("CRA_DEPLOYMENT_PROFILE", "local")
+    monkeypatch.setenv("CONTROL_DATABASE_URL", f"sqlite:///{tmp_path / 'control.sqlite3'}")
+    monkeypatch.setenv("LOCAL_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
+    monkeypatch.setenv("CRA_BOOTSTRAP_TOKEN", "bootstrap-token-for-short-login")
+    monkeypatch.setenv("OBSERVABILITY_ENABLED", "false")
+    with TestClient(app, base_url="https://testserver") as client:
+        created = client.post(
+            "/api/v2/auth/bootstrap",
+            headers={"X-Bootstrap-Token": "bootstrap-token-for-short-login"},
+            json={"username": "owner@example.test", "password": "correct horse battery"},
+        )
+        assert created.status_code == 201
+        login = client.post(
+            "/api/v2/auth/login",
+            json={"username": "owner@example.test", "password": "short"},
+        )
+    assert login.status_code == 401
+    assert login.json()["detail"]["error_code"] == "authentication_failed"
+
+
 def test_v2_local_analysis_runs_through_control_plane(monkeypatch, tmp_path):
     monkeypatch.setenv("CRA_DEPLOYMENT_PROFILE", "local")
     monkeypatch.setenv("CONTROL_DATABASE_URL", f"sqlite:///{tmp_path / 'control.sqlite3'}")

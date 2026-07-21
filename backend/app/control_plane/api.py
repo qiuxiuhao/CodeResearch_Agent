@@ -52,8 +52,9 @@ class RegisterRequest(StrictRequest):
     password: str = Field(min_length=12, max_length=1024)
 
 
-class LoginRequest(RegisterRequest):
-    pass
+class LoginRequest(StrictRequest):
+    username: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=1, max_length=1024)
 
 
 class PasswordChangeRequest(StrictRequest):
@@ -141,6 +142,32 @@ def login(body: LoginRequest, request: Request, response: Response) -> dict[str,
         response, tokens.refresh_token, tokens.csrf_token, secure=_secure_cookies(),
     )
     return {"access_token": tokens.access_token, "token_type": "bearer", "session_id": tokens.session_id}
+
+
+@router.post("/auth/local-session")
+def local_session(request: Request, response: Response) -> dict[str, str]:
+    runtime = _runtime(request)
+    if runtime.settings.profile.value != "local" or not _request_is_loopback(request):
+        raise HTTPException(status_code=403, detail={"error_code": "local_session_unavailable"})
+    try:
+        user_id, tokens = _identity(request).create_local_session(
+            user_agent=request.headers.get("user-agent", ""),
+        )
+        scope = _ensure_local_default_scope(_local_store(request), user_id)
+    except (AuthenticationError, ControlPlaneError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": getattr(exc, "code", "local_session_unavailable")},
+        ) from exc
+    _set_session_cookies(
+        response, tokens.refresh_token, tokens.csrf_token, secure=_secure_cookies(),
+    )
+    return {
+        "access_token": tokens.access_token,
+        "token_type": "bearer",
+        "session_id": tokens.session_id,
+        **scope,
+    }
 
 
 @router.post("/auth/refresh")
@@ -243,7 +270,7 @@ def create_project(
 def list_projects(
     workspace_id: str, request: Request,
     principal: Annotated[AccessPrincipal, Depends(_principal)],
-) -> dict[str, list[dict[str, str]]]:
+) -> dict[str, list[dict[str, str | None]]]:
     try:
         items = _local_store(request).list_projects_for_user(principal.user_id, workspace_id)
     except ControlPlaneError as exc:
@@ -1120,6 +1147,33 @@ def _public_artifact(artifact: ArtifactRecord) -> dict:
     value = artifact.model_dump(mode="json")
     value.pop("storage_key", None)
     return value
+
+
+def _request_is_loopback(request: Request) -> bool:
+    client = request.client
+    if client is None:
+        return False
+    return client.host in {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def _ensure_local_default_scope(
+    store: LocalControlPlaneStore, user_id: str,
+) -> dict[str, str]:
+    workspaces = store.list_workspaces_for_user(user_id)
+    if not workspaces:
+        workspace_id = f"ws_{uuid4().hex}"
+        store.create_workspace(workspace_id, "Local Workspace", user_id)
+        workspaces = store.list_workspaces_for_user(user_id)
+    workspace_id = workspaces[0]["workspace_id"]
+    projects = store.list_projects_for_user(user_id, workspace_id)
+    if not projects:
+        project_id = f"project_{uuid4().hex}"
+        store.create_project(project_id, workspace_id, "Default Project", user_id)
+        projects = store.list_projects_for_user(user_id, workspace_id)
+    return {
+        "workspace_id": workspace_id,
+        "project_id": projects[0]["project_id"],
+    }
 
 
 def _set_session_cookies(

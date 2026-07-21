@@ -45,6 +45,22 @@ def test_retrieval_routes_are_internal_and_disabled_by_default(monkeypatch) -> N
     assert "/api/v2/workspaces/{workspace_id}/projects/{project_id}/library/functions" in openapi["paths"]
 
 
+def test_missing_offline_vector_models_do_not_block_service_construction(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("CRA_CONFIG_PATH", "config/local-cpu.yaml")
+    monkeypatch.setenv("RETRIEVAL_ENABLED", "true")
+    monkeypatch.setenv("RETRIEVAL_DENSE_ENABLED", "true")
+    monkeypatch.setenv("RETRIEVAL_RERANKER_ENABLED", "true")
+    monkeypatch.setenv("RETRIEVAL_MODEL_CACHE_DIR", str(tmp_path / "missing-models"))
+    monkeypatch.delenv("RETRIEVAL_RUNTIME_STRICT", raising=False)
+    get_retrieval_service.cache_clear()
+
+    service = get_retrieval_service()
+
+    assert service.vector_sync_service is None
+    assert service.reranker is None
+    get_retrieval_service.cache_clear()
+
+
 def test_sparse_search_and_evidence_only_research_api(tmp_path, monkeypatch) -> None:
     index_path = tmp_path / "index.sqlite3"
     _index(index_path)

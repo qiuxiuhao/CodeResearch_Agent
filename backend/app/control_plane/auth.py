@@ -153,6 +153,38 @@ class LocalIdentityService:
                 raise AuthenticationError("invalid_registration") from exc
         return user_id
 
+    def create_local_session(
+        self, *, username: str = "local", user_agent: str = "",
+    ) -> tuple[str, SessionTokens]:
+        normalized = username.strip().casefold()
+        if len(normalized) < 3:
+            raise AuthenticationError("invalid_registration")
+        now = datetime.now(UTC)
+        with self.store._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT user_id,token_version,status FROM users WHERE username_normalized=?",
+                (normalized,),
+            ).fetchone()
+            if row:
+                if row["status"] != "active":
+                    raise AuthenticationError("authentication_failed")
+                user_id = row["user_id"]
+                token_version = int(row["token_version"])
+            else:
+                user_id = f"user_{uuid4().hex}"
+                token_version = 1
+                connection.execute(
+                    "INSERT INTO users VALUES(?,?,?,?,?,?,?)",
+                    (
+                        user_id, normalized,
+                        self.password_hasher.hash(secrets.token_urlsafe(48)),
+                        token_version, "active", _iso(now), _iso(now),
+                    ),
+                )
+            connection.commit()
+        return user_id, self._create_session(user_id, token_version, user_agent)
+
     def login(self, username: str, password: str, *, user_agent: str = "") -> SessionTokens:
         normalized = username.strip().casefold()
         identity_hash = _hash(normalized)

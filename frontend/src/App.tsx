@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "./components/AppShell";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { LibraryFunctionModal } from "./components/LibraryFunctionModal";
@@ -12,9 +12,10 @@ import {
   listJobs,
   listProjects,
   listWorkspaces,
-  login,
+  formatV2Error,
   restoreSession,
   setActiveScope,
+  startLocalSession,
   type ProjectView,
   type WorkspaceView
 } from "./api/v2Client";
@@ -24,8 +25,6 @@ import { JobCenter } from "./features/platform/JobCenter";
 
 export default function App() {
   const [session, setSession] = useState<"restoring" | "authenticated" | "anonymous">("restoring");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [workspaces, setWorkspaces] = useState<WorkspaceView[]>([]);
   const [projects, setProjects] = useState<ProjectView[]>([]);
   const [workspaceId, setWorkspaceId] = useState("");
@@ -43,10 +42,7 @@ export default function App() {
   const [jobsOpen, setJobsOpen] = useState(false);
 
   useEffect(() => {
-    void restoreSession().then(async (restored) => {
-      setSession(restored ? "authenticated" : "anonymous");
-      if (restored) await refreshWorkspaces();
-    });
+    void ensureLocalSession();
   }, []);
 
   useEffect(() => {
@@ -76,6 +72,20 @@ export default function App() {
     const response = await listWorkspaces();
     setWorkspaces(response.items);
     setWorkspaceId((current) => response.items.some((item) => item.workspace_id === current) ? current : response.items[0]?.workspace_id ?? "");
+  }
+
+  async function ensureLocalSession() {
+    setSession("restoring");
+    setError(null);
+    try {
+      const restored = await restoreSession();
+      if (!restored) await startLocalSession();
+      setSession("authenticated");
+      await refreshWorkspaces();
+    } catch (exc) {
+      setError(formatV2Error(exc));
+      setSession("anonymous");
+    }
   }
 
   async function refreshTasks(targetWorkspaceId = workspaceId, targetProjectId = projectId) {
@@ -114,18 +124,6 @@ export default function App() {
     }
   }
 
-  async function handleLogin(event: FormEvent) {
-    event.preventDefault();
-    setError(null);
-    try {
-      await login(username, password);
-      setSession("authenticated");
-      await refreshWorkspaces();
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "登录失败");
-    }
-  }
-
   return (
     <AppShell
       mode={mode}
@@ -141,12 +139,8 @@ export default function App() {
         <main className="content">
           {error && <ErrorBanner message={error} />}
           <section className="panel">
-            <h2>登录 Local Workspace</h2>
-            <form className="task-form" onSubmit={handleLogin}>
-              <label>账号<input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
-              <label>密码<input autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-              <button className="primary-button" type="submit">登录</button>
-            </form>
+            <h2>Local Workspace 未连接</h2>
+            <button className="primary-button" type="button" onClick={() => void ensureLocalSession()}>重新连接</button>
           </section>
         </main>
       ) : jobsOpen ? (

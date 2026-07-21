@@ -66,6 +66,14 @@ export type ArtifactView = {
   created_at: string;
 };
 
+export type LocalSessionView = {
+  access_token: string;
+  token_type: "bearer";
+  session_id: string;
+  workspace_id: string;
+  project_id: string;
+};
+
 let accessToken: string | null = null;
 let refreshInFlight: Promise<boolean> | null = null;
 let activeWorkspaceId: string | null = null;
@@ -115,6 +123,46 @@ export async function v2Request<T>(
 
 export function getPlatformHealth(): Promise<PlatformHealth> {
   return v2Request<PlatformHealth>("/health");
+}
+
+export async function bootstrapOwner(
+  bootstrapToken: string, username: string, password: string
+): Promise<void> {
+  await v2Request<{user_id: string}>("/auth/bootstrap", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Bootstrap-Token": bootstrapToken,
+    },
+    body: JSON.stringify({username, password}),
+  }, false);
+}
+
+export async function startLocalSession(): Promise<LocalSessionView> {
+  const response = await v2Request<LocalSessionView>("/auth/local-session", {
+    method: "POST",
+  }, false);
+  setAccessToken(response.access_token);
+  return response;
+}
+
+export function formatV2Error(reason: unknown): string {
+  const code = reason instanceof Error ? reason.message : String(reason || "request_failed");
+  return {
+    authentication_failed: "账号或密码错误。",
+    authentication_required: "请先登录。",
+    login_rate_limited: "登录失败次数过多，请稍后再试。",
+    bootstrap_invalid: "初始化令牌无效或已使用。",
+    invalid_registration: "账号至少 3 位，密码至少 12 位。",
+    invalid_password: "新密码至少 12 位。",
+    csrf_required: "登录会话已失效，请重新登录。",
+    local_session_unavailable: "当前服务不支持免登录 Local 会话。",
+    request_failed_400: "请求参数不正确。",
+    request_failed_401: "账号或密码错误。",
+    request_failed_403: "没有权限执行该操作。",
+    request_failed_405: "当前后端还未加载免登录接口，请停止并重新启动 cra serve。",
+    request_failed_422: "请求内容不符合要求。",
+  }[code] ?? code;
 }
 
 export async function login(username: string, password: string): Promise<void> {

@@ -122,11 +122,22 @@ http://127.0.0.1:8000/
 http://127.0.0.1:8000/api/v2/health
 ```
 
+The frontend opens a loopback-only Local session automatically. No personal account or password is required for the resume/demo profile.
+
 For frontend development:
 
 ```bash
 bash scripts/dev.sh
 ```
+
+Optional dense/reranker retrieval models:
+
+```bash
+cra models prefetch --config config/local-cpu.yaml
+cra models verify --config config/local-cpu.yaml
+```
+
+Without these model snapshots, `cra doctor` reports `model_cache` as a warning and the app starts with sparse/graph retrieval paths available.
 
 ## Project Boundaries
 

@@ -6,6 +6,7 @@ import json
 import time
 import zipfile
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -229,6 +230,41 @@ def test_explicit_v2_local_config_disables_legacy_scheduling(monkeypatch, tmp_pa
     assert response.status_code == 410
     assert response.json()["detail"]["error_code"] == "legacy_api_disabled"
     assert "/analysis/tasks" not in paths
+
+
+def test_local_app_startup_tolerates_missing_offline_retrieval_models(monkeypatch, tmp_path):
+    from backend.app.alignment.api import get_alignment_service
+    from backend.app.retrieval.api import get_retrieval_service
+
+    root = Path(__file__).resolve().parents[2]
+    config_path = tmp_path / "local.yaml"
+    config_path.write_text(
+        "schema_version: '2.0'\nprofile: local\n"
+        f"model_manifest: {root / 'config' / 'models.yaml'}\n"
+        "database:\n"
+        f"  control_url: sqlite:///{tmp_path / 'control.sqlite3'}\n"
+        f"  observability_url: sqlite:///{tmp_path / 'observability.sqlite3'}\n"
+        f"  checkpoint_url: sqlite:///{tmp_path / 'checkpoints.sqlite3'}\n"
+        "artifacts:\n"
+        f"  local_root: {tmp_path / 'artifacts'}\n"
+        "compute:\n"
+        f"  model_cache: {tmp_path / 'models'}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CRA_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("CRA_SIGNING_KEY", "test-startup-signing-key-32-bytes")
+    monkeypatch.delenv("RETRIEVAL_RUNTIME_STRICT", raising=False)
+    ApplicationConfig.load(config_path).export_runtime_compatibility()
+    get_retrieval_service.cache_clear()
+    get_alignment_service.cache_clear()
+
+    with TestClient(app) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    get_retrieval_service.cache_clear()
+    get_alignment_service.cache_clear()
 
 
 def test_local_runtime_lock_rejects_second_owner(tmp_path):

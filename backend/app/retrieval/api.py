@@ -95,7 +95,7 @@ def _optional_vector_sync_service() -> VectorSyncService | None:
         )
     except Exception as exc:
         logger.exception("dense/vector retrieval runtime initialization failed")
-        if os.getenv("CRA_CONFIG_PATH"):
+        if _bool_env("RETRIEVAL_RUNTIME_STRICT", False):
             raise RuntimeError("retrieval_vector_runtime_unavailable") from exc
         return None
 
@@ -121,7 +121,7 @@ def _optional_reranker():
         )
     except Exception as exc:
         logger.exception("reranker runtime initialization failed")
-        if os.getenv("CRA_CONFIG_PATH"):
+        if _bool_env("RETRIEVAL_RUNTIME_STRICT", False):
             raise RuntimeError("retrieval_reranker_runtime_unavailable") from exc
         return None
 

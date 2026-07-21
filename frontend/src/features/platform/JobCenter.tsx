@@ -1,7 +1,7 @@
-import {FormEvent, useCallback, useEffect, useState} from "react";
+import {useCallback, useEffect, useState} from "react";
 import {
   cancelJob, getPlatformHealth, listAttempts, listJobs, listProjects, listWorkspaces,
-  login, restoreSession, retryJob, type AttemptView, type JobView, type PlatformHealth,
+  formatV2Error, restoreSession, retryJob, startLocalSession, type AttemptView, type JobView, type PlatformHealth,
   type ProjectView, type WorkspaceView,
 } from "../../api/v2Client";
 
@@ -10,8 +10,6 @@ type Props = { onClose: () => void };
 export function JobCenter({onClose}: Props) {
   const [health, setHealth] = useState<PlatformHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
   const [workspaces, setWorkspaces] = useState<WorkspaceView[]>([]);
   const [workspaceId, setWorkspaceId] = useState("");
@@ -25,7 +23,13 @@ export function JobCenter({onClose}: Props) {
     void getPlatformHealth().then(setHealth).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : "platform_unavailable");
     });
-    void restoreSession().then(setAuthenticated).catch(() => setAuthenticated(false));
+    void restoreSession().then(async (restored) => {
+      if (!restored) await startLocalSession();
+      setAuthenticated(true);
+    }).catch((reason: unknown) => {
+      setError(errorText(reason));
+      setAuthenticated(false);
+    });
   }, []);
 
   const refreshJobs = useCallback(async () => {
@@ -36,7 +40,7 @@ export function JobCenter({onClose}: Props) {
 
   useEffect(() => {
     if (!authenticated) return;
-    void listWorkspaces().then(({items}) => {
+    void listWorkspaces().then(({items = []}) => {
       setWorkspaces(items);
       setWorkspaceId((current) => current || items[0]?.workspace_id || "");
     }).catch((reason: unknown) => setError(errorText(reason)));
@@ -44,7 +48,7 @@ export function JobCenter({onClose}: Props) {
 
   useEffect(() => {
     if (!workspaceId) return;
-    void listProjects(workspaceId).then(({items}) => {
+    void listProjects(workspaceId).then(({items = []}) => {
       setProjects(items);
       setProjectId(items[0]?.project_id || "");
     }).catch((reason: unknown) => setError(errorText(reason)));
@@ -58,18 +62,6 @@ export function JobCenter({onClose}: Props) {
     }, 2000);
     return () => window.clearInterval(timer);
   }, [projectId, refreshJobs]);
-
-  async function submitLogin(event: FormEvent) {
-    event.preventDefault();
-    setError(null);
-    try {
-      await login(username, password);
-      setPassword("");
-      setAuthenticated(true);
-    } catch (reason) {
-      setError(errorText(reason));
-    }
-  }
 
   async function openAttempts(jobId: string) {
     setSelectedJobId(jobId);
@@ -103,11 +95,7 @@ export function JobCenter({onClose}: Props) {
         {error ? <p role="alert">{error}</p> : null}
         {health ? <p><span>{health.profile}</span> · API <span>v{health.api_contract_version}</span> · {health.status}</p> : null}
         {!authenticated ? (
-          <form onSubmit={submitLogin} aria-label="登录 Control Plane">
-            <label>账号<input value={username} onChange={(event) => setUsername(event.target.value)} /></label>
-            <label>密码<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-            <button type="submit">登录</button>
-          </form>
+          <p className="muted">正在连接 Local Control Plane...</p>
         ) : (
           <>
             <div className="panel-header">
@@ -157,5 +145,5 @@ function isTerminal(status: JobView["status"]): boolean {
 }
 
 function errorText(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "platform_unavailable";
+  return formatV2Error(reason);
 }

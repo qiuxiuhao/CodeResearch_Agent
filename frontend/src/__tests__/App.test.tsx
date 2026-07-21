@@ -36,3 +36,34 @@ test("renders the interactive workspace shell", async () => {
   expect(screen.getByText("正常模式")).toBeInTheDocument();
   expect(screen.getByText("零基础模式")).toBeInTheDocument();
 });
+
+test("starts a loopback local session without personal login", async () => {
+  document.cookie = "cra_csrf=; Max-Age=0; path=/";
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/auth/local-session")) {
+      expect(init?.method).toBe("POST");
+      return response({
+        access_token: "access",
+        token_type: "bearer",
+        session_id: "session",
+        workspace_id: "w",
+        project_id: "p",
+      });
+    }
+    if (url.endsWith("/workspaces")) return response({items: [{workspace_id: "w", name: "Local Workspace", status: "active", role: "owner"}]});
+    if (url.endsWith("/workspaces/w/projects")) return response({items: [{project_id: "p", workspace_id: "w", name: "Default Project", status: "active", role: "project_owner"}]});
+    if (url.endsWith("/workspaces/w/projects/p/jobs")) return response({items: []});
+    return response({});
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<App />);
+
+  expect(await screen.findByText("暂无历史任务")).toBeInTheDocument();
+  expect(screen.queryByText("登录 Local Workspace")).not.toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/v2/auth/local-session",
+    expect.objectContaining({method: "POST"})
+  );
+});
